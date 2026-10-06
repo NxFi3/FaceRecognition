@@ -1082,11 +1082,131 @@ class AdminPasswordDialog(QDialog):
         self.accept()
 
 
+class AcademicYearDialog(QDialog):
+    def __init__(self, existing=None, parent=None):
+        super().__init__(parent)
+
+        self.setModal(True)
+        self.resize(520, 290)
+        self.setWindowTitle("افزودن سال تحصیلی")
+
+        root = QVBoxLayout(self)
+
+        title = QLabel("سال تحصیلی را با تاریخ واقعی شروع و پایان تعریف کنید.")
+        title.setObjectName("sectionTitle")
+        title.setWordWrap(True)
+        root.addWidget(title)
+
+        form = QFormLayout()
+
+        self.start_date = QDateEdit()
+        self.start_date.setCalendarPopup(True)
+        self.start_date.setDisplayFormat("yyyy/MM/dd")
+        self.start_date.setMinimumDate(QDate(2000, 1, 1))
+        self.start_date.setMaximumDate(QDate(2100, 12, 31))
+
+        self.end_date = QDateEdit()
+        self.end_date.setCalendarPopup(True)
+        self.end_date.setDisplayFormat("yyyy/MM/dd")
+        self.end_date.setMinimumDate(QDate(2000, 1, 2))
+        self.end_date.setMaximumDate(QDate(2100, 12, 31))
+
+        today = QDate.currentDate()
+        start_year = today.year() if today.month() >= 9 else today.year() - 1
+
+        self.start_date.setDate(QDate(start_year, 9, 1))
+        self.end_date.setDate(QDate(start_year + 1, 6, 30))
+
+        self.start_date.dateChanged.connect(self.on_start_date_changed)
+
+        form.addRow("تاریخ شروع", self.start_date)
+        form.addRow("تاریخ پایان", self.end_date)
+
+        self.generated_name = QLabel()
+        self.generated_name.setObjectName("muted")
+        form.addRow("عنوان سال", self.generated_name)
+
+        root.addLayout(form)
+
+        self.range_hint = QLabel()
+        self.range_hint.setObjectName("muted")
+        self.range_hint.setWordWrap(True)
+        root.addWidget(self.range_hint)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+
+        cancel = QPushButton("لغو")
+        save = QPushButton("ذخیره")
+        cancel.clicked.connect(self.reject)
+        save.clicked.connect(self.validate_and_accept)
+
+        buttons.addWidget(cancel)
+        buttons.addWidget(save)
+        root.addLayout(buttons)
+
+        self.update_year_preview()
+
+    def on_start_date_changed(self, date):
+        if date >= self.end_date.date():
+            suggested_end = QDate(date.year() + 1, 6, 30)
+            if suggested_end > date:
+                self.end_date.setDate(suggested_end)
+
+        self.end_date.setMinimumDate(
+            date.addDays(1)
+        )
+        self.update_year_preview()
+
+    def update_year_preview(self):
+        start = self.start_date.date()
+        end = self.end_date.date()
+        self.generated_name.setText(
+            f"{start.year()}-{end.year()}"
+        )
+
+        if end > start:
+            days = start.daysTo(end)
+            self.range_hint.setText(
+                f"بازه انتخاب‌شده: {days} روز"
+            )
+        else:
+            self.range_hint.setText("تاریخ پایان باید بعد از شروع باشد.")
+
+    def validate_and_accept(self):
+        start = self.start_date.date()
+        end = self.end_date.date()
+
+        if not start.isValid() or not end.isValid():
+            QMessageBox.warning(
+                self,
+                "تاریخ نامعتبر",
+                "هر دو تاریخ را به‌درستی انتخاب کنید.",
+            )
+            return
+
+        if end <= start:
+            QMessageBox.warning(
+                self,
+                "بازه نامعتبر",
+                "تاریخ پایان باید بعد از تاریخ شروع باشد.",
+            )
+            return
+
+        self.accept()
+
+    def values(self):
+        return (
+            self.start_date.date().toString("yyyy-MM-dd"),
+            self.end_date.date().toString("yyyy-MM-dd"),
+        )
+
+
 class ClassDialog(QDialog):
     def __init__(self, academic_years, majors, existing=None, parent=None):
         super().__init__(parent)
         self.setModal(True)
-        self.resize(520, 300)
+        self.resize(540, 320)
         self.setWindowTitle("ویرایش کلاس" if existing else "افزودن کلاس")
 
         root = QVBoxLayout(self)
@@ -1102,8 +1222,22 @@ class ClassDialog(QDialog):
             self.major_combo.addItem(name, major_id)
 
         self.year_combo = QComboBox()
-        for year_id, name, _ in academic_years:
-            self.year_combo.addItem(name, year_id)
+        for year_id, name, start_date, end_date, is_active in academic_years:
+            date_text = ""
+            if start_date and end_date:
+                date_text = f" ({start_date} تا {end_date})"
+
+            label = f"{name}{date_text}"
+            if is_active:
+                label += " • فعال"
+
+            self.year_combo.addItem(label, year_id)
+
+        active = get_active_academic_year()
+        if active:
+            active_index = self.year_combo.findData(active[0])
+            if active_index >= 0:
+                self.year_combo.setCurrentIndex(active_index)
 
         form.addRow("نام کلاس", self.name_edit)
         form.addRow("پایه", self.grade_edit)
@@ -1111,12 +1245,17 @@ class ClassDialog(QDialog):
         form.addRow("سال تحصیلی", self.year_combo)
         root.addLayout(form)
 
+        hint = QLabel("نام کلاس و پایه الزامی است. سال تحصیلی باید مشخص باشد.")
+        hint.setObjectName("muted")
+        hint.setWordWrap(True)
+        root.addWidget(hint)
+
         buttons = QHBoxLayout()
         buttons.addStretch()
         cancel = QPushButton("لغو")
         save = QPushButton("ذخیره")
         cancel.clicked.connect(self.reject)
-        save.clicked.connect(self.accept)
+        save.clicked.connect(self.validate_and_accept)
         buttons.addWidget(cancel)
         buttons.addWidget(save)
         root.addLayout(buttons)
@@ -1125,12 +1264,44 @@ class ClassDialog(QDialog):
             class_id, name, grade, major_name, year_id, year_name, count = existing
             self.name_edit.setText(name)
             self.grade_edit.setText(grade)
-            index = self.major_combo.findText(major_name)
-            if index >= 0:
-                self.major_combo.setCurrentIndex(index)
+
+            if major_name:
+                index = self.major_combo.findText(major_name)
+                if index >= 0:
+                    self.major_combo.setCurrentIndex(index)
+
             index = self.year_combo.findData(year_id)
             if index >= 0:
                 self.year_combo.setCurrentIndex(index)
+
+    def validate_and_accept(self):
+        if not self.name_edit.text().strip():
+            QMessageBox.warning(
+                self,
+                "اطلاعات ناقص",
+                "نام کلاس را وارد کنید.",
+            )
+            self.name_edit.setFocus()
+            return
+
+        if not self.grade_edit.text().strip():
+            QMessageBox.warning(
+                self,
+                "اطلاعات ناقص",
+                "پایه را وارد کنید.",
+            )
+            self.grade_edit.setFocus()
+            return
+
+        if self.year_combo.currentData() is None:
+            QMessageBox.warning(
+                self,
+                "سال تحصیلی",
+                "یک سال تحصیلی انتخاب کنید.",
+            )
+            return
+
+        self.accept()
 
     def values(self):
         return (
@@ -2047,43 +2218,65 @@ class MainWindow(QMainWindow):
 
     def refresh_year_combo(self):
         current = self.class_year_combo.currentData()
+        active = get_active_academic_year()
+
         self.class_year_combo.blockSignals(True)
         self.class_year_combo.clear()
-        for year_id, name, is_active in list_academic_years():
-            label = f"{name} {'• فعال' if is_active else ''}".strip()
+
+        for year_id, name, start_date, end_date, is_active in list_academic_years():
+            label = name
+            if start_date and end_date:
+                label += f" • {start_date} تا {end_date}"
+            if is_active:
+                label += " • فعال"
             self.class_year_combo.addItem(label, year_id)
-        if current is not None:
-            index = self.class_year_combo.findData(current)
+
+        target = current
+        if target is None and active:
+            target = active[0]
+
+        if target is not None:
+            index = self.class_year_combo.findData(target)
             if index >= 0:
                 self.class_year_combo.setCurrentIndex(index)
+
         self.class_year_combo.blockSignals(False)
 
     def add_academic_year_dialog(self):
-        name, ok = QInputDialog.getText(
-            self,
-            "سال تحصیلی جدید",
-            "نام سال تحصیلی:",
-        )
-        if not ok or not name.strip():
+        dialog = AcademicYearDialog(parent=self)
+
+        if dialog.exec() != QDialog.Accepted:
             return
+
+        start_date, end_date = dialog.values()
 
         make_active = QMessageBox.question(
             self,
             "فعال‌سازی",
-            "این سال تحصیلی به‌عنوان سال فعال انتخاب شود؟",
+            f"سال {start_date[:4]}-{end_date[:4]} به‌عنوان سال فعال انتخاب شود؟",
             QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.Yes,
         ) == QMessageBox.Yes
 
         try:
-            year_id = add_academic_year(name, active=make_active)
-            self.refresh_year_combo()
+            year_id = add_academic_year(
+                start_date,
+                end_date,
+                active=make_active,
+            )
+
+            self.refresh_all()
+
             index = self.class_year_combo.findData(year_id)
             if index >= 0:
                 self.class_year_combo.setCurrentIndex(index)
-            self.refresh_all()
+
         except Exception as exc:
-            QMessageBox.critical(self, "افزودن سال ناموفق بود", str(exc))
+            QMessageBox.critical(
+                self,
+                "افزودن سال ناموفق بود",
+                str(exc),
+            )
 
     def set_active_year(self):
         year_id = self.class_year_combo.currentData()
@@ -2686,15 +2879,16 @@ class MainWindow(QMainWindow):
                             None,
                         )
                         if year is None:
-                            year_id = add_academic_year(year_name, active=False)
+                            skipped += 1
+                            continue
                         else:
                             year_id = year[0]
                     else:
                         active = get_active_academic_year()
-                        year_id = active[0] if active else add_academic_year(
-                            f"{datetime.now().year}-{datetime.now().year + 1}",
-                            active=True,
-                        )
+                        if active is None:
+                            skipped += 1
+                            continue
+                        year_id = active[0]
 
                     major_id = None
                     if major_name:
@@ -2776,24 +2970,26 @@ def main():
         QWidget {
             font-family: "Noto Sans Arabic", "Vazirmatn", "Segoe UI", sans-serif;
             font-size: 14px;
+            color: #243142;
         }
 
         QMainWindow, QWidget#content {
-            background: #0e1116;
+            background: #f4f7fb;
         }
 
         #sidebar {
-            background: #151922;
-            border-left: 1px solid #252b36;
+            background: #ffffff;
+            border-left: 1px solid #dbe3ec;
         }
 
         #brand {
             font-size: 21px;
             font-weight: 800;
+            color: #182433;
         }
 
         #brandSub {
-            color: #8e96a3;
+            color: #718096;
             font-size: 12px;
         }
 
@@ -2801,23 +2997,24 @@ def main():
             text-align: right;
             padding: 12px 14px;
             border: none;
-            border-radius: 9px;
-            color: #b8c0cc;
+            border-radius: 10px;
+            color: #536276;
             background: transparent;
         }
 
         #sidebar QPushButton:hover {
-            background: #202632;
-            color: white;
+            background: #eef3f8;
+            color: #1f2d3d;
         }
 
         #sidebar QPushButton:checked {
-            background: #243044;
-            color: white;
+            background: #e5edf7;
+            color: #1e5aa8;
+            font-weight: 700;
         }
 
         #sidebarStatus {
-            color: #87909e;
+            color: #748095;
             font-size: 11px;
             padding: 8px 2px;
         }
@@ -2825,80 +3022,89 @@ def main():
         #pageTitle {
             font-size: 29px;
             font-weight: 800;
+            color: #172334;
             padding-bottom: 4px;
         }
 
         #sectionTitle {
             font-size: 16px;
             font-weight: 700;
+            color: #233348;
         }
 
         #muted {
-            color: #8e96a3;
+            color: #718096;
         }
 
         #statCard, #panel {
-            background: #171b23;
-            border: 1px solid #29313d;
-            border-radius: 15px;
+            background: #ffffff;
+            border: 1px solid #dbe3ec;
+            border-radius: 16px;
         }
 
         #statTitle {
-            color: #8e96a3;
+            color: #718096;
             font-size: 12px;
         }
 
         #statValue {
             font-size: 34px;
             font-weight: 800;
+            color: #172334;
         }
 
         #cameraPreview {
-            background: #090b0f;
-            border: 1px solid #252c36;
+            background: #e9eef4;
+            border: 1px solid #d5dee8;
             border-radius: 10px;
-            color: #687281;
+            color: #738196;
         }
 
         QTableWidget {
-            background: #12161d;
-            border: 1px solid #29313d;
+            background: #ffffff;
+            alternate-background-color: #f7f9fc;
+            border: 1px solid #dbe3ec;
             border-radius: 10px;
-            gridline-color: #242a33;
-            selection-background-color: #2a3547;
-            selection-color: white;
+            gridline-color: #e3e9f0;
+            selection-background-color: #dce9f8;
+            selection-color: #1f2d3d;
         }
 
         QHeaderView::section {
-            background: #1c222b;
-            color: #b7c0cc;
+            background: #eef3f8;
+            color: #536276;
             border: none;
             padding: 10px;
-            font-weight: 600;
+            font-weight: 700;
         }
 
         QLineEdit, QDateEdit, QComboBox {
-            background: #12161d;
-            border: 1px solid #303846;
-            border-radius: 8px;
-            padding: 8px 10px;
-            color: #eef2f7;
+            background: #ffffff;
+            border: 1px solid #cfd9e5;
+            border-radius: 9px;
+            padding: 9px 11px;
+            color: #243142;
+        }
+
+        QLineEdit:focus, QDateEdit:focus, QComboBox:focus {
+            border: 1px solid #6ea3d8;
         }
 
         QPushButton {
-            background: #26303d;
-            color: white;
-            border: 1px solid #3a4656;
-            border-radius: 8px;
+            background: #ffffff;
+            color: #2f4054;
+            border: 1px solid #cfd9e5;
+            border-radius: 9px;
             padding: 9px 14px;
         }
 
         QPushButton:hover {
-            background: #303b4b;
+            background: #f2f6fa;
+            border-color: #b9c8d8;
         }
 
         QPushButton:pressed {
-            background: #202936;
+            background: #e8eef5;
         }
         """
     )
