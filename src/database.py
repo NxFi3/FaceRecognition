@@ -1053,9 +1053,35 @@ def get_daily_report_summary(
 ):
     active = get_active_academic_year()
     year_id = active[0] if active else None
+    if year_id is None:
+        return []
 
     conn = get_connection()
     try:
+        query = """
+            SELECT a.date, a.status, COUNT(*)
+            FROM attendance a
+            JOIN student_enrollments se
+                ON se.student_id = a.student_id
+                AND se.academic_year_id = ?
+            JOIN school_classes c ON c.id = se.class_id
+            LEFT JOIN majors m ON m.id = c.major_id
+            WHERE a.date BETWEEN ? AND ?
+        """
+        params = [year_id, start_date, end_date]
+
+        if class_id:
+            query += " AND c.id = ?"
+            params.append(class_id)
+
+        if major_id:
+            query += " AND m.id = ?"
+            params.append(major_id)
+
+        query += " GROUP BY a.date, a.status ORDER BY a.date"
+
+        rows = conn.execute(query, params).fetchall()
+
         student_query = """
             SELECT COUNT(*)
             FROM students s
@@ -1080,34 +1106,6 @@ def get_daily_report_summary(
             student_query,
             student_params,
         ).fetchone()[0]
-
-        attendance_query = """
-            SELECT a.date, a.status, COUNT(*)
-            FROM attendance a
-            JOIN students s ON s.id = a.student_id
-            JOIN student_enrollments se
-                ON se.student_id = s.id
-                AND se.academic_year_id = ?
-            JOIN school_classes c ON c.id = se.class_id
-            LEFT JOIN majors m ON m.id = c.major_id
-            WHERE a.date BETWEEN ? AND ?
-        """
-        attendance_params = [year_id, start_date, end_date]
-
-        if class_id:
-            attendance_query += " AND c.id = ?"
-            attendance_params.append(class_id)
-
-        if major_id:
-            attendance_query += " AND m.id = ?"
-            attendance_params.append(major_id)
-
-        attendance_query += " GROUP BY a.date, a.status"
-
-        rows = conn.execute(
-            attendance_query,
-            attendance_params,
-        ).fetchall()
     finally:
         conn.close()
 
@@ -1119,27 +1117,28 @@ def get_daily_report_summary(
                 "present": 0,
                 "late": 0,
                 "excused": 0,
+                "absent": 0,
             },
         )
-        if status in {"present", "late", "excused"}:
+        if status in by_date[date]:
             by_date[date][status] += count
 
-    start = datetime.strptime(start_date, "%Y-%m-%d").date()
-    end = datetime.strptime(end_date, "%Y-%m-%d").date()
-
+    # A date is considered an attendance day only when the system has
+    # at least one recorded attendance result for the selected scope.
+    # We must not invent absences for weekends, holidays, closed days,
+    # or dates on which attendance was never run.
     result = []
-    current = start
 
-    while current <= end:
-        key = current.strftime("%Y-%m-%d")
-        day = by_date.get(
-            key,
-            {"present": 0, "late": 0, "excused": 0},
-        )
-
+    for key in sorted(by_date):
+        day = by_date[key]
         present = day["present"]
         late = day["late"]
         excused = day["excused"]
+        recorded = present + late + excused + day["absent_recorded"]
+
+        if recorded <= 0:
+            continue
+
         absent = max(
             0,
             total_students - present - late - excused,
@@ -1163,17 +1162,15 @@ def get_daily_report_summary(
             )
         )
 
-        current = current.fromordinal(
-            current.toordinal() + 1
-        )
-
     return result
+
 
 
 def get_class_report_summary(
     start_date,
     end_date,
     major_id=None,
+    class_id=None,
 ):
     active = get_active_academic_year()
     year_id = active[0] if active else None
@@ -1201,6 +1198,10 @@ def get_class_report_summary(
             query += " AND c.major_id = ?"
             params.append(major_id)
 
+        if class_id:
+            query += " AND c.id = ?"
+            params.append(class_id)
+
         query += """
             GROUP BY c.id
             ORDER BY c.grade, c.name
@@ -1208,49 +1209,80 @@ def get_class_report_summary(
 
         classes = conn.execute(query, params).fetchall()
 
-        attendance = conn.execute(
-            """
+        attendance_query = """
             SELECT
                 a.student_id,
                 a.status,
-                c.id
+                c.id,
+                a.date
             FROM attendance a
             JOIN student_enrollments se
                 ON se.student_id = a.student_id
                 AND se.academic_year_id = ?
             JOIN school_classes c ON c.id = se.class_id
+            LEFT JOIN majors m ON m.id = c.major_id
             WHERE a.date BETWEEN ? AND ?
-            """,
-            (year_id, start_date, end_date),
+        """
+        attendance_params = [year_id, start_date, end_date]
+
+        if major_id:
+            attendance_query += " AND c.major_id = ?"
+            attendance_params.append(major_id)
+
+        if class_id:
+            attendance_query += " AND c.id = ?"
+            attendance_params.append(class_id)
+
+        attendance = conn.execute(
+            attendance_query,
+            attendance_params,
         ).fetchall()
     finally:
         conn.close()
 
-    counters = {}
-    for student_id, status, class_id in attendance:
-        counters.setdefault(
-            class_id,
-            {"present": 0, "late": 0, "absent": 0, "excused": 0},
-        )
-        if status in counters[class_id]:
-            counters[class_id][status] += 1
+    active_dates = sorted({row[3] for row in attendance})
 
-    start = datetime.strptime(start_date, "%Y-%m-%d").date()
-    end = datetime.strptime(end_date, "%Y-%m-%d").date()
-    day_count = max(1, (end - start).days + 1)
+    counters = {}
+    for student_id, status, class_id_value, date in attendance:
+        counters.setdefault(
+            class_id_value,
+            {
+                "present": 0,
+                "late": 0,
+                "absent": 0,
+                "excused": 0,
+            },
+        )
+        if status in counters[class_id_value]:
+            counters[class_id_value][status] += 1
+
+    active_day_count = len(active_dates)
 
     result = []
-    for class_id, name, major_name, student_count in classes:
+    for class_id_value, name, major_name, student_count in classes:
         stats = counters.get(
-            class_id,
-            {"present": 0, "late": 0, "absent": 0, "excused": 0},
+            class_id_value,
+            {
+                "present": 0,
+                "late": 0,
+                "absent": 0,
+                "excused": 0,
+            },
         )
 
-        possible = student_count * day_count
+        possible = student_count * active_day_count
         present = stats["present"]
         late = stats["late"]
         excused = stats["excused"]
-        absent = max(0, possible - present - late - excused)
+
+        absent = (
+            max(
+                0,
+                possible - present - late - excused,
+            )
+            if active_day_count
+            else 0
+        )
 
         percent = (
             ((present + late) / possible) * 100
@@ -1260,7 +1292,7 @@ def get_class_report_summary(
 
         result.append(
             (
-                class_id,
+                class_id_value,
                 name,
                 major_name,
                 student_count,
@@ -1273,6 +1305,7 @@ def get_class_report_summary(
         )
 
     return result
+
 
 
 def get_recent_attendance(limit=12, date=None):
@@ -1316,16 +1349,11 @@ def get_report_rows(
     class_id=None,
     major_id=None,
 ):
-    rows = get_attendance(
-        date=start_date,
-        class_id=class_id,
-        major_id=major_id,
-    )
-
-    del rows
-
     active = get_active_academic_year()
     year_id = active[0] if active else None
+
+    if year_id is None:
+        return []
 
     conn = get_connection()
     try:
@@ -1359,24 +1387,44 @@ def get_report_rows(
 
         students = conn.execute(query, params).fetchall()
 
+        attendance_query = """
+            SELECT
+                student_id,
+                date,
+                status
+            FROM attendance a
+            JOIN student_enrollments se
+                ON se.student_id = a.student_id
+                AND se.academic_year_id = ?
+            JOIN school_classes c
+                ON c.id = se.class_id
+            LEFT JOIN majors m
+                ON m.id = c.major_id
+            WHERE a.date BETWEEN ? AND ?
+        """
+        attendance_params = [year_id, start_date, end_date]
+
+        if class_id:
+            attendance_query += " AND c.id = ?"
+            attendance_params.append(class_id)
+
+        if major_id:
+            attendance_query += " AND m.id = ?"
+            attendance_params.append(major_id)
+
         attendance_rows = conn.execute(
-            """
-            SELECT student_id, date, status
-            FROM attendance
-            WHERE date BETWEEN ? AND ?
-            """,
-            (start_date, end_date),
+            attendance_query,
+            attendance_params,
         ).fetchall()
     finally:
         conn.close()
 
+    active_dates = sorted({row[1] for row in attendance_rows})
+    active_day_count = len(active_dates)
+
     by_student = {}
     for student_id, date, status in attendance_rows:
         by_student.setdefault(student_id, {})[date] = status
-
-    start = datetime.strptime(start_date, "%Y-%m-%d").date()
-    end = datetime.strptime(end_date, "%Y-%m-%d").date()
-    day_count = max(1, (end - start).days + 1)
 
     result = []
 
@@ -1386,22 +1434,32 @@ def get_report_rows(
         present = 0
         late = 0
         excused = 0
+        recorded_absent = 0
 
-        current = start
-        while current <= end:
-            status = statuses.get(current.strftime("%Y-%m-%d"))
+        for active_date in active_dates:
+            status = statuses.get(active_date)
+
             if status == "present":
                 present += 1
             elif status == "late":
                 late += 1
             elif status == "excused":
                 excused += 1
-            current = current.fromordinal(current.toordinal() + 1)
+            elif status == "absent":
+                recorded_absent += 1
 
-        absent = max(0, day_count - present - late - excused)
+        absent = (
+            max(
+                0,
+                active_day_count - present - late - excused,
+            )
+            if active_day_count
+            else 0
+        )
+
         attendance_percent = (
-            ((present + late) / day_count) * 100
-            if day_count
+            ((present + late) / active_day_count) * 100
+            if active_day_count
             else 0.0
         )
 
@@ -1422,6 +1480,7 @@ def get_report_rows(
         )
 
     return result
+
 
 
 def get_today_attendance():
