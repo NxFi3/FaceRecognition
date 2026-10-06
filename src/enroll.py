@@ -10,26 +10,70 @@ YOLO_MODEL = "yolov8n-face.pt"
 CAMERA_ID = 0
 
 CONFIDENCE = 0.35
-IMAGE_SIZE = 640
+CAMERA_WIDTH = 1280
+CAMERA_HEIGHT = 720
+IMAGE_SIZE = 768
 
-NUM_SAMPLES = 5
+# More samples improve robustness across angle, distance, and lighting.
+NUM_SAMPLES = 12
 MIN_FACE_SIZE = 80
+
+FACE_CROP_PADDING = 0.20
+SMALL_FACE_THRESHOLD = 120
+SMALL_FACE_UPSCALE = 2.0
 
 # Minimum time between accepted samples
 SAMPLE_INTERVAL = 1.0
 
 
 def get_embedding(frame, bbox):
-    x1, y1, x2, y2 = bbox
+    x1, y1, x2, y2 = [int(value) for value in bbox]
 
-    # Convert BGR -> RGB
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    frame_h, frame_w = frame.shape[:2]
+    face_w = x2 - x1
+    face_h = y2 - y1
 
-    # face_recognition location format
-    location = (y1, x2, y2, x1)
+    if face_w <= 0 or face_h <= 0:
+        return None
+
+    pad_x = int(face_w * FACE_CROP_PADDING)
+    pad_y = int(face_h * FACE_CROP_PADDING)
+
+    crop_x1 = max(0, x1 - pad_x)
+    crop_y1 = max(0, y1 - pad_y)
+    crop_x2 = min(frame_w, x2 + pad_x)
+    crop_y2 = min(frame_h, y2 + pad_y)
+
+    crop = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+
+    if crop.size == 0:
+        return None
+
+    if max(face_w, face_h) < SMALL_FACE_THRESHOLD:
+        crop = cv2.resize(
+            crop,
+            None,
+            fx=SMALL_FACE_UPSCALE,
+            fy=SMALL_FACE_UPSCALE,
+            interpolation=cv2.INTER_CUBIC,
+        )
+        scale = SMALL_FACE_UPSCALE
+    else:
+        scale = 1.0
+
+    local_x1 = int((x1 - crop_x1) * scale)
+    local_y1 = int((y1 - crop_y1) * scale)
+    local_x2 = int((x2 - crop_x1) * scale)
+    local_y2 = int((y2 - crop_y1) * scale)
+
+    rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+    location = (local_y1, local_x2, local_y2, local_x1)
 
     encodings = face_recognition.face_encodings(
-        rgb, known_face_locations=[location], model="small", num_jitters=1
+        rgb,
+        known_face_locations=[location],
+        model="small",
+        num_jitters=1,
     )
 
     if not encodings:
@@ -67,8 +111,13 @@ def main():
         return
 
     # Try to use 640x480
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+
+    actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    print(f"Camera resolution: {actual_width}x{actual_height}")
 
     embeddings = []
 
@@ -122,21 +171,19 @@ def main():
 
             x1, y1, x2, y2 = bbox
 
-            # Draw face box
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
             current_time = time.time()
 
-            # Don't capture samples too quickly
+            # Capture the clean camera pixels before drawing UI overlays.
             if current_time - last_sample_time >= SAMPLE_INTERVAL:
 
                 embedding = get_embedding(frame, bbox)
 
                 if embedding is not None:
-
                     embeddings.append(embedding)
-
                     last_sample_time = current_time
+
+            # Draw face box after embedding so the overlay never contaminates it.
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
                     print(f"Sample {len(embeddings)}/{NUM_SAMPLES} captured")
 
