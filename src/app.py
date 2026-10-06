@@ -11,6 +11,7 @@ from PySide6.QtCore import QDate, QLibraryInfo, QThread, QTranslator, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -54,6 +55,11 @@ try:
         get_daily_report_summary,
         get_recent_attendance,
         get_report_rows,
+        get_school_weekdays,
+        list_school_day_overrides,
+        set_school_day_override,
+        set_school_weekdays,
+        delete_school_day_override,
         get_setting,
         get_student,
         get_student_class,
@@ -93,6 +99,11 @@ except ModuleNotFoundError:
         get_daily_report_summary,
         get_recent_attendance,
         get_report_rows,
+        get_school_weekdays,
+        list_school_day_overrides,
+        set_school_day_override,
+        set_school_weekdays,
+        delete_school_day_override,
         get_setting,
         get_student,
         get_student_class,
@@ -1108,6 +1119,285 @@ class AdminPasswordDialog(QDialog):
         self.accept()
 
 
+class SchoolCalendarDialog(QDialog):
+    WEEKDAYS = [
+        (5, "شنبه"),
+        (6, "یکشنبه"),
+        (0, "دوشنبه"),
+        (1, "سه‌شنبه"),
+        (2, "چهارشنبه"),
+        (3, "پنجشنبه"),
+        (4, "جمعه"),
+    ]
+
+    def __init__(self, selected_year_id=None, parent=None):
+        super().__init__(parent)
+        self.setModal(True)
+        self.setWindowTitle("تقویم مدرسه")
+        self.resize(860, 650)
+
+        root = QVBoxLayout(self)
+        root.setSpacing(12)
+
+        year_row = QHBoxLayout()
+        year_row.addWidget(QLabel("سال تحصیلی"))
+        self.year_combo = QComboBox()
+
+        years = list_academic_years()
+        for year_id, name, start_date, end_date, is_active in years:
+            label = name + (" — فعال" if is_active else "")
+            self.year_combo.addItem(label, year_id)
+
+        target = selected_year_id
+        active = get_active_academic_year()
+        if target is None and active:
+            target = active[0]
+
+        index = self.year_combo.findData(target)
+        if index >= 0:
+            self.year_combo.setCurrentIndex(index)
+
+        self.year_combo.currentIndexChanged.connect(
+            lambda _: self.load_year()
+        )
+        year_row.addWidget(self.year_combo, 1)
+        root.addLayout(year_row)
+
+        weekly_box = QFrame()
+        weekly_box.setObjectName("panel")
+        weekly_layout = QVBoxLayout(weekly_box)
+
+        title = QLabel("روزهای عادی مدرسه")
+        title.setObjectName("sectionTitle")
+        weekly_layout.addWidget(title)
+
+        hint = QLabel(
+            "روزهای هفتگی مدرسه را مشخص کنید. برای تعطیلی یا روز جبرانی از استثنا استفاده کنید."
+        )
+        hint.setObjectName("muted")
+        hint.setWordWrap(True)
+        weekly_layout.addWidget(hint)
+
+        checks_layout = QHBoxLayout()
+        self.weekday_checks = {}
+        for weekday, label in self.WEEKDAYS:
+            check = QCheckBox(label)
+            self.weekday_checks[weekday] = check
+            checks_layout.addWidget(check)
+        checks_layout.addStretch()
+        weekly_layout.addLayout(checks_layout)
+
+        save_weekly = QPushButton("ذخیره برنامه هفتگی")
+        save_weekly.clicked.connect(self.save_weekly)
+        weekly_layout.addWidget(save_weekly, 0, Qt.AlignRight)
+
+        root.addWidget(weekly_box)
+
+        override_box = QFrame()
+        override_box.setObjectName("panel")
+        override_layout = QVBoxLayout(override_box)
+
+        override_title = QLabel("استثناهای تقویم")
+        override_title.setObjectName("sectionTitle")
+        override_layout.addWidget(override_title)
+
+        form = QHBoxLayout()
+
+        self.override_date = QDateEdit()
+        self.override_date.setCalendarPopup(True)
+        self.override_date.setDisplayFormat("yyyy/MM/dd")
+
+        self.override_school_day = QCheckBox("روز مدرسه")
+
+        self.override_note = QLineEdit()
+        self.override_note.setPlaceholderText(
+            "مثلاً تعطیلی رسمی، آلودگی هوا، روز جبرانی..."
+        )
+
+        save_override = QPushButton("ثبت استثنا")
+        save_override.clicked.connect(self.save_override)
+
+        delete_override = QPushButton("حذف")
+        delete_override.clicked.connect(self.delete_override)
+
+        form.addWidget(QLabel("تاریخ"))
+        form.addWidget(self.override_date)
+        form.addWidget(self.override_school_day)
+        form.addWidget(self.override_note, 1)
+        form.addWidget(save_override)
+        form.addWidget(delete_override)
+
+        override_layout.addLayout(form)
+
+        self.override_table = QTableWidget(0, 4)
+        self.override_table.setHorizontalHeaderLabels(
+            ["شناسه", "تاریخ", "وضعیت", "توضیح"]
+        )
+        self.override_table.setColumnHidden(0, True)
+        self.override_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.override_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeToContents
+        )
+        self.override_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeToContents
+        )
+        self.override_table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.Stretch
+        )
+        self.override_table.itemSelectionChanged.connect(
+            self.load_selected_override
+        )
+        override_layout.addWidget(self.override_table, 1)
+
+        root.addWidget(override_box, 1)
+
+        close_button = QPushButton("بستن")
+        close_button.clicked.connect(self.accept)
+        root.addWidget(close_button, 0, Qt.AlignLeft)
+
+        self.load_year()
+
+    def current_year_id(self):
+        return self.year_combo.currentData()
+
+    def load_year(self):
+        year_id = self.current_year_id()
+        if not year_id:
+            return
+
+        weekdays = get_school_weekdays(year_id)
+        for weekday, check in self.weekday_checks.items():
+            check.setChecked(weekday in weekdays)
+
+        self.override_note.clear()
+        self.override_school_day.setChecked(False)
+        self.refresh_overrides()
+
+        year = next(
+            (row for row in list_academic_years() if row[0] == year_id),
+            None,
+        )
+        if year and year[2]:
+            self.override_date.setDate(
+                QDate.fromString(year[2], "yyyy-MM-dd")
+            )
+
+    def save_weekly(self):
+        year_id = self.current_year_id()
+        weekdays = [
+            weekday
+            for weekday, check in self.weekday_checks.items()
+            if check.isChecked()
+        ]
+
+        try:
+            set_school_weekdays(year_id, weekdays)
+            QMessageBox.information(
+                self,
+                "تقویم مدرسه",
+                "برنامه هفتگی ذخیره شد.",
+            )
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "ذخیره برنامه ناموفق بود",
+                str(exc),
+            )
+
+    def refresh_overrides(self):
+        year_id = self.current_year_id()
+        rows = list_school_day_overrides(year_id)
+        self.override_table.setRowCount(len(rows))
+
+        for row, (override_id, date, is_school_day, note) in enumerate(rows):
+            values = [
+                str(override_id),
+                date,
+                "روز مدرسه" if is_school_day else "تعطیل",
+                note or "",
+            ]
+            for col, value in enumerate(values):
+                self.override_table.setItem(
+                    row,
+                    col,
+                    QTableWidgetItem(value),
+                )
+
+    def load_selected_override(self):
+        row = self.override_table.currentRow()
+        if row < 0:
+            return
+
+        date_item = self.override_table.item(row, 1)
+        status_item = self.override_table.item(row, 2)
+        note_item = self.override_table.item(row, 3)
+
+        if not date_item or not status_item:
+            return
+
+        self.override_date.setDate(
+            QDate.fromString(date_item.text(), "yyyy-MM-dd")
+        )
+        self.override_school_day.setChecked(
+            status_item.text() == "روز مدرسه"
+        )
+        self.override_note.setText(
+            note_item.text() if note_item else ""
+        )
+
+    def save_override(self):
+        year_id = self.current_year_id()
+        date = self.override_date.date().toString("yyyy-MM-dd")
+
+        try:
+            set_school_day_override(
+                year_id,
+                date,
+                self.override_school_day.isChecked(),
+                self.override_note.text(),
+            )
+            self.refresh_overrides()
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "ثبت استثنا ناموفق بود",
+                str(exc),
+            )
+
+    def delete_override(self):
+        row = self.override_table.currentRow()
+        if row < 0:
+            QMessageBox.information(
+                self,
+                "انتخاب استثنا",
+                "ابتدا یک استثنا را انتخاب کنید.",
+            )
+            return
+
+        item = self.override_table.item(row, 0)
+        if not item:
+            return
+
+        if not confirm_action(
+            self,
+            "حذف استثنا",
+            "استثنای انتخاب‌شده حذف شود؟",
+            "حذف",
+            "لغو",
+        ):
+            return
+
+        try:
+            delete_school_day_override(int(item.text()))
+            self.refresh_overrides()
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "حذف استثنا ناموفق بود",
+                str(exc),
+            )
+
+
 class AcademicYearDialog(QDialog):
     def __init__(self, existing=None, parent=None):
         super().__init__(parent)
@@ -2006,6 +2296,7 @@ class MainWindow(QMainWindow):
             ("افزودن سال", self.add_academic_year_dialog),
             ("ویرایش سال", self.edit_academic_year_dialog),
             ("فعال‌کردن سال", self.set_active_year),
+            ("تقویم مدرسه", self.open_school_calendar_dialog),
             ("افزودن کلاس", self.add_class_dialog),
             ("ویرایش", self.edit_selected_class),
             ("حذف", self.delete_selected_class),
@@ -2707,6 +2998,27 @@ class MainWindow(QMainWindow):
                 self.class_year_combo.setCurrentIndex(index)
 
         self.class_year_combo.blockSignals(False)
+
+    def open_school_calendar_dialog(self):
+        year_id = self.class_year_combo.currentData()
+        if not year_id:
+            active = get_active_academic_year()
+            year_id = active[0] if active else None
+
+        if not year_id:
+            QMessageBox.information(
+                self,
+                "تقویم مدرسه",
+                "ابتدا یک سال تحصیلی بسازید.",
+            )
+            return
+
+        dialog = SchoolCalendarDialog(
+            selected_year_id=year_id,
+            parent=self,
+        )
+        dialog.exec()
+        self.refresh_all()
 
     def add_academic_year_dialog(self):
         dialog = AcademicYearDialog(parent=self)
