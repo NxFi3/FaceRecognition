@@ -8,7 +8,7 @@ import cv2
 import face_recognition
 import numpy as np
 from PySide6.QtCore import QDate, QLibraryInfo, QThread, QTranslator, Qt, Signal
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -50,6 +50,8 @@ try:
         get_active_academic_year,
         get_attendance,
         get_attendance_stats,
+        get_class_report_summary,
+        get_daily_report_summary,
         get_recent_attendance,
         get_report_rows,
         get_setting,
@@ -88,6 +90,8 @@ except ModuleNotFoundError:
         get_active_academic_year,
         get_attendance,
         get_attendance_stats,
+        get_class_report_summary,
+        get_daily_report_summary,
         get_recent_attendance,
         get_report_rows,
         get_setting,
@@ -1430,6 +1434,322 @@ class ManualAttendanceDialog(QDialog):
         return self.status_combo.currentData(), self.notes_edit.text().strip()
 
 
+class AttendanceTrendChart(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.points = []
+        self.setMinimumHeight(240)
+
+    def set_data(self, points):
+        self.points = list(points or [])
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        rect = self.rect().adjusted(52, 18, -18, -34)
+
+        painter.fillRect(self.rect(), QColor("#ffffff"))
+        painter.setPen(QPen(QColor("#e2e8f0"), 1))
+
+        for i in range(5):
+            y = rect.top() + (rect.height() * i / 4)
+            painter.drawLine(
+                int(rect.left()),
+                int(y),
+                int(rect.right()),
+                int(y),
+            )
+
+        painter.setFont(QFont("Segoe UI", 9))
+        painter.setPen(QColor("#718096"))
+
+        if not self.points:
+            painter.drawText(
+                self.rect(),
+                Qt.AlignCenter,
+                "داده‌ای برای نمایش وجود ندارد",
+            )
+            return
+
+        values = [float(item[5]) for item in self.points]
+        max_value = max(100.0, max(values))
+        min_value = 0.0
+
+        for i, value in enumerate((100, 75, 50, 25, 0)):
+            y = rect.top() + rect.height() * (1 - value / max_value)
+            painter.drawText(
+                8,
+                int(y + 4),
+                f"{int(value)}٪",
+            )
+
+        path = QPainterPath()
+        for index, point in enumerate(self.points):
+            value = point[5]
+            x = (
+                rect.left()
+                if len(self.points) == 1
+                else rect.left()
+                + rect.width() * index / (len(self.points) - 1)
+            )
+            y = rect.bottom() - (
+                (value - min_value)
+                / max(1.0, max_value - min_value)
+            ) * rect.height()
+
+            if index == 0:
+                path.moveTo(x, y)
+            else:
+                path.lineTo(x, y)
+
+        painter.setPen(QPen(QColor("#2f80ed"), 3))
+        painter.drawPath(path)
+
+        painter.setBrush(QColor("#2f80ed"))
+        painter.setPen(Qt.NoPen)
+
+        for index, point in enumerate(self.points):
+            value = point[5]
+            x = (
+                rect.left()
+                if len(self.points) == 1
+                else rect.left()
+                + rect.width() * index / (len(self.points) - 1)
+            )
+            y = rect.bottom() - (
+                (value - min_value)
+                / max(1.0, max_value - min_value)
+            ) * rect.height()
+
+            painter.drawEllipse(int(x - 4), int(y - 4), 8, 8)
+
+        painter.setPen(QColor("#718096"))
+        for index, point in enumerate(self.points):
+            if index not in {
+                0,
+                len(self.points) // 2,
+                len(self.points) - 1,
+            }:
+                continue
+
+            x = (
+                rect.left()
+                if len(self.points) == 1
+                else rect.left()
+                + rect.width() * index / (len(self.points) - 1)
+            )
+            label = point[0][5:]
+            painter.drawText(
+                int(x - 35),
+                self.height() - 10,
+                label,
+            )
+
+
+class ClassAttendanceChart(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.rows = []
+        self.setMinimumHeight(240)
+
+    def set_data(self, rows):
+        self.rows = list(rows or [])
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.fillRect(self.rect(), QColor("#ffffff"))
+
+        rect = self.rect().adjusted(95, 18, -20, -35)
+
+        if not self.rows:
+            painter.setPen(QColor("#718096"))
+            painter.drawText(
+                self.rect(),
+                Qt.AlignCenter,
+                "داده‌ای برای نمایش وجود ندارد",
+            )
+            return
+
+        visible = self.rows[:8]
+        count = len(visible)
+        gap = 10
+        bar_height = max(
+            14,
+            int((rect.height() - gap * (count - 1)) / count),
+        )
+
+        painter.setFont(QFont("Segoe UI", 9))
+        painter.setPen(QColor("#526174"))
+
+        for index, row in enumerate(visible):
+            _, name, _, student_count, present, late, absent, excused, percent = row
+
+            y = int(rect.top() + index * (bar_height + gap))
+            label = name[:18]
+            painter.drawText(
+                10,
+                y + bar_height - 3,
+                label,
+            )
+
+            back = rect.adjusted(
+                0,
+                0,
+                0,
+                0,
+            )
+            back.setTop(y)
+            back.setBottom(y + bar_height)
+            back.setLeft(95)
+            back.setRight(rect.right())
+
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor("#e7edf3"))
+            painter.drawRoundedRect(back, 7, 7)
+
+            width = int(back.width() * min(100.0, max(0.0, percent)) / 100.0)
+            bar = back
+            bar.setRight(back.left() + width)
+
+            painter.setBrush(QColor("#36a269"))
+            painter.drawRoundedRect(bar, 7, 7)
+
+            painter.setPen(QColor("#526174"))
+            painter.drawText(
+                back.right() - 45,
+                y + bar_height - 3,
+                f"{percent:.0f}٪",
+            )
+
+
+class StatusDonutChart(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.data = {
+            "present": 0,
+            "late": 0,
+            "absent": 0,
+            "excused": 0,
+        }
+        self.setMinimumHeight(240)
+
+    def set_data(self, data):
+        self.data = {
+            key: int(data.get(key, 0))
+            for key in self.data
+        }
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.fillRect(self.rect(), QColor("#ffffff"))
+
+        total = sum(self.data.values())
+        if total <= 0:
+            painter.setPen(QColor("#718096"))
+            painter.drawText(
+                self.rect(),
+                Qt.AlignCenter,
+                "داده‌ای برای نمایش وجود ندارد",
+            )
+            return
+
+        size = min(self.width(), self.height()) - 55
+        size = max(100, size)
+        x = 20
+        y = int((self.height() - size) / 2)
+        pie_rect = self.rect().adjusted(20, 15, -20, -15)
+
+        pie_size = min(pie_rect.width(), pie_rect.height())
+        pie_x = int(pie_rect.center().x() - pie_size / 2)
+        pie_y = int(pie_rect.center().y() - pie_size / 2)
+
+        colors = {
+            "present": "#36a269",
+            "late": "#e0a13a",
+            "absent": "#df5b5b",
+            "excused": "#6b8fd6",
+        }
+        labels = {
+            "present": "حاضر",
+            "late": "دیرکرد",
+            "absent": "غایب",
+            "excused": "موجه",
+        }
+
+        start_angle = 0
+        for key in ("present", "late", "absent", "excused"):
+            value = self.data[key]
+            if value <= 0:
+                continue
+
+            span = int(360 * 16 * value / total)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(colors[key]))
+            painter.drawPie(
+                pie_x,
+                pie_y,
+                pie_size,
+                pie_size,
+                start_angle,
+                span,
+            )
+            start_angle += span
+
+        hole = max(60, int(pie_size * 0.54))
+        hole_x = int(
+            pie_x + (pie_size - hole) / 2
+        )
+        hole_y = int(
+            pie_y + (pie_size - hole) / 2
+        )
+
+        painter.setBrush(QColor("#ffffff"))
+        painter.drawEllipse(hole_x, hole_y, hole, hole)
+
+        painter.setPen(QColor("#253244"))
+        painter.setFont(QFont("Segoe UI", 13, QFont.Bold))
+        painter.drawText(
+            hole_x,
+            hole_y,
+            hole,
+            hole,
+            Qt.AlignCenter,
+            str(total),
+        )
+
+        legend_x = min(
+            self.width() - 170,
+            int(self.width() * 0.60),
+        )
+        legend_y = 35
+        painter.setFont(QFont("Segoe UI", 10))
+
+        for key in ("present", "late", "absent", "excused"):
+            painter.setBrush(QColor(colors[key]))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(
+                legend_x,
+                legend_y - 10,
+                12,
+                12,
+                3,
+                3,
+            )
+            painter.setPen(QColor("#526174"))
+            painter.drawText(
+                legend_x + 21,
+                legend_y,
+                f"{labels[key]}: {self.data[key]}",
+            )
+            legend_y += 28
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -1802,17 +2122,21 @@ class MainWindow(QMainWindow):
     def build_reports_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
+        layout.setSpacing(14)
 
         filter_box = QFrame()
         filter_box.setObjectName("panel")
         filter_layout = QHBoxLayout(filter_box)
+        filter_layout.setContentsMargins(16, 14, 16, 14)
 
         self.report_start = QDateEdit()
         self.report_start.setCalendarPopup(True)
+        self.report_start.setDisplayFormat("yyyy/MM/dd")
         self.report_start.setDate(QDate.currentDate().addDays(-6))
 
         self.report_end = QDateEdit()
         self.report_end.setCalendarPopup(True)
+        self.report_end.setDisplayFormat("yyyy/MM/dd")
         self.report_end.setDate(QDate.currentDate())
 
         self.report_major_combo = QComboBox()
@@ -1831,23 +2155,87 @@ class MainWindow(QMainWindow):
         filter_layout.addWidget(QLabel("کلاس"))
         filter_layout.addWidget(self.report_class_combo, 1)
 
-        report_button = QPushButton("نمایش گزارش")
+        today_button = QPushButton("امروز")
+        today_button.clicked.connect(lambda: self.set_report_range(0))
+        week_button = QPushButton("۷ روز")
+        week_button.clicked.connect(lambda: self.set_report_range(6))
+        month_button = QPushButton("۳۰ روز")
+        month_button.clicked.connect(lambda: self.set_report_range(29))
+        report_button = QPushButton("به‌روزرسانی")
         report_button.clicked.connect(self.refresh_report)
-        filter_layout.addWidget(report_button)
 
-        csv_button = QPushButton("CSV")
+        csv_button = QPushButton("خروجی CSV")
         csv_button.clicked.connect(lambda: self.export_report("csv"))
-        filter_layout.addWidget(csv_button)
-
-        xlsx_button = QPushButton("Excel")
+        xlsx_button = QPushButton("خروجی Excel")
         xlsx_button.clicked.connect(lambda: self.export_report("xlsx"))
-        filter_layout.addWidget(xlsx_button)
+
+        for button in (
+            today_button,
+            week_button,
+            month_button,
+            report_button,
+            csv_button,
+            xlsx_button,
+        ):
+            filter_layout.addWidget(button)
 
         layout.addWidget(filter_box)
 
         self.report_summary = QLabel()
         self.report_summary.setObjectName("muted")
         layout.addWidget(self.report_summary)
+
+        cards = QHBoxLayout()
+        card, self.report_total_label = self.make_card("دانش‌آموزان")
+        cards.addWidget(card)
+        card, self.report_avg_label = self.make_card("میانگین حضور")
+        cards.addWidget(card)
+        card, self.report_absent_days_label = self.make_card("کل غیبت")
+        cards.addWidget(card)
+        card, self.report_late_days_label = self.make_card("کل دیرکرد")
+        cards.addWidget(card)
+        layout.addLayout(cards)
+
+        chart_row = QHBoxLayout()
+        trend_panel = QFrame()
+        trend_panel.setObjectName("panel")
+        trend_layout = QVBoxLayout(trend_panel)
+        title = QLabel("روند درصد حضور روزانه")
+        title.setObjectName("sectionTitle")
+        trend_layout.addWidget(title)
+        self.report_trend_chart = AttendanceTrendChart()
+        trend_layout.addWidget(self.report_trend_chart)
+        chart_row.addWidget(trend_panel, 2)
+
+        class_panel = QFrame()
+        class_panel.setObjectName("panel")
+        class_layout = QVBoxLayout(class_panel)
+        title = QLabel("مقایسه کلاس‌ها")
+        title.setObjectName("sectionTitle")
+        class_layout.addWidget(title)
+        self.report_class_chart = ClassAttendanceChart()
+        class_layout.addWidget(self.report_class_chart)
+        chart_row.addWidget(class_panel, 2)
+
+        status_panel = QFrame()
+        status_panel.setObjectName("panel")
+        status_layout = QVBoxLayout(status_panel)
+        title = QLabel("توزیع وضعیت")
+        title.setObjectName("sectionTitle")
+        status_layout.addWidget(title)
+        self.report_status_chart = StatusDonutChart()
+        status_layout.addWidget(self.report_status_chart)
+        chart_row.addWidget(status_panel, 1)
+
+        layout.addLayout(chart_row)
+
+        details_panel = QFrame()
+        details_panel.setObjectName("panel")
+        details_layout = QVBoxLayout(details_panel)
+
+        details_title = QLabel("جزئیات دانش‌آموزان")
+        details_title.setObjectName("sectionTitle")
+        details_layout.addWidget(details_title)
 
         self.report_table = QTableWidget(0, 11)
         self.report_table.setHorizontalHeaderLabels(
@@ -1867,9 +2255,12 @@ class MainWindow(QMainWindow):
         )
         self.configure_table(self.report_table)
         self.report_table.setColumnHidden(0, True)
-        layout.addWidget(self.report_table, 1)
+        details_layout.addWidget(self.report_table, 1)
+
+        layout.addWidget(details_panel, 2)
 
         self.stack.addWidget(page)
+
 
     def configure_table(self, table):
         table.setAlternatingRowColors(True)
@@ -2765,21 +3156,47 @@ class MainWindow(QMainWindow):
             self.report_major_combo.currentData(),
         )
 
+    def set_report_range(self, days_back):
+        end = QDate.currentDate()
+        start = end.addDays(-days_back)
+
+        self.report_start.blockSignals(True)
+        self.report_end.blockSignals(True)
+        self.report_start.setDate(start)
+        self.report_end.setDate(end)
+        self.report_start.blockSignals(False)
+        self.report_end.blockSignals(False)
+
+        self.refresh_report()
+
     def refresh_report(self):
         start = self.report_start.date().toString("yyyy-MM-dd")
         end = self.report_end.date().toString("yyyy-MM-dd")
 
         if start > end:
-            QMessageBox.warning(self, "بازه نامعتبر", "تاریخ شروع باید قبل از تاریخ پایان باشد.")
+            QMessageBox.warning(
+                self,
+                "بازه نامعتبر",
+                "تاریخ شروع باید قبل از تاریخ پایان باشد.",
+            )
             return
+
+        class_id = self.report_class_combo.currentData()
+        major_id = self.report_major_combo.currentData()
 
         rows = get_report_rows(
             start,
             end,
-            self.report_class_combo.currentData(),
-            self.report_major_combo.currentData(),
+            class_id,
+            major_id,
         )
+
         self.report_table.setRowCount(len(rows))
+
+        total_present = 0
+        total_late = 0
+        total_absent = 0
+        total_excused = 0
 
         for row, record in enumerate(rows):
             (
@@ -2796,45 +3213,113 @@ class MainWindow(QMainWindow):
                 percent,
             ) = record
 
+            total_present += present
+            total_late += late
+            total_absent += absent
+            total_excused += excused
+
             values = [
                 str(student_id),
                 code,
                 name,
                 grade,
                 major_name or "—",
-                class_name,
+                class_name or "بدون کلاس",
                 str(present),
                 str(late),
                 str(absent),
                 str(excused),
-                f"{percent:.1f}%",
+                f"{percent:.1f}٪",
             ]
-            for col, value in enumerate(values):
-                self.report_table.setItem(row, col, QTableWidgetItem(value))
 
-        total = len(rows)
+            for col, value in enumerate(values):
+                self.report_table.setItem(
+                    row,
+                    col,
+                    QTableWidgetItem(value),
+                )
+
         avg = (
-            sum(r[10] for r in rows) / total
-            if total
-            else 0
+            sum(record[10] for record in rows) / len(rows)
+            if rows
+            else 0.0
         )
+
+        daily = get_daily_report_summary(
+            start,
+            end,
+            class_id,
+            major_id,
+        )
+
+        class_summary = get_class_report_summary(
+            start,
+            end,
+            major_id,
+        )
+
+        self.report_trend_chart.set_data(daily)
+        self.report_class_chart.set_data(
+            sorted(
+                class_summary,
+                key=lambda item: item[8],
+                reverse=True,
+            )
+        )
+        self.report_status_chart.set_data(
+            {
+                "present": total_present,
+                "late": total_late,
+                "absent": total_absent,
+                "excused": total_excused,
+            }
+        )
+
+        self.report_total_label.setText(str(len(rows)))
+        self.report_avg_label.setText(f"{avg:.1f}٪")
+        self.report_absent_days_label.setText(str(total_absent))
+        self.report_late_days_label.setText(str(total_late))
+
         self.report_summary.setText(
-            f"{total} دانش‌آموز • میانگین حضور این گزارش: {avg:.1f}%"
+            f"بازه {start} تا {end} • "
+            f"حاضر: {total_present} • "
+            f"دیرکرد: {total_late} • "
+            f"غیبت: {total_absent} • "
+            f"موجه: {total_excused}"
         )
+
 
     def export_report(self, fmt):
         start = self.report_start.date().toString("yyyy-MM-dd")
         end = self.report_end.date().toString("yyyy-MM-dd")
 
         if start > end:
-            QMessageBox.warning(self, "بازه نامعتبر", "تاریخ شروع باید قبل از تاریخ پایان باشد.")
+            QMessageBox.warning(
+                self,
+                "بازه نامعتبر",
+                "تاریخ شروع باید قبل از تاریخ پایان باشد.",
+            )
             return
+
+        class_id = self.report_class_combo.currentData()
+        major_id = self.report_major_combo.currentData()
 
         rows = get_report_rows(
             start,
             end,
-            self.report_class_combo.currentData(),
-            self.report_major_combo.currentData(),
+            class_id,
+            major_id,
+        )
+        daily = get_daily_report_summary(
+            start,
+            end,
+            class_id,
+            major_id,
+        )
+        classes = get_class_report_summary(
+            start,
+            end,
+            major_id,
         )
 
         if not rows:
@@ -2860,7 +3345,7 @@ class MainWindow(QMainWindow):
 
         Path(path).parent.mkdir(parents=True, exist_ok=True)
 
-        headers = [
+        student_headers = [
             "کد دانش‌آموزی",
             "نام",
             "پایه",
@@ -2868,7 +3353,7 @@ class MainWindow(QMainWindow):
             "کلاس",
             "حاضر",
             "دیرکرد",
-            "غایب",
+            "غیبت",
             "موجه",
             "درصد حضور",
         ]
@@ -2882,7 +3367,7 @@ class MainWindow(QMainWindow):
                     encoding="utf-8-sig",
                 ) as file:
                     writer = csv.writer(file)
-                    writer.writerow(headers)
+                    writer.writerow(student_headers)
                     for record in rows:
                         writer.writerow(
                             [
@@ -2900,16 +3385,17 @@ class MainWindow(QMainWindow):
                         )
             else:
                 from openpyxl import Workbook
-                from openpyxl.styles import Font, Alignment
+                from openpyxl.styles import Alignment, Font
                 from openpyxl.utils import get_column_letter
 
                 workbook = Workbook()
-                sheet = workbook.active
-                sheet.title = "گزارش حضور"
 
-                sheet.append(headers)
+                student_sheet = workbook.active
+                student_sheet.title = "دانش‌آموزان"
+
+                student_sheet.append(student_headers)
                 for record in rows:
-                    sheet.append(
+                    student_sheet.append(
                         [
                             record[1],
                             record[2],
@@ -2924,25 +3410,111 @@ class MainWindow(QMainWindow):
                         ]
                     )
 
-                for cell in sheet[1]:
-                    cell.font = Font(bold=True)
-                    cell.alignment = Alignment(horizontal="center")
+                daily_sheet = workbook.create_sheet("روزانه")
+                daily_sheet.append(
+                    [
+                        "تاریخ",
+                        "حاضر",
+                        "دیرکرد",
+                        "غیبت",
+                        "موجه",
+                        "درصد حضور",
+                    ]
+                )
+                for record in daily:
+                    daily_sheet.append(list(record))
 
-                for column in range(1, len(headers) + 1):
-                    sheet.column_dimensions[
-                        get_column_letter(column)
-                    ].width = 18
+                class_sheet = workbook.create_sheet("کلاس‌ها")
+                class_sheet.append(
+                    [
+                        "کلاس",
+                        "رشته",
+                        "دانش‌آموز",
+                        "حاضر",
+                        "دیرکرد",
+                        "غیبت",
+                        "موجه",
+                        "درصد حضور",
+                    ]
+                )
+                for record in classes:
+                    class_sheet.append(
+                        [
+                            record[1],
+                            record[2],
+                            record[3],
+                            record[4],
+                            record[5],
+                            record[6],
+                            record[7],
+                            record[8],
+                        ]
+                    )
 
-                sheet.freeze_panes = "A2"
+                summary_sheet = workbook.create_sheet("خلاصه")
+                summary_sheet.append(["شاخص", "مقدار"])
+                total_students = len(rows)
+                average = (
+                    sum(record[10] for record in rows) / total_students
+                    if total_students
+                    else 0
+                )
+                summary_sheet.append(["دانش‌آموزان", total_students])
+                summary_sheet.append(["میانگین حضور", round(average, 1)])
+                summary_sheet.append(
+                    [
+                        "کل حضور",
+                        sum(record[6] for record in rows),
+                    ]
+                )
+                summary_sheet.append(
+                    [
+                        "کل دیرکرد",
+                        sum(record[7] for record in rows),
+                    ]
+                )
+                summary_sheet.append(
+                    [
+                        "کل غیبت",
+                        sum(record[8] for record in rows),
+                    ]
+                )
+                summary_sheet.append(
+                    [
+                        "کل موجه",
+                        sum(record[9] for record in rows),
+                    ]
+                )
+
+                for sheet in workbook.worksheets:
+                    sheet.freeze_panes = "A2"
+                    for cell in sheet[1]:
+                        cell.font = Font(bold=True)
+                        cell.alignment = Alignment(horizontal="center")
+
+                    for column in range(
+                        1,
+                        sheet.max_column + 1,
+                    ):
+                        sheet.column_dimensions[
+                            get_column_letter(column)
+                        ].width = 18
+
                 workbook.save(path)
 
             QMessageBox.information(
                 self,
                 "گزارش آماده شد",
-                f"{len(rows)} رکورد در فایل ذخیره شد.",
+                f"گزارش با موفقیت ذخیره شد.\n{path}",
             )
+
         except Exception as exc:
-            QMessageBox.critical(self, "ذخیره گزارش ناموفق بود", str(exc))
+            QMessageBox.critical(
+                self,
+                "ذخیره گزارش ناموفق بود",
+                str(exc),
+            )
+
 
     def import_students(self):
         path, _ = QFileDialog.getOpenFileName(
