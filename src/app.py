@@ -1978,6 +1978,8 @@ def main():
         """
     )
 
+    init_db()
+
     if not ensure_admin_access():
         return
 
