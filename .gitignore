@@ -1,1 +1,10 @@
-.db
+__pycache__/
+*.py[cod]
+.vscode/
+.venv/
+.env
+
+data/*.db
+exports/*
+!exports/.gitkeep
+*.pkl
