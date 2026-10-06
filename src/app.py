@@ -73,7 +73,15 @@ CAMERA_ID = 0
 CAMERA_NAME = "camera_0"
 
 CONFIDENCE = 0.35
-IMAGE_SIZE = 640
+
+# Capture more pixels so faces remain usable at longer distances.
+CAMERA_WIDTH = 1280
+CAMERA_HEIGHT = 720
+
+# 768 gives the face detector more detail for small/distant faces while
+# keeping the detector substantially cheaper than very large inference sizes.
+IMAGE_SIZE = 768
+
 # Recognition is intentionally conservative: a single unusually-close
 # embedding must not be enough to identify a person.
 FACE_DISTANCE_THRESHOLD = 0.46
@@ -83,11 +91,18 @@ RECOGNITION_INTERVAL = 5
 RECOGNITION_CONFIRMATIONS = 3
 REVALIDATION_INTERVAL = 25
 
-MIN_FACE_SIZE = 60
+# Do not discard usable distant faces too early.
+MIN_FACE_SIZE = 45
 
-ENROLLMENT_SAMPLES = 5
+# Enrollment should cover natural variation rather than five near-identical frames.
+ENROLLMENT_SAMPLES = 12
 ENROLLMENT_SAMPLE_INTERVAL = 1.0
 ENROLLMENT_MIN_FACE_SIZE = 80
+
+# Face crops are padded before encoding so important facial context is retained.
+FACE_CROP_PADDING = 0.20
+SMALL_FACE_THRESHOLD = 120
+SMALL_FACE_UPSCALE = 2.0
 
 UI_FRAME_LIMIT = 1.0 / 30.0
 
@@ -106,10 +121,57 @@ def frame_to_qimage(frame):
 
 
 def face_embedding(frame, bbox):
-    x1, y1, x2, y2 = bbox
+    """
+    Encode a padded face crop instead of the raw full-frame bounding box.
 
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    location = (y1, x2, y2, x1)
+    Small/distant faces are upscaled locally before encoding. This improves
+    the amount of facial detail seen by dlib without upscaling the whole frame.
+    """
+    x1, y1, x2, y2 = [int(value) for value in bbox]
+
+    frame_h, frame_w = frame.shape[:2]
+    face_w = x2 - x1
+    face_h = y2 - y1
+
+    if face_w <= 0 or face_h <= 0:
+        return None
+
+    pad_x = int(face_w * FACE_CROP_PADDING)
+    pad_y = int(face_h * FACE_CROP_PADDING)
+
+    crop_x1 = max(0, x1 - pad_x)
+    crop_y1 = max(0, y1 - pad_y)
+    crop_x2 = min(frame_w, x2 + pad_x)
+    crop_y2 = min(frame_h, y2 + pad_y)
+
+    crop = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+
+    if crop.size == 0:
+        return None
+
+    crop_h, crop_w = crop.shape[:2]
+
+    # Only upscale small faces. Large faces already contain enough detail.
+    if max(face_w, face_h) < SMALL_FACE_THRESHOLD:
+        crop = cv2.resize(
+            crop,
+            None,
+            fx=SMALL_FACE_UPSCALE,
+            fy=SMALL_FACE_UPSCALE,
+            interpolation=cv2.INTER_CUBIC,
+        )
+        scale = SMALL_FACE_UPSCALE
+    else:
+        scale = 1.0
+
+    local_x1 = int((x1 - crop_x1) * scale)
+    local_y1 = int((y1 - crop_y1) * scale)
+    local_x2 = int((x2 - crop_x1) * scale)
+    local_y2 = int((y2 - crop_y1) * scale)
+
+    rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+
+    location = (local_y1, local_x2, local_y2, local_x1)
 
     encodings = face_recognition.face_encodings(
         rgb,
@@ -243,8 +305,11 @@ class CameraWorker(QThread):
             if not cap.isOpened():
                 raise RuntimeError("Could not open camera.")
 
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+
+            actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
             matcher = FaceMatcher()
             tracks = {}
@@ -256,7 +321,8 @@ class CameraWorker(QThread):
             fps_start = time.time()
 
             self.status_changed.emit(
-                f"Camera online • {len(matcher.students)} students loaded"
+                f"Camera online • {actual_width}x{actual_height} • "
+                f"{len(matcher.students)} students loaded"
             )
 
             while self._running:
