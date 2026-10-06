@@ -1,9 +1,9 @@
 name: Build Windows EXE
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
-  workflow_dispatch:
 
 jobs:
   build:
@@ -18,22 +18,54 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Verify model file
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'yolov8n-face.pt')) { throw 'Required YOLO model yolov8n-face.pt is missing.' }
+          $size = (Get-Item 'yolov8n-face.pt').Length
+          if ($size -lt 1000000) { throw 'YOLO model file looks invalid or incomplete.' }
+
       - name: Install dependencies
         shell: pwsh
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python -m pip install --upgrade pip setuptools wheel
+          $requirements = Get-Content requirements.txt | Where-Object { $_ -notmatch '^\s*face_recognition\s*$' }
+          $requirements | Set-Content windows-requirements.txt
+          python -m pip install -r windows-requirements.txt
+          python -m pip install dlib-bin==20.0.1.post1
+          python -m pip install face_recognition_models
+          python -m pip install face_recognition --no-deps
           python -m pip install pyinstaller
+
+      - name: Verify Python runtime dependencies
+        shell: pwsh
+        run: |
+          python -c "import cv2, dlib, face_recognition, face_recognition_models, numpy, PySide6, ultralytics; print('PYTHON_RUNTIME_OK')"
+          python -c "from ultralytics import YOLO; YOLO('yolov8n-face.pt'); print('YOLO_MODEL_LOAD_OK')"
 
       - name: Build Windows application
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name FaceRecognition --add-data "yolov8n-face.pt;." --hidden-import ultralytics --collect-all ultralytics --collect-all face_recognition --collect-binaries dlib src/app.py
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name FaceRecognition --add-data 'yolov8n-face.pt;.' --hidden-import ultralytics --hidden-import ultralytics.nn.tasks --hidden-import face_recognition_models --collect-all ultralytics --collect-all face_recognition --collect-all face_recognition_models --collect-binaries dlib src/app.py
+
+      - name: Verify packaged files
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'dist/FaceRecognition/FaceRecognition.exe')) { throw 'PyInstaller did not produce FaceRecognition.exe.' }
+          if (-not (Test-Path 'dist/FaceRecognition/yolov8n-face.pt')) { throw 'YOLO model was not packaged.' }
+
+      - name: Smoke test packaged executable
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path 'dist/FaceRecognition/FaceRecognition.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Packaged executable smoke test failed with exit code $($process.ExitCode)." }
 
       - name: Create ZIP
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/FaceRecognition/* -DestinationPath FaceRecognition-Windows.zip
+          if (Test-Path 'FaceRecognition-Windows.zip') { Remove-Item 'FaceRecognition-Windows.zip' -Force }
+          Compress-Archive -Path 'dist/FaceRecognition/*' -DestinationPath 'FaceRecognition-Windows.zip'
 
       - name: Upload Windows build
         uses: actions/upload-artifact@v4
