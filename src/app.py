@@ -2138,12 +2138,17 @@ class MainWindow(QMainWindow):
         self.report_end.setCalendarPopup(True)
         self.report_end.setDisplayFormat("yyyy/MM/dd")
         self.report_end.setDate(QDate.currentDate())
+        self.report_start.dateChanged.connect(lambda _: self.refresh_report())
+        self.report_end.dateChanged.connect(lambda _: self.refresh_report())
 
         self.report_major_combo = QComboBox()
         self.report_class_combo = QComboBox()
 
         self.report_major_combo.currentIndexChanged.connect(
             self.on_report_major_changed
+        )
+        self.report_class_combo.currentIndexChanged.connect(
+            lambda _: self.refresh_report()
         )
 
         filter_layout.addWidget(QLabel("از"))
@@ -3155,6 +3160,7 @@ class MainWindow(QMainWindow):
             self.report_class_combo,
             self.report_major_combo.currentData(),
         )
+        self.refresh_report()
 
     def set_report_range(self, days_back):
         end = QDate.currentDate()
@@ -3256,6 +3262,7 @@ class MainWindow(QMainWindow):
             start,
             end,
             major_id,
+            class_id,
         )
 
         self.report_trend_chart.set_data(daily)
@@ -3280,8 +3287,15 @@ class MainWindow(QMainWindow):
         self.report_absent_days_label.setText(str(total_absent))
         self.report_late_days_label.setText(str(total_late))
 
+        active_days = len(daily)
+        day_note = (
+            f" • {active_days} روز دارای ثبت حضور"
+            if active_days
+            else " • در این بازه هیچ ثبت حضوری وجود ندارد"
+        )
+
         self.report_summary.setText(
-            f"بازه {start} تا {end} • "
+            f"بازه {start} تا {end}{day_note} • "
             f"حاضر: {total_present} • "
             f"دیرکرد: {total_late} • "
             f"غیبت: {total_absent} • "
