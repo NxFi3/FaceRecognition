@@ -1351,11 +1351,27 @@ def get_daily_report_summary(
             student_query,
             student_params,
         ).fetchone()[0]
+
+        school_weekdays, school_overrides = _get_school_calendar(
+            conn,
+            year_id,
+        )
     finally:
         conn.close()
 
+    active_dates = set(
+        _filter_school_dates(
+            sorted({row[0] for row in rows}),
+            school_weekdays,
+            school_overrides,
+        )
+    )
+
     by_date = {}
     for date, status, count in rows:
+        if date not in active_dates:
+            continue
+
         by_date.setdefault(
             date,
             {
@@ -1482,10 +1498,19 @@ def get_class_report_summary(
             attendance_query,
             attendance_params,
         ).fetchall()
+
+        school_weekdays, school_overrides = _get_school_calendar(
+            conn,
+            year_id,
+        )
     finally:
         conn.close()
 
-    active_dates = sorted({row[3] for row in attendance})
+    active_dates = _filter_school_dates(
+        sorted({row[3] for row in attendance}),
+        school_weekdays,
+        school_overrides,
+    )
 
     counters = {}
     for student_id, status, class_id_value, date in attendance:
@@ -1661,10 +1686,19 @@ def get_report_rows(
             attendance_query,
             attendance_params,
         ).fetchall()
+
+        school_weekdays, school_overrides = _get_school_calendar(
+            conn,
+            year_id,
+        )
     finally:
         conn.close()
 
-    active_dates = sorted({row[1] for row in attendance_rows})
+    active_dates = _filter_school_dates(
+        sorted({row[1] for row in attendance_rows}),
+        school_weekdays,
+        school_overrides,
+    )
     active_day_count = len(active_dates)
 
     by_student = {}
