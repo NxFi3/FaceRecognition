@@ -746,19 +746,20 @@ def mark_attendance(student_id, camera_id="camera_0", status="present", notes=""
 
     conn = get_connection()
     try:
+        existing = conn.execute(
+            "SELECT id FROM attendance WHERE student_id = ? AND date = ?",
+            (student_id, date),
+        ).fetchone()
+
+        if existing is not None:
+            return False
+
         conn.execute(
             """
             INSERT INTO attendance
                 (student_id, date, timestamp, camera_id, status,
                  notes, source, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, 'camera', ?)
-            ON CONFLICT(student_id, date) DO UPDATE SET
-                timestamp = excluded.timestamp,
-                camera_id = excluded.camera_id,
-                status = excluded.status,
-                notes = excluded.notes,
-                source = 'camera',
-                updated_at = excluded.updated_at
             """,
             (
                 student_id,
