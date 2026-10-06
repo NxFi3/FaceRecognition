@@ -1367,7 +1367,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        student = self.get_student(student_id)
+        student = get_student(student_id)
 
         if student is None:
             return
@@ -1421,7 +1421,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        student = __import__("database").get_student(student_id)
+        student = get_student(student_id)
 
         if student is None:
             return
