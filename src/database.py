@@ -1045,6 +1045,236 @@ def get_attendance_stats(
     return total, present, absent, late, excused
 
 
+def get_daily_report_summary(
+    start_date,
+    end_date,
+    class_id=None,
+    major_id=None,
+):
+    active = get_active_academic_year()
+    year_id = active[0] if active else None
+
+    conn = get_connection()
+    try:
+        student_query = """
+            SELECT COUNT(*)
+            FROM students s
+            JOIN student_enrollments se
+                ON se.student_id = s.id
+                AND se.academic_year_id = ?
+            JOIN school_classes c ON c.id = se.class_id
+            LEFT JOIN majors m ON m.id = c.major_id
+            WHERE 1 = 1
+        """
+        student_params = [year_id]
+
+        if class_id:
+            student_query += " AND c.id = ?"
+            student_params.append(class_id)
+
+        if major_id:
+            student_query += " AND m.id = ?"
+            student_params.append(major_id)
+
+        total_students = conn.execute(
+            student_query,
+            student_params,
+        ).fetchone()[0]
+
+        attendance_query = """
+            SELECT a.date, a.status, COUNT(*)
+            FROM attendance a
+            JOIN students s ON s.id = a.student_id
+            JOIN student_enrollments se
+                ON se.student_id = s.id
+                AND se.academic_year_id = ?
+            JOIN school_classes c ON c.id = se.class_id
+            LEFT JOIN majors m ON m.id = c.major_id
+            WHERE a.date BETWEEN ? AND ?
+        """
+        attendance_params = [year_id, start_date, end_date]
+
+        if class_id:
+            attendance_query += " AND c.id = ?"
+            attendance_params.append(class_id)
+
+        if major_id:
+            attendance_query += " AND m.id = ?"
+            attendance_params.append(major_id)
+
+        attendance_query += " GROUP BY a.date, a.status"
+
+        rows = conn.execute(
+            attendance_query,
+            attendance_params,
+        ).fetchall()
+    finally:
+        conn.close()
+
+    by_date = {}
+    for date, status, count in rows:
+        by_date.setdefault(
+            date,
+            {
+                "present": 0,
+                "late": 0,
+                "excused": 0,
+            },
+        )
+        if status in {"present", "late", "excused"}:
+            by_date[date][status] += count
+
+    start = datetime.strptime(start_date, "%Y-%m-%d").date()
+    end = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+    result = []
+    current = start
+
+    while current <= end:
+        key = current.strftime("%Y-%m-%d")
+        day = by_date.get(
+            key,
+            {"present": 0, "late": 0, "excused": 0},
+        )
+
+        present = day["present"]
+        late = day["late"]
+        excused = day["excused"]
+        absent = max(
+            0,
+            total_students - present - late - excused,
+        )
+
+        attended = present + late
+        percentage = (
+            (attended / total_students) * 100
+            if total_students
+            else 0.0
+        )
+
+        result.append(
+            (
+                key,
+                present,
+                late,
+                absent,
+                excused,
+                round(percentage, 1),
+            )
+        )
+
+        current = current.fromordinal(
+            current.toordinal() + 1
+        )
+
+    return result
+
+
+def get_class_report_summary(
+    start_date,
+    end_date,
+    major_id=None,
+):
+    active = get_active_academic_year()
+    year_id = active[0] if active else None
+    if year_id is None:
+        return []
+
+    conn = get_connection()
+    try:
+        query = """
+            SELECT
+                c.id,
+                c.name,
+                COALESCE(m.name, ''),
+                COUNT(se.id)
+            FROM school_classes c
+            LEFT JOIN majors m ON m.id = c.major_id
+            LEFT JOIN student_enrollments se
+                ON se.class_id = c.id
+                AND se.academic_year_id = ?
+            WHERE c.academic_year_id = ?
+        """
+        params = [year_id, year_id]
+
+        if major_id:
+            query += " AND c.major_id = ?"
+            params.append(major_id)
+
+        query += """
+            GROUP BY c.id
+            ORDER BY c.grade, c.name
+        """
+
+        classes = conn.execute(query, params).fetchall()
+
+        attendance = conn.execute(
+            """
+            SELECT
+                a.student_id,
+                a.status,
+                c.id
+            FROM attendance a
+            JOIN student_enrollments se
+                ON se.student_id = a.student_id
+                AND se.academic_year_id = ?
+            JOIN school_classes c ON c.id = se.class_id
+            WHERE a.date BETWEEN ? AND ?
+            """,
+            (year_id, start_date, end_date),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    counters = {}
+    for student_id, status, class_id in attendance:
+        counters.setdefault(
+            class_id,
+            {"present": 0, "late": 0, "absent": 0, "excused": 0},
+        )
+        if status in counters[class_id]:
+            counters[class_id][status] += 1
+
+    start = datetime.strptime(start_date, "%Y-%m-%d").date()
+    end = datetime.strptime(end_date, "%Y-%m-%d").date()
+    day_count = max(1, (end - start).days + 1)
+
+    result = []
+    for class_id, name, major_name, student_count in classes:
+        stats = counters.get(
+            class_id,
+            {"present": 0, "late": 0, "absent": 0, "excused": 0},
+        )
+
+        possible = student_count * day_count
+        present = stats["present"]
+        late = stats["late"]
+        excused = stats["excused"]
+        absent = max(0, possible - present - late - excused)
+
+        percent = (
+            ((present + late) / possible) * 100
+            if possible
+            else 0.0
+        )
+
+        result.append(
+            (
+                class_id,
+                name,
+                major_name,
+                student_count,
+                present,
+                late,
+                absent,
+                excused,
+                round(percent, 1),
+            )
+        )
+
+    return result
+
+
 def get_recent_attendance(limit=12, date=None):
     if date is None:
         date = datetime.now().strftime("%Y-%m-%d")
