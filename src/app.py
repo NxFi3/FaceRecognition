@@ -45,6 +45,21 @@ try:
         update_student,
         load_students,
     )
+
+try:
+    from auth import (
+        change_admin_password,
+        password_is_configured,
+        set_admin_password,
+        verify_admin_password,
+    )
+except ModuleNotFoundError:
+    from .auth import (
+        change_admin_password,
+        password_is_configured,
+        set_admin_password,
+        verify_admin_password,
+    )
 except ModuleNotFoundError:
     from .database import (
         add_embedding,
@@ -817,6 +832,209 @@ class EnrollmentDialog(QDialog):
         event.accept()
 
 
+class AdminPasswordDialog(QDialog):
+    def __init__(self, mode="login", parent=None):
+        super().__init__(parent)
+
+        self.mode = mode
+        self.setModal(True)
+        self.resize(430, 240)
+
+        titles = {
+            "login": "Administrator Login",
+            "setup": "Set Administrator Password",
+            "change": "Change Administrator Password",
+        }
+        self.setWindowTitle(titles[mode])
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(28, 24, 28, 24)
+        root.setSpacing(14)
+
+        title = QLabel(
+            "School Attendance System"
+            if mode == "login"
+            else (
+                "Create the administrator password"
+                if mode == "setup"
+                else "Update the administrator password"
+            )
+        )
+        title.setObjectName("sectionTitle")
+        root.addWidget(title)
+
+        if mode == "login":
+            message = QLabel(
+                "Administrator password required to access the system."
+            )
+            message.setObjectName("muted")
+            message.setWordWrap(True)
+            root.addWidget(message)
+
+            self.password_edit = QLineEdit()
+            self.password_edit.setEchoMode(QLineEdit.Password)
+            self.password_edit.setPlaceholderText("Administrator password")
+            self.password_edit.returnPressed.connect(self.submit_login)
+            root.addWidget(self.password_edit)
+
+        elif mode == "setup":
+            message = QLabel(
+                "This is the first launch. Set a password of at least "
+                f"{8} characters."
+            )
+            message.setObjectName("muted")
+            message.setWordWrap(True)
+            root.addWidget(message)
+
+            self.password_edit = QLineEdit()
+            self.password_edit.setEchoMode(QLineEdit.Password)
+            self.password_edit.setPlaceholderText("New password")
+            root.addWidget(self.password_edit)
+
+            self.confirm_edit = QLineEdit()
+            self.confirm_edit.setEchoMode(QLineEdit.Password)
+            self.confirm_edit.setPlaceholderText("Confirm password")
+            self.confirm_edit.returnPressed.connect(self.submit_setup)
+            root.addWidget(self.confirm_edit)
+
+        else:
+            self.current_edit = QLineEdit()
+            self.current_edit.setEchoMode(QLineEdit.Password)
+            self.current_edit.setPlaceholderText("Current password")
+            root.addWidget(self.current_edit)
+
+            self.password_edit = QLineEdit()
+            self.password_edit.setEchoMode(QLineEdit.Password)
+            self.password_edit.setPlaceholderText("New password")
+            root.addWidget(self.password_edit)
+
+            self.confirm_edit = QLineEdit()
+            self.confirm_edit.setEchoMode(QLineEdit.Password)
+            self.confirm_edit.setPlaceholderText("Confirm new password")
+            self.confirm_edit.returnPressed.connect(self.submit_change)
+            root.addWidget(self.confirm_edit)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        buttons.addWidget(cancel)
+
+        self.submit_button = QPushButton(
+            "Login" if mode == "login" else (
+                "Set Password" if mode == "setup" else "Change Password"
+            )
+        )
+
+        if mode == "login":
+            self.submit_button.clicked.connect(self.submit_login)
+        elif mode == "setup":
+            self.submit_button.clicked.connect(self.submit_setup)
+        else:
+            self.submit_button.clicked.connect(self.submit_change)
+
+        buttons.addWidget(self.submit_button)
+        root.addLayout(buttons)
+
+        self.attempts = 0
+        self.password_edit.setFocus()
+
+    def submit_login(self):
+        if verify_admin_password(self.password_edit.text()):
+            self.accept()
+            return
+
+        self.attempts += 1
+        self.password_edit.clear()
+
+        if self.attempts >= 5:
+            QMessageBox.critical(
+                self,
+                "Access denied",
+                "Too many failed attempts.",
+            )
+            self.reject()
+        else:
+            QMessageBox.warning(
+                self,
+                "Invalid password",
+                f"Incorrect password. {5 - self.attempts} attempts remaining.",
+            )
+
+    def submit_setup(self):
+        password = self.password_edit.text()
+        confirm = self.confirm_edit.text()
+
+        if len(password) < 8:
+            QMessageBox.warning(
+                self,
+                "Password too short",
+                "Choose a password with at least 8 characters.",
+            )
+            return
+
+        if password != confirm:
+            QMessageBox.warning(
+                self,
+                "Passwords do not match",
+                "The two passwords do not match.",
+            )
+            return
+
+        set_admin_password(password)
+        self.accept()
+
+    def submit_change(self):
+        current = self.current_edit.text()
+        new_password = self.password_edit.text()
+        confirm = self.confirm_edit.text()
+
+        if len(new_password) < 8:
+            QMessageBox.warning(
+                self,
+                "Password too short",
+                "Choose a password with at least 8 characters.",
+            )
+            return
+
+        if new_password != confirm:
+            QMessageBox.warning(
+                self,
+                "Passwords do not match",
+                "The new passwords do not match.",
+            )
+            return
+
+        try:
+            changed = change_admin_password(current, new_password)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Invalid password", str(exc))
+            return
+
+        if not changed:
+            QMessageBox.warning(
+                self,
+                "Invalid password",
+                "Current administrator password is incorrect.",
+            )
+            self.current_edit.clear()
+            self.current_edit.setFocus()
+            return
+
+        self.accept()
+
+
+def ensure_admin_access():
+    if not password_is_configured():
+        dialog = AdminPasswordDialog(mode="setup")
+        if dialog.exec() != QDialog.Accepted:
+            return False
+
+    login = AdminPasswordDialog(mode="login")
+    return login.exec() == QDialog.Accepted
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -875,6 +1093,10 @@ class MainWindow(QMainWindow):
             )
             self.nav_buttons.append(button)
             side_layout.addWidget(button)
+
+        change_password_button = QPushButton("Change password")
+        change_password_button.clicked.connect(self.change_admin_password)
+        side_layout.addWidget(change_password_button)
 
         side_layout.addStretch()
 
@@ -1248,6 +1470,20 @@ class MainWindow(QMainWindow):
                     column,
                     QTableWidgetItem(value),
                 )
+
+    def change_admin_password(self):
+        dialog = AdminPasswordDialog(
+            mode="change",
+            parent=self,
+        )
+
+        if dialog.exec() == QDialog.Accepted:
+            QMessageBox.information(
+                self,
+                "Password changed",
+                "The administrator password was changed successfully.",
+            )
+
 
     def selected_student_id(self):
         row = self.students_table.currentRow()
@@ -1743,6 +1979,9 @@ def main():
         }
         """
     )
+
+    if not ensure_admin_access():
+        return
 
     window = MainWindow()
     window.show()
