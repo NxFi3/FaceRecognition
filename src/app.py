@@ -10,12 +10,10 @@ from PySide6.QtCore import QDate, QThread, Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -635,6 +633,10 @@ class EnrollmentDialog(QDialog):
             return
 
         self.embeddings = embeddings
+
+        if self.worker is not None and self.worker.isRunning():
+            self.worker.wait(5000)
+
         self.progress_label.setText("Capture complete.")
         self.accept()
 
@@ -1045,10 +1047,8 @@ class MainWindow(QMainWindow):
         self.refresh_dashboard()
         self.refresh_attendance()
 
-        QMessageBox.information(
-            self,
-            "Attendance marked",
-            f'{event["name"]} ({event["student_code"]}) marked present at {event["time"]}.',
+        self.camera_status.setText(
+            f'Attendance marked • {event["name"]} ({event["student_code"]}) • {event["time"]}'
         )
 
     # ----------------------------
