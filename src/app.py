@@ -1027,8 +1027,7 @@ class AdminPasswordDialog(QDialog):
 def ensure_admin_access():
     if not password_is_configured():
         dialog = AdminPasswordDialog(mode="setup")
-        if dialog.exec() != QDialog.Accepted:
-            return False
+        return dialog.exec() == QDialog.Accepted
 
     login = AdminPasswordDialog(mode="login")
     return login.exec() == QDialog.Accepted
