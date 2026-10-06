@@ -38,6 +38,7 @@ try:
         delete_student,
         get_attendance,
         get_attendance_stats,
+        get_student,
         init_db,
         list_students,
         mark_attendance,
@@ -52,6 +53,7 @@ except ModuleNotFoundError:
         delete_student,
         get_attendance,
         get_attendance_stats,
+        get_student,
         init_db,
         list_students,
         mark_attendance,
@@ -1117,10 +1119,6 @@ class MainWindow(QMainWindow):
                     QTableWidgetItem(value),
                 )
 
-    def get_student(self, student_id):
-        from database import get_student
-        return get_student(student_id)
-
     def selected_student_id(self):
         row = self.students_table.currentRow()
 
@@ -1186,7 +1184,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        student = self.get_student(student_id)
+        student = get_student(student_id)
 
         if student is None:
             return
