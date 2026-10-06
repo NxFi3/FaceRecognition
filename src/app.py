@@ -63,6 +63,8 @@ try:
         mark_attendance,
         set_active_academic_year,
         set_attendance_status,
+        update_academic_year,
+        update_academic_year,
         update_class,
         update_major,
         update_student,
@@ -1086,9 +1088,12 @@ class AcademicYearDialog(QDialog):
     def __init__(self, existing=None, parent=None):
         super().__init__(parent)
 
+        self.existing = existing
         self.setModal(True)
         self.resize(520, 290)
-        self.setWindowTitle("افزودن سال تحصیلی")
+        self.setWindowTitle(
+            "ویرایش سال تحصیلی" if existing else "افزودن سال تحصیلی"
+        )
 
         root = QVBoxLayout(self)
 
@@ -1116,6 +1121,19 @@ class AcademicYearDialog(QDialog):
 
         self.start_date.setDate(QDate(start_year, 9, 1))
         self.end_date.setDate(QDate(start_year + 1, 6, 30))
+
+        if existing:
+            _, _, existing_start, existing_end, _ = existing
+
+            if existing_start:
+                parsed_start = QDate.fromString(existing_start, "yyyy-MM-dd")
+                if parsed_start.isValid():
+                    self.start_date.setDate(parsed_start)
+
+            if existing_end:
+                parsed_end = QDate.fromString(existing_end, "yyyy-MM-dd")
+                if parsed_end.isValid():
+                    self.end_date.setDate(parsed_end)
 
         self.start_date.dateChanged.connect(self.on_start_date_changed)
 
@@ -1615,6 +1633,7 @@ class MainWindow(QMainWindow):
 
         for label, handler in (
             ("افزودن سال", self.add_academic_year_dialog),
+            ("ویرایش سال", self.edit_academic_year_dialog),
             ("فعال‌کردن سال", self.set_active_year),
             ("افزودن کلاس", self.add_class_dialog),
             ("ویرایش", self.edit_selected_class),
@@ -2275,6 +2294,48 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(
                 self,
                 "افزودن سال ناموفق بود",
+                str(exc),
+            )
+
+    def edit_academic_year_dialog(self):
+        year_id = self.class_year_combo.currentData()
+        if not year_id:
+            QMessageBox.information(
+                self,
+                "انتخاب سال",
+                "ابتدا یک سال تحصیلی را انتخاب کنید.",
+            )
+            return
+
+        existing = next(
+            (
+                item
+                for item in list_academic_years()
+                if item[0] == year_id
+            ),
+            None,
+        )
+
+        if existing is None:
+            return
+
+        dialog = AcademicYearDialog(existing=existing, parent=self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        start_date, end_date = dialog.values()
+
+        try:
+            update_academic_year(
+                year_id,
+                start_date,
+                end_date,
+            )
+            self.refresh_all()
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "ویرایش سال ناموفق بود",
                 str(exc),
             )
 
