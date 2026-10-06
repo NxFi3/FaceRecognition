@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2
 import face_recognition
 import numpy as np
-from PySide6.QtCore import QDate, QThread, Qt, Signal
+from PySide6.QtCore import QDate, QLibraryInfo, QThread, QTranslator, Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -3124,6 +3124,14 @@ def main():
     app = QApplication(sys.argv)
     app.setLayoutDirection(Qt.RightToLeft)
     app.setStyle("Fusion")
+
+    # Load Qt's Persian translations when the local Qt installation provides them.
+    translator = QTranslator(app)
+    translations_path = QLibraryInfo.path(
+        QLibraryInfo.LibraryPath.TranslationsPath
+    )
+    if translator.load("qtbase_fa", translations_path):
+        app.installTranslator(translator)
 
     app.setStyleSheet(
         """
