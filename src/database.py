@@ -357,6 +357,54 @@ def add_academic_year(start_date, end_date, active=False):
         conn.close()
 
 
+def update_academic_year(year_id, start_date, end_date):
+    start_date = start_date.strip()
+    end_date = end_date.strip()
+
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError("تاریخ سال تحصیلی نامعتبر است.") from exc
+
+    if end <= start:
+        raise ValueError("تاریخ پایان باید بعد از تاریخ شروع باشد.")
+
+    conn = get_connection()
+    try:
+        overlap = conn.execute(
+            """
+            SELECT id, name
+            FROM academic_years
+            WHERE id != ?
+              AND start_date IS NOT NULL
+              AND end_date IS NOT NULL
+              AND start_date < ?
+              AND end_date > ?
+            """,
+            (year_id, end_date, start_date),
+        ).fetchone()
+
+        if overlap:
+            raise ValueError(
+                f"بازه انتخاب‌شده با سال تحصیلی «{overlap[1]}» هم‌پوشانی دارد."
+            )
+
+        name = f"{start.year:04d}-{end.year:04d}"
+
+        conn.execute(
+            """
+            UPDATE academic_years
+            SET name = ?, start_date = ?, end_date = ?
+            WHERE id = ?
+            """,
+            (name, start_date, end_date, year_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def set_active_academic_year(year_id):
     conn = get_connection()
     try:
