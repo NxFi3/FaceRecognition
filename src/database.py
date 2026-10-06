@@ -31,7 +31,7 @@ def init_db():
             value TEXT NOT NULL
         );
 
-                CREATE TABLE IF NOT EXISTS students (
+        CREATE TABLE IF NOT EXISTS students (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             student_code TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL,
