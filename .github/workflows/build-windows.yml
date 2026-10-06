@@ -1,6 +1,8 @@
 name: Build Windows EXE
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -23,13 +25,18 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install pyinstaller
 
-      - name: Build
+      - name: Build Windows application
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name FaceRecognition --add-data "yolov8n-face.pt;." --hidden-import ultralytics --collect-all ultralytics src/app.py
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name FaceRecognition --add-data "yolov8n-face.pt;." --hidden-import ultralytics --collect-all ultralytics --collect-all face_recognition --collect-binaries dlib src/app.py
 
-      - name: Upload build artifact
+      - name: Create ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/FaceRecognition/* -DestinationPath FaceRecognition-Windows.zip
+
+      - name: Upload Windows build
         uses: actions/upload-artifact@v4
         with:
           name: FaceRecognition-Windows
-          path: dist/FaceRecognition/
+          path: FaceRecognition-Windows.zip
