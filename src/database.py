@@ -1,11 +1,16 @@
 import sqlite3
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+else:
+    BASE_DIR = Path(__file__).resolve().parent.parent
+
 DB_PATH = BASE_DIR / "data" / "attendance.db"
 
 
