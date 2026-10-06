@@ -1,14 +1,16 @@
 import sqlite3
-import numpy as np
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
-DB_PATH = Path("data/attendance.db")
+import numpy as np
+
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DB_PATH = BASE_DIR / "data" / "attendance.db"
 
 
 def get_connection():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -17,7 +19,8 @@ def get_connection():
 def init_db():
     conn = get_connection()
 
-    conn.executescript("""
+    conn.executescript(
+        """
         CREATE TABLE IF NOT EXISTS students (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             student_code TEXT NOT NULL UNIQUE,
@@ -52,7 +55,8 @@ def init_db():
 
             UNIQUE(student_id, date)
         );
-    """)
+        """
+    )
 
     conn.commit()
     conn.close()
@@ -61,20 +65,59 @@ def init_db():
 def add_student(student_code, name):
     conn = get_connection()
 
-    cursor = conn.execute(
-        """
-        INSERT INTO students (student_code, name)
-        VALUES (?, ?)
-        """,
-        (student_code, name),
-    )
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO students (student_code, name)
+            VALUES (?, ?)
+            """,
+            (student_code.strip(), name.strip()),
+        )
+        student_id = cursor.lastrowid
+        conn.commit()
+        return student_id
+    finally:
+        conn.close()
 
-    student_id = cursor.lastrowid
 
-    conn.commit()
-    conn.close()
+def update_student(student_id, student_code, name):
+    conn = get_connection()
 
-    return student_id
+    try:
+        conn.execute(
+            """
+            UPDATE students
+            SET student_code = ?, name = ?
+            WHERE id = ?
+            """,
+            (student_code.strip(), name.strip(), student_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_student(student_id):
+    conn = get_connection()
+
+    try:
+        conn.execute("DELETE FROM students WHERE id = ?", (student_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_embeddings(student_id):
+    conn = get_connection()
+
+    try:
+        conn.execute(
+            "DELETE FROM face_embeddings WHERE student_id = ?",
+            (student_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def add_embedding(student_id, embedding):
@@ -82,34 +125,38 @@ def add_embedding(student_id, embedding):
 
     conn = get_connection()
 
-    conn.execute(
-        """
-        INSERT INTO face_embeddings (student_id, embedding)
-        VALUES (?, ?)
-        """,
-        (student_id, embedding.tobytes()),
-    )
-
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute(
+            """
+            INSERT INTO face_embeddings (student_id, embedding)
+            VALUES (?, ?)
+            """,
+            (student_id, embedding.tobytes()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def load_students():
     conn = get_connection()
 
-    rows = conn.execute("""
-        SELECT
-            s.id,
-            s.student_code,
-            s.name,
-            fe.embedding
-        FROM students s
-        JOIN face_embeddings fe
-            ON fe.student_id = s.id
-        ORDER BY s.id, fe.id
-    """).fetchall()
-
-    conn.close()
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                s.id,
+                s.student_code,
+                s.name,
+                fe.embedding
+            FROM students s
+            JOIN face_embeddings fe
+                ON fe.student_id = s.id
+            ORDER BY s.id, fe.id
+            """
+        ).fetchall()
+    finally:
+        conn.close()
 
     students = {}
 
@@ -129,6 +176,47 @@ def load_students():
     return list(students.values())
 
 
+def list_students():
+    conn = get_connection()
+
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                s.id,
+                s.student_code,
+                s.name,
+                COUNT(fe.id) AS embedding_count,
+                s.created_at
+            FROM students s
+            LEFT JOIN face_embeddings fe
+                ON fe.student_id = s.id
+            GROUP BY s.id
+            ORDER BY s.id
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return rows
+
+
+def get_student(student_id):
+    conn = get_connection()
+
+    try:
+        return conn.execute(
+            """
+            SELECT id, student_code, name, created_at
+            FROM students
+            WHERE id = ?
+            """,
+            (student_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+
 def mark_attendance(student_id, camera_id="camera_0"):
     now = datetime.now()
 
@@ -137,45 +225,72 @@ def mark_attendance(student_id, camera_id="camera_0"):
 
     conn = get_connection()
 
-    cursor = conn.execute(
-        """
-        INSERT OR IGNORE INTO attendance
-            (student_id, date, timestamp, camera_id)
-        VALUES (?, ?, ?, ?)
-        """,
-        (student_id, date, timestamp, camera_id),
-    )
+    try:
+        cursor = conn.execute(
+            """
+            INSERT OR IGNORE INTO attendance
+                (student_id, date, timestamp, camera_id)
+            VALUES (?, ?, ?, ?)
+            """,
+            (student_id, date, timestamp, camera_id),
+        )
 
-    conn.commit()
-
-    inserted = cursor.rowcount > 0
-
-    conn.close()
-
-    return inserted
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
 
 
-def get_today_attendance():
-    today = datetime.now().strftime("%Y-%m-%d")
+def get_attendance(date=None):
+    if date is None:
+        date = datetime.now().strftime("%Y-%m-%d")
 
     conn = get_connection()
 
-    rows = conn.execute(
-        """
-        SELECT
-            s.student_code,
-            s.name,
-            a.timestamp,
-            a.camera_id
-        FROM attendance a
-        JOIN students s
-            ON s.id = a.student_id
-        WHERE a.date = ?
-        ORDER BY a.timestamp
-    """,
-        (today,),
-    ).fetchall()
+    try:
+        return conn.execute(
+            """
+            SELECT
+                s.id,
+                s.student_code,
+                s.name,
+                a.timestamp,
+                a.camera_id
+            FROM attendance a
+            JOIN students s
+                ON s.id = a.student_id
+            WHERE a.date = ?
+            ORDER BY a.timestamp
+            """,
+            (date,),
+        ).fetchall()
+    finally:
+        conn.close()
 
-    conn.close()
 
-    return rows
+def get_attendance_stats(date=None):
+    if date is None:
+        date = datetime.now().strftime("%Y-%m-%d")
+
+    conn = get_connection()
+
+    try:
+        total_students = conn.execute(
+            "SELECT COUNT(*) FROM students"
+        ).fetchone()[0]
+
+        present = conn.execute(
+            "SELECT COUNT(*) FROM attendance WHERE date = ?",
+            (date,),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+    return total_students, present, max(0, total_students - present)
+
+
+def get_today_attendance():
+    return [
+        (student_code, name, timestamp, camera_id)
+        for _, student_code, name, timestamp, camera_id in get_attendance()
+    ]
