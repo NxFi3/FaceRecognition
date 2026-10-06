@@ -1658,16 +1658,6 @@ class StatusDonutChart(QWidget):
             )
             return
 
-        size = min(self.width(), self.height()) - 55
-        size = max(100, size)
-        x = 20
-        y = int((self.height() - size) / 2)
-        pie_rect = self.rect().adjusted(20, 15, -20, -15)
-
-        pie_size = min(pie_rect.width(), pie_rect.height())
-        pie_x = int(pie_rect.center().x() - pie_size / 2)
-        pie_y = int(pie_rect.center().y() - pie_size / 2)
-
         colors = {
             "present": "#36a269",
             "late": "#e0a13a",
@@ -1680,6 +1670,17 @@ class StatusDonutChart(QWidget):
             "absent": "غایب",
             "excused": "موجه",
         }
+
+        # Reserve a separate area for the legend so its text never sits
+        # on top of the donut, even when the report window is resized.
+        legend_width = 170
+        chart_width = max(180, self.width() - legend_width - 35)
+        pie_size = max(
+            110,
+            min(chart_width - 15, self.height() - 35),
+        )
+        pie_x = int((chart_width - pie_size) / 2)
+        pie_y = int((self.height() - pie_size) / 2)
 
         start_angle = 0
         for key in ("present", "late", "absent", "excused"):
@@ -1722,11 +1723,11 @@ class StatusDonutChart(QWidget):
             str(total),
         )
 
-        legend_x = min(
-            self.width() - 170,
-            int(self.width() * 0.60),
+        legend_x = chart_width + 20
+        legend_y = max(
+            40,
+            int(self.height() / 2) - 56,
         )
-        legend_y = 35
         painter.setFont(QFont("Segoe UI", 10))
 
         for key in ("present", "late", "absent", "excused"):
