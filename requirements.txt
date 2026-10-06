@@ -4,3 +4,5 @@ face_recognition
 numpy
 PySide6
 openpyxl
+setuptools<81
+lap>=0.5.12
