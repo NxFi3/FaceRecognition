@@ -132,6 +132,29 @@ def init_db():
 
             UNIQUE(student_id, date)
         );
+
+        CREATE TABLE IF NOT EXISTS school_weekdays (
+            academic_year_id INTEGER NOT NULL,
+            weekday INTEGER NOT NULL,
+            is_school_day INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (academic_year_id, weekday),
+            FOREIGN KEY (academic_year_id)
+                REFERENCES academic_years(id)
+                ON DELETE CASCADE,
+            CHECK (weekday >= 0 AND weekday <= 6)
+        );
+
+        CREATE TABLE IF NOT EXISTS school_day_overrides (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            academic_year_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            is_school_day INTEGER NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY (academic_year_id)
+                REFERENCES academic_years(id)
+                ON DELETE CASCADE,
+            UNIQUE (academic_year_id, date)
+        );
         """
     )
 
