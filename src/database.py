@@ -267,8 +267,217 @@ def init_db():
                     (first_year[0],),
                 )
 
+    # Default weekly schedule: Saturday through Wednesday.
+    # The administrator can change it from the school calendar screen.
+    default_school_weekdays = (5, 6, 0, 1, 2)
+    for (year_id,) in conn.execute(
+        "SELECT id FROM academic_years"
+    ).fetchall():
+        exists = conn.execute(
+            """
+            SELECT 1
+            FROM school_weekdays
+            WHERE academic_year_id = ?
+            LIMIT 1
+            """,
+            (year_id,),
+        ).fetchone()
+
+        if exists is None:
+            conn.executemany(
+                """
+                INSERT INTO school_weekdays
+                    (academic_year_id, weekday, is_school_day)
+                VALUES (?, ?, 1)
+                """,
+                [(year_id, day) for day in default_school_weekdays],
+            )
+
     conn.commit()
     conn.close()
+
+
+def _get_school_calendar(conn, academic_year_id):
+    weekdays = {
+        row[0]
+        for row in conn.execute(
+            """
+            SELECT weekday
+            FROM school_weekdays
+            WHERE academic_year_id = ?
+              AND is_school_day = 1
+            """,
+            (academic_year_id,),
+        ).fetchall()
+    }
+
+    overrides = {
+        row[0]: bool(row[1])
+        for row in conn.execute(
+            """
+            SELECT date, is_school_day
+            FROM school_day_overrides
+            WHERE academic_year_id = ?
+            """,
+            (academic_year_id,),
+        ).fetchall()
+    }
+
+    return weekdays, overrides
+
+
+def _filter_school_dates(dates, weekdays, overrides):
+    result = []
+
+    for date in dates:
+        override = overrides.get(date)
+
+        if override is None:
+            is_school_day = (
+                datetime.strptime(date, "%Y-%m-%d").weekday()
+                in weekdays
+            )
+        else:
+            is_school_day = override
+
+        if is_school_day:
+            result.append(date)
+
+    return result
+
+
+def get_school_weekdays(academic_year_id):
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT weekday
+            FROM school_weekdays
+            WHERE academic_year_id = ?
+              AND is_school_day = 1
+            ORDER BY weekday
+            """,
+            (academic_year_id,),
+        ).fetchall()
+        return {row[0] for row in rows}
+    finally:
+        conn.close()
+
+
+def set_school_weekdays(academic_year_id, weekdays):
+    weekdays = sorted({int(day) for day in weekdays})
+
+    if not weekdays or any(day < 0 or day > 6 for day in weekdays):
+        raise ValueError("حداقل یک روز مدرسه باید انتخاب شود.")
+
+    conn = get_connection()
+    try:
+        exists = conn.execute(
+            "SELECT 1 FROM academic_years WHERE id = ?",
+            (academic_year_id,),
+        ).fetchone()
+
+        if not exists:
+            raise ValueError("سال تحصیلی انتخاب‌شده پیدا نشد.")
+
+        conn.execute(
+            "DELETE FROM school_weekdays WHERE academic_year_id = ?",
+            (academic_year_id,),
+        )
+        conn.executemany(
+            """
+            INSERT INTO school_weekdays
+                (academic_year_id, weekday, is_school_day)
+            VALUES (?, ?, 1)
+            """,
+            [(academic_year_id, day) for day in weekdays],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_school_day_overrides(academic_year_id):
+    conn = get_connection()
+    try:
+        return conn.execute(
+            """
+            SELECT id, date, is_school_day, note
+            FROM school_day_overrides
+            WHERE academic_year_id = ?
+            ORDER BY date DESC
+            """,
+            (academic_year_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+
+def set_school_day_override(academic_year_id, date, is_school_day, note=""):
+    date = str(date).strip()
+    note = str(note or "").strip()
+
+    try:
+        parsed = datetime.strptime(date, "%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError("تاریخ استثنا نامعتبر است.") from exc
+
+    conn = get_connection()
+    try:
+        year = conn.execute(
+            """
+            SELECT start_date, end_date
+            FROM academic_years
+            WHERE id = ?
+            """,
+            (academic_year_id,),
+        ).fetchone()
+
+        if year is None:
+            raise ValueError("سال تحصیلی انتخاب‌شده پیدا نشد.")
+
+        if year[0]:
+            start = datetime.strptime(year[0], "%Y-%m-%d").date()
+            if parsed.date() < start:
+                raise ValueError("تاریخ خارج از بازه سال تحصیلی است.")
+
+        if year[1]:
+            end = datetime.strptime(year[1], "%Y-%m-%d").date()
+            if parsed.date() > end:
+                raise ValueError("تاریخ خارج از بازه سال تحصیلی است.")
+
+        conn.execute(
+            """
+            INSERT INTO school_day_overrides
+                (academic_year_id, date, is_school_day, note)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(academic_year_id, date)
+            DO UPDATE SET
+                is_school_day = excluded.is_school_day,
+                note = excluded.note
+            """,
+            (
+                academic_year_id,
+                date,
+                1 if is_school_day else 0,
+                note,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_school_day_override(override_id):
+    conn = get_connection()
+    try:
+        conn.execute(
+            "DELETE FROM school_day_overrides WHERE id = ?",
+            (override_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def get_setting(key, default=None):
@@ -374,6 +583,19 @@ def add_academic_year(start_date, end_date, active=False):
             """,
             (name, start_date, end_date, 1 if active else 0),
         )
+
+        conn.executemany(
+            """
+            INSERT INTO school_weekdays
+                (academic_year_id, weekday, is_school_day)
+            VALUES (?, ?, 1)
+            """,
+            [
+                (cursor.lastrowid, day)
+                for day in (5, 6, 0, 1, 2)
+            ],
+        )
+
         conn.commit()
         return cursor.lastrowid
     finally:
