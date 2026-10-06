@@ -6,10 +6,6 @@ from ultralytics import YOLO
 
 from database import init_db, add_student, add_embedding
 
-# =========================
-# Configuration
-# =========================
-
 YOLO_MODEL = "yolov8n-face.pt"
 CAMERA_ID = 0
 
@@ -21,11 +17,6 @@ MIN_FACE_SIZE = 80
 
 # Minimum time between accepted samples
 SAMPLE_INTERVAL = 1.0
-
-
-# =========================
-# Face embedding
-# =========================
 
 
 def get_embedding(frame, bbox):
@@ -45,11 +36,6 @@ def get_embedding(frame, bbox):
         return None
 
     return encodings[0].astype(np.float32)
-
-
-# =========================
-# Main enrollment
-# =========================
 
 
 def main():
@@ -88,13 +74,11 @@ def main():
 
     last_sample_time = 0
 
-    print()
     print("Camera ready.")
     print()
     print("Look at the camera.")
     print("Move your head slightly between samples.")
     print("Press Q to cancel.")
-    print()
 
     while len(embeddings) < NUM_SAMPLES:
 
@@ -207,10 +191,6 @@ def main():
     cap.release()
     cv2.destroyAllWindows()
 
-    # =========================
-    # Save to database
-    # =========================
-
     if len(embeddings) != NUM_SAMPLES:
         print("Enrollment failed.")
         return
@@ -235,9 +215,7 @@ def main():
         add_embedding(student_id, embedding)
 
     print()
-    print("=" * 50)
     print("Enrollment successful!")
-    print("=" * 50)
     print()
     print(f"Student : {name}")
     print(f"Code    : {student_code}")

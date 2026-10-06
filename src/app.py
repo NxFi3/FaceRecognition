@@ -88,11 +88,6 @@ ENROLLMENT_MIN_FACE_SIZE = 80
 UI_FRAME_LIMIT = 1.0 / 30.0
 
 
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
-
-
 def frame_to_qimage(frame):
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     h, w, channels = rgb.shape
@@ -138,9 +133,6 @@ def draw_text(frame, text, origin, scale=0.65, color=(255, 255, 255), thickness=
     )
 
 
-# ---------------------------------------------------------------------------
-# Recognition
-# ---------------------------------------------------------------------------
 
 
 class FaceMatcher:
@@ -195,16 +187,12 @@ class FaceMatcher:
 
         best_index, best_distance, best_stability = candidates[0]
 
-        # The face must be close to at least one enrolled sample AND
-        # reasonably close to several samples of the same person.
         if (
             best_distance > FACE_DISTANCE_THRESHOLD
             or best_stability > FACE_STABILITY_THRESHOLD
         ):
             return None, best_distance, best_stability
 
-        # When there is more than one student, also require separation
-        # from the runner-up. This blocks ambiguous nearest-neighbor matches.
         if len(candidates) > 1:
             _, second_distance, second_stability = candidates[1]
 
@@ -217,9 +205,6 @@ class FaceMatcher:
         return best_index, best_distance, best_stability
 
 
-# ---------------------------------------------------------------------------
-# Live camera worker
-# ---------------------------------------------------------------------------
 
 
 class CameraWorker(QThread):
@@ -355,7 +340,7 @@ class CameraWorker(QThread):
                             )
 
                             if track["student_index"] is None:
-                                # Unknown -> candidate -> confirmed.
+          
                                 if student_index == track["candidate_index"]:
                                     track["candidate_hits"] += 1
                                 else:
@@ -400,10 +385,6 @@ class CameraWorker(QThread):
                             else:
                                 track["last_validation"] = frame_count
 
-                                # Re-validation failed or points to another
-                                # person: drop the cached identity and start
-                                # confirmation again instead of keeping a
-                                # stale identity forever.
                                 if (
                                     student_index != track["student_index"]
                                     or student_index is None
@@ -503,11 +484,6 @@ class CameraWorker(QThread):
                 cap.release()
 
             self._running = False
-
-
-# ---------------------------------------------------------------------------
-# Enrollment worker
-# ---------------------------------------------------------------------------
 
 
 class EnrollmentWorker(QThread):
@@ -649,11 +625,6 @@ class EnrollmentWorker(QThread):
             self._running = False
 
 
-# ---------------------------------------------------------------------------
-# Enrollment dialog
-# ---------------------------------------------------------------------------
-
-
 class EnrollmentDialog(QDialog):
     def __init__(self, show_student_fields=True, parent=None):
         super().__init__(parent)
@@ -776,11 +747,6 @@ class EnrollmentDialog(QDialog):
         event.accept()
 
 
-# ---------------------------------------------------------------------------
-# Main window
-# ---------------------------------------------------------------------------
-
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -797,10 +763,7 @@ class MainWindow(QMainWindow):
         self.refresh_all()
         self.start_camera()
 
-    # ----------------------------
-    # UI
-    # ----------------------------
-
+   
     def build_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
@@ -1096,9 +1059,6 @@ class MainWindow(QMainWindow):
 
         table.setMinimumHeight(300)
 
-    # ----------------------------
-    # Navigation
-    # ----------------------------
 
     def show_page(self, index):
         self.current_page = index
@@ -1123,9 +1083,6 @@ class MainWindow(QMainWindow):
         elif index == 2:
             self.refresh_attendance()
 
-    # ----------------------------
-    # Camera
-    # ----------------------------
 
     def start_camera(self):
         if self.camera_worker is not None and self.camera_worker.isRunning():
@@ -1179,9 +1136,6 @@ class MainWindow(QMainWindow):
             f'Attendance marked • {event["name"]} ({event["student_code"]}) • {event["time"]}'
         )
 
-    # ----------------------------
-    # Dashboard
-    # ----------------------------
 
     def refresh_dashboard(self):
         total, present, absent = get_attendance_stats()
@@ -1203,10 +1157,6 @@ class MainWindow(QMainWindow):
                 2,
                 QTableWidgetItem(timestamp.split(" ")[-1]),
             )
-
-    # ----------------------------
-    # Students
-    # ----------------------------
 
     def refresh_students(self):
         rows = list_students()
@@ -1453,10 +1403,7 @@ class MainWindow(QMainWindow):
                 str(exc),
             )
 
-    # ----------------------------
-    # Attendance
-    # ----------------------------
-
+ 
     def selected_attendance_date(self):
         return self.attendance_date.date().toString("yyyy-MM-dd")
 
@@ -1487,9 +1434,6 @@ class MainWindow(QMainWindow):
             f"Present: {present} • Absent: {absent} • Total students: {total}"
         )
 
-    # ----------------------------
-    # Export
-    # ----------------------------
 
     def selected_export_date(self):
         return self.export_date.date().toString("yyyy-MM-dd")
@@ -1584,9 +1528,6 @@ class MainWindow(QMainWindow):
                 str(exc),
             )
 
-    # ----------------------------
-    # Refresh / shutdown
-    # ----------------------------
 
     def refresh_all(self):
         self.refresh_dashboard()
@@ -1596,12 +1537,6 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self.stop_camera()
         event.accept()
-
-
-# ---------------------------------------------------------------------------
-# Application
-# ---------------------------------------------------------------------------
-
 
 def main():
     app = QApplication(sys.argv)
