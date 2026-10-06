@@ -543,6 +543,47 @@ def list_students(academic_year_id=None):
         conn.close()
 
 
+def find_student_by_code(student_code):
+    conn = get_connection()
+    try:
+        return conn.execute(
+            """
+            SELECT id, student_code, name, created_at
+            FROM students
+            WHERE student_code = ?
+            """,
+            (student_code.strip(),),
+        ).fetchone()
+    finally:
+        conn.close()
+
+
+def find_major_by_name(name):
+    conn = get_connection()
+    try:
+        return conn.execute(
+            "SELECT id, name FROM majors WHERE name = ?",
+            (name.strip(),),
+        ).fetchone()
+    finally:
+        conn.close()
+
+
+def find_class_by_name(name, academic_year_id):
+    conn = get_connection()
+    try:
+        return conn.execute(
+            """
+            SELECT id, name
+            FROM school_classes
+            WHERE name = ? AND academic_year_id = ?
+            """,
+            (name.strip(), academic_year_id),
+        ).fetchone()
+    finally:
+        conn.close()
+
+
 def add_student(student_code, name, class_id=None):
     conn = get_connection()
     try:
