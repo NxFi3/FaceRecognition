@@ -26,7 +26,12 @@ def init_db():
 
     conn.executescript(
         """
-        CREATE TABLE IF NOT EXISTS students (
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+
+                CREATE TABLE IF NOT EXISTS students (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             student_code TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL,
@@ -65,6 +70,37 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+
+def get_setting(key, default=None):
+    conn = get_connection()
+
+    try:
+        row = conn.execute(
+            "SELECT value FROM app_settings WHERE key = ?",
+            (key,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    return row[0] if row is not None else default
+
+
+def set_setting(key, value):
+    conn = get_connection()
+
+    try:
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, str(value)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def add_student(student_code, name):
