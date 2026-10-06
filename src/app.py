@@ -11,6 +11,7 @@ from PySide6.QtCore import QDate, QLibraryInfo, QThread, QTranslator, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -1179,11 +1180,41 @@ class SchoolCalendarDialog(QDialog):
         weekly_layout.addWidget(hint)
 
         checks_layout = QHBoxLayout()
+        checks_layout.setSpacing(8)
         self.weekday_checks = {}
+        self.weekday_group = QButtonGroup(self)
+        self.weekday_group.setExclusive(False)
+
         for weekday, label in self.WEEKDAYS:
-            check = QCheckBox(label)
+            check = QPushButton(label)
+            check.setCheckable(True)
+            check.setMinimumWidth(76)
+            check.setMinimumHeight(38)
+            check.setCursor(Qt.PointingHandCursor)
+            check.setStyleSheet(
+                """
+                QPushButton {
+                    background: #f4f7fa;
+                    color: #526174;
+                    border: 1px solid #cbd6e2;
+                    border-radius: 8px;
+                    padding: 7px 10px;
+                }
+                QPushButton:hover {
+                    background: #e9f0f7;
+                }
+                QPushButton:checked {
+                    background: #dbe9f8;
+                    color: #1e5a9f;
+                    border: 1px solid #78a7d5;
+                    font-weight: 700;
+                }
+                """
+            )
             self.weekday_checks[weekday] = check
+            self.weekday_group.addButton(check, weekday)
             checks_layout.addWidget(check)
+
         checks_layout.addStretch()
         weekly_layout.addLayout(checks_layout)
 
@@ -1208,6 +1239,7 @@ class SchoolCalendarDialog(QDialog):
         self.override_date.setDisplayFormat("yyyy/MM/dd")
 
         self.override_school_day = QCheckBox("روز مدرسه")
+        self.override_school_day.setChecked(False)
 
         self.override_note = QLineEdit()
         self.override_note.setPlaceholderText(
