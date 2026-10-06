@@ -3108,6 +3108,28 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "تغییر سال ناموفق بود", str(exc))
 
+    def open_school_calendar_dialog(self):
+        year_id = self.class_year_combo.currentData()
+
+        if not year_id:
+            active = get_active_academic_year()
+            year_id = active[0] if active else None
+
+        if not year_id:
+            QMessageBox.information(
+                self,
+                "تقویم مدرسه",
+                "ابتدا یک سال تحصیلی بسازید.",
+            )
+            return
+
+        dialog = SchoolCalendarDialog(
+            selected_year_id=year_id,
+            parent=self,
+        )
+        dialog.exec()
+        self.refresh_all()
+
     def selected_class_id(self):
         row = self.classes_table.currentRow()
         item = self.classes_table.item(row, 0) if row >= 0 else None
