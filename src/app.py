@@ -1328,7 +1328,9 @@ class MainWindow(QMainWindow):
         camera_box = QFrame()
         camera_box.setObjectName("panel")
         camera_layout = QVBoxLayout(camera_box)
-        camera_layout.addWidget(QLabel("نمای زنده دوربین"), alignment=Qt.AlignRight)
+        camera_title = QLabel("نمای زنده دوربین")
+        camera_title.setAlignment(Qt.AlignRight)
+        camera_layout.addWidget(camera_title)
 
         self.camera_preview = QLabel("در انتظار دوربین...")
         self.camera_preview.setAlignment(Qt.AlignCenter)
@@ -2341,7 +2343,7 @@ class MainWindow(QMainWindow):
                 timestamp.split(" ")[-1] if timestamp else "—",
                 camera or "—",
                 notes or "",
-                "دوربین" if "camera" in (record[7] or "") else "ثبت دستی",
+                "ثبت دستی" if camera == "manual" else "دوربین",
             ]
             for col, value in enumerate(values):
                 self.attendance_table.setItem(row, col, QTableWidgetItem(value))
