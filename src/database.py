@@ -1134,7 +1134,7 @@ def get_daily_report_summary(
         present = day["present"]
         late = day["late"]
         excused = day["excused"]
-        recorded = present + late + excused + day["absent_recorded"]
+        recorded = present + late + excused + day["absent"]
 
         if recorded <= 0:
             continue
