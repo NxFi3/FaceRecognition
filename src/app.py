@@ -45,21 +45,6 @@ try:
         update_student,
         load_students,
     )
-
-try:
-    from auth import (
-        change_admin_password,
-        password_is_configured,
-        set_admin_password,
-        verify_admin_password,
-    )
-except ModuleNotFoundError:
-    from .auth import (
-        change_admin_password,
-        password_is_configured,
-        set_admin_password,
-        verify_admin_password,
-    )
 except ModuleNotFoundError:
     from .database import (
         add_embedding,
@@ -76,6 +61,20 @@ except ModuleNotFoundError:
         load_students,
     )
 
+try:
+    from auth import (
+        change_admin_password,
+        password_is_configured,
+        set_admin_password,
+        verify_admin_password,
+    )
+except ModuleNotFoundError:
+    from .auth import (
+        change_admin_password,
+        password_is_configured,
+        set_admin_password,
+        verify_admin_password,
+    )
 
 if getattr(sys, "frozen", False):
     BASE_DIR = Path(sys.executable).resolve().parent
