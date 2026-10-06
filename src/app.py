@@ -2312,10 +2312,32 @@ class MainWindow(QMainWindow):
             return
 
         try:
+            existing = next(
+                (
+                    item
+                    for item in list_classes(year_id)
+                    if item[1].strip().lower() == name.strip().lower()
+                ),
+                None,
+            )
+
+            if existing is not None:
+                QMessageBox.warning(
+                    self,
+                    "کلاس تکراری",
+                    f"کلاس «{name}» در این سال تحصیلی از قبل وجود دارد.",
+                )
+                return
+
             add_class(name, grade, major_id, year_id)
             self.refresh_all()
+
         except Exception as exc:
-            QMessageBox.critical(self, "افزودن کلاس ناموفق بود", str(exc))
+            QMessageBox.critical(
+                self,
+                "افزودن کلاس ناموفق بود",
+                str(exc),
+            )
 
     def edit_selected_class(self):
         class_id = self.selected_class_id()
