@@ -4200,7 +4200,47 @@ def ensure_admin_access():
     return login.exec() == QDialog.Accepted
 
 
+def run_smoke_test():
+    if not MODEL_PATH.exists():
+        raise RuntimeError(f"YOLO model missing: {MODEL_PATH}")
+
+    import dlib
+    import face_recognition_models
+    from ultralytics import YOLO
+
+    model_locations = {
+        "68-point": face_recognition_models.pose_predictor_model_location(),
+        "5-point": face_recognition_models.pose_predictor_five_point_model_location(),
+        "face-encoding": face_recognition_models.face_recognition_model_location(),
+        "cnn-face": face_recognition_models.cnn_face_detector_model_location(),
+    }
+
+    for name, model_path in model_locations.items():
+        if not Path(model_path).exists():
+            raise RuntimeError(
+                f"face_recognition model missing ({name}): {model_path}"
+            )
+
+    # Force-load the native dlib resources used by face_recognition.
+    dlib.face_recognition_model_v1(
+        model_locations["face-encoding"]
+    )
+
+    # Force-load the packaged YOLO weights as the application does at runtime.
+    YOLO(str(MODEL_PATH))
+
+    print("FACE_RECOGNITION_SMOKE_TEST_OK")
+
+
 def main():
+    if "--smoke-test" in sys.argv:
+        try:
+            run_smoke_test()
+            return
+        except Exception as exc:
+            print(f"FACE_RECOGNITION_SMOKE_TEST_FAILED: {exc}")
+            raise SystemExit(1)
+
     app = QApplication(sys.argv)
     app.setLayoutDirection(Qt.RightToLeft)
     app.setStyle("Fusion")
