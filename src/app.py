@@ -2,6 +2,7 @@ import csv
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 
 import cv2
 import face_recognition
@@ -29,22 +30,37 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from database import (
-    add_embedding,
-    add_student,
-    delete_embeddings,
-    delete_student,
-    get_attendance,
-    get_attendance_stats,
-    init_db,
-    list_students,
-    mark_attendance,
-    update_student,
-    load_students,
-)
+try:
+    from database import (
+        add_embedding,
+        add_student,
+        delete_embeddings,
+        delete_student,
+        get_attendance,
+        get_attendance_stats,
+        init_db,
+        list_students,
+        mark_attendance,
+        update_student,
+        load_students,
+    )
+except ModuleNotFoundError:
+    from .database import (
+        add_embedding,
+        add_student,
+        delete_embeddings,
+        delete_student,
+        get_attendance,
+        get_attendance_stats,
+        init_db,
+        list_students,
+        mark_attendance,
+        update_student,
+        load_students,
+    )
 
 
-BASE_DIR = __import__("pathlib").Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 MODEL_PATH = BASE_DIR / "yolov8n-face.pt"
 
 CAMERA_ID = 0
@@ -1101,6 +1117,10 @@ class MainWindow(QMainWindow):
                     QTableWidgetItem(value),
                 )
 
+    def get_student(self, student_id):
+        from database import get_student
+        return get_student(student_id)
+
     def selected_student_id(self):
         row = self.students_table.currentRow()
 
@@ -1166,7 +1186,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        student = __import__("database").get_student(student_id)
+        student = self.get_student(student_id)
 
         if student is None:
             return
@@ -1239,7 +1259,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        student = __import__("database").get_student(student_id)
+        student = self.get_student(student_id)
 
         if student is None:
             return
@@ -1390,7 +1410,7 @@ class MainWindow(QMainWindow):
         if not path:
             return
 
-        __import__("pathlib").Path(path).parent.mkdir(
+        Path(path).parent.mkdir(
             parents=True,
             exist_ok=True,
         )
