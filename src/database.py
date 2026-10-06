@@ -1389,9 +1389,9 @@ def get_report_rows(
 
         attendance_query = """
             SELECT
-                student_id,
-                date,
-                status
+                a.student_id,
+                a.date,
+                a.status
             FROM attendance a
             JOIN student_enrollments se
                 ON se.student_id = a.student_id
