@@ -66,7 +66,6 @@ try:
         set_active_academic_year,
         set_attendance_status,
         update_academic_year,
-        update_academic_year,
         update_class,
         update_major,
         update_student,
