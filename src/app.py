@@ -898,6 +898,27 @@ class EnrollmentDialog(QDialog):
         event.accept()
 
 
+def confirm_action(parent, title, message, confirm_text="تأیید", cancel_text="لغو"):
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Question)
+    box.setWindowTitle(title)
+    box.setText(message)
+
+    confirm_button = box.addButton(
+        confirm_text,
+        QMessageBox.AcceptRole,
+    )
+    cancel_button = box.addButton(
+        cancel_text,
+        QMessageBox.RejectRole,
+    )
+
+    box.setDefaultButton(cancel_button)
+    box.exec()
+
+    return box.clickedButton() is confirm_button
+
+
 class AdminPasswordDialog(QDialog):
     def __init__(self, mode="login", parent=None):
         super().__init__(parent)
@@ -1223,16 +1244,31 @@ class AcademicYearDialog(QDialog):
 class ClassDialog(QDialog):
     def __init__(self, academic_years, majors, existing=None, parent=None):
         super().__init__(parent)
+
         self.setModal(True)
-        self.resize(540, 320)
+        self.resize(560, 340)
         self.setWindowTitle("ویرایش کلاس" if existing else "افزودن کلاس")
 
         root = QVBoxLayout(self)
+        root.setSpacing(14)
+
+        title = QLabel(
+            "اطلاعات کلاس را وارد کنید."
+            if not existing
+            else "اطلاعات کلاس را ویرایش کنید."
+        )
+        title.setObjectName("sectionTitle")
+        root.addWidget(title)
+
         form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        form.setFormAlignment(Qt.AlignRight | Qt.AlignTop)
 
         self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("مثلاً کلاس ۱۰۱")
+
         self.grade_edit = QLineEdit()
-        self.grade_edit.setPlaceholderText("مثلاً ۱۰")
+        self.grade_edit.setPlaceholderText("مثلاً دهم")
 
         self.major_combo = QComboBox()
         self.major_combo.addItem("بدون رشته", None)
@@ -1240,10 +1276,12 @@ class ClassDialog(QDialog):
             self.major_combo.addItem(name, major_id)
 
         self.year_combo = QComboBox()
+        self.year_combo.addItem("انتخاب سال تحصیلی", None)
+
         for year_id, name, start_date, end_date, is_active in academic_years:
             date_text = ""
             if start_date and end_date:
-                date_text = f" ({start_date} تا {end_date})"
+                date_text = f" • {start_date} تا {end_date}"
 
             label = f"{name}{date_text}"
             if is_active:
@@ -1263,17 +1301,23 @@ class ClassDialog(QDialog):
         form.addRow("سال تحصیلی", self.year_combo)
         root.addLayout(form)
 
-        hint = QLabel("نام کلاس و پایه الزامی است. سال تحصیلی باید مشخص باشد.")
+        hint = QLabel(
+            "نام کلاس، پایه و سال تحصیلی الزامی هستند. "
+            "یک کلاس با نام تکراری در یک سال دوباره ساخته نمی‌شود."
+        )
         hint.setObjectName("muted")
         hint.setWordWrap(True)
         root.addWidget(hint)
 
         buttons = QHBoxLayout()
         buttons.addStretch()
+
         cancel = QPushButton("لغو")
-        save = QPushButton("ذخیره")
+        save = QPushButton("افزودن کلاس" if not existing else "ذخیره تغییرات")
+
         cancel.clicked.connect(self.reject)
         save.clicked.connect(self.validate_and_accept)
+
         buttons.addWidget(cancel)
         buttons.addWidget(save)
         root.addLayout(buttons)
@@ -1292,8 +1336,14 @@ class ClassDialog(QDialog):
             if index >= 0:
                 self.year_combo.setCurrentIndex(index)
 
+        self.name_edit.setFocus()
+
     def validate_and_accept(self):
-        if not self.name_edit.text().strip():
+        name = self.name_edit.text().strip()
+        grade = self.grade_edit.text().strip()
+        year_id = self.year_combo.currentData()
+
+        if not name:
             QMessageBox.warning(
                 self,
                 "اطلاعات ناقص",
@@ -1302,7 +1352,7 @@ class ClassDialog(QDialog):
             self.name_edit.setFocus()
             return
 
-        if not self.grade_edit.text().strip():
+        if not grade:
             QMessageBox.warning(
                 self,
                 "اطلاعات ناقص",
@@ -1311,12 +1361,13 @@ class ClassDialog(QDialog):
             self.grade_edit.setFocus()
             return
 
-        if self.year_combo.currentData() is None:
+        if year_id is None:
             QMessageBox.warning(
                 self,
                 "سال تحصیلی",
                 "یک سال تحصیلی انتخاب کنید.",
             )
+            self.year_combo.setFocus()
             return
 
         self.accept()
@@ -2174,12 +2225,13 @@ class MainWindow(QMainWindow):
             return
 
         name = student[2]
-        answer = QMessageBox.question(
+        if not confirm_action(
             self,
             "ثبت دوباره چهره",
             f"نمونه‌های چهره {name} جایگزین شوند؟",
-        )
-        if answer != QMessageBox.Yes:
+            "جایگزین کن",
+            "لغو",
+        ):
             return
 
         dialog = EnrollmentDialog(
@@ -2218,14 +2270,13 @@ class MainWindow(QMainWindow):
 
         name = student[2]
         code = student[1]
-        answer = QMessageBox.warning(
+        if not confirm_action(
             self,
             "حذف دانش‌آموز",
             f"{name} ({code}) حذف شود؟\n\nسوابق چهره و حضور او نیز حذف می‌شود.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if answer != QMessageBox.Yes:
+            "حذف",
+            "لغو",
+        ):
             return
 
         try:
@@ -2269,13 +2320,13 @@ class MainWindow(QMainWindow):
 
         start_date, end_date = dialog.values()
 
-        make_active = QMessageBox.question(
+        make_active = confirm_action(
             self,
-            "فعال‌سازی",
+            "فعال‌سازی سال تحصیلی",
             f"سال {start_date[:4]}-{end_date[:4]} به‌عنوان سال فعال انتخاب شود؟",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes,
-        ) == QMessageBox.Yes
+            "فعال کن",
+            "فعلاً نه",
+        )
 
         try:
             year_id = add_academic_year(
@@ -2377,7 +2428,7 @@ class MainWindow(QMainWindow):
                 (
                     item
                     for item in list_classes(year_id)
-                    if item[1].strip().lower() == name.strip().lower()
+                    if item[1].strip().casefold() == name.casefold()
                 ),
                 None,
             )
@@ -2390,14 +2441,42 @@ class MainWindow(QMainWindow):
                 )
                 return
 
-            add_class(name, grade, major_id, year_id)
+            class_id = add_class(
+                name,
+                grade,
+                major_id,
+                year_id,
+            )
+
             self.refresh_all()
 
+            QMessageBox.information(
+                self,
+                "کلاس اضافه شد",
+                f"«{name}» با موفقیت ثبت شد.",
+            )
+
+            index = self.classes_table.findItems(
+                name,
+                Qt.MatchExactly,
+            )
+            if index:
+                self.classes_table.selectRow(
+                    index[0].row()
+                )
+
+            return class_id
+
         except Exception as exc:
+            message = str(exc)
+
+            if "UNIQUE constraint failed" in message:
+                message = "این نام کلاس برای این سال تحصیلی قبلاً ثبت شده است."
+
             QMessageBox.critical(
                 self,
                 "افزودن کلاس ناموفق بود",
-                str(exc),
+                message,
             )
 
     def edit_selected_class(self):
@@ -2428,14 +2507,13 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "انتخاب کلاس", "ابتدا یک کلاس را انتخاب کنید.")
             return
 
-        answer = QMessageBox.warning(
+        if not confirm_action(
             self,
             "حذف کلاس",
             "کلاس حذف شود؟ فقط کلاس‌های خالی قابل حذف هستند.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if answer != QMessageBox.Yes:
+            "حذف",
+            "لغو",
+        ):
             return
 
         try:
@@ -2517,14 +2595,13 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "انتخاب رشته", "ابتدا یک رشته را انتخاب کنید.")
             return
 
-        answer = QMessageBox.warning(
+        if not confirm_action(
             self,
             "حذف رشته",
             "رشته حذف شود؟ اگر به کلاسی متصل باشد حذف نمی‌شود.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if answer != QMessageBox.Yes:
+            "حذف",
+            "لغو",
+        ):
             return
 
         try:
@@ -3053,22 +3130,32 @@ def main():
         QWidget {
             font-family: "Noto Sans Arabic", "Vazirmatn", "Segoe UI", sans-serif;
             font-size: 14px;
-            color: #243142;
+            color: #253244;
         }
 
         QMainWindow, QWidget#content {
-            background: #f4f7fb;
+            background: #f5f7fa;
+        }
+
+        QDialog {
+            background: #ffffff;
+            color: #253244;
+        }
+
+        QLabel {
+            color: #253244;
+            background: transparent;
         }
 
         #sidebar {
             background: #ffffff;
-            border-left: 1px solid #dbe3ec;
+            border-left: 1px solid #d9e1eb;
         }
 
         #brand {
             font-size: 21px;
             font-weight: 800;
-            color: #182433;
+            color: #172435;
         }
 
         #brandSub {
@@ -3081,7 +3168,7 @@ def main():
             padding: 12px 14px;
             border: none;
             border-radius: 10px;
-            color: #536276;
+            color: #526174;
             background: transparent;
         }
 
@@ -3091,13 +3178,16 @@ def main():
         }
 
         #sidebar QPushButton:checked {
-            background: #e5edf7;
-            color: #1e5aa8;
+            background: #e4edf9;
+            color: #1e5a9f;
             font-weight: 700;
         }
 
+        #sidebarStatus, #muted {
+            color: #718096;
+        }
+
         #sidebarStatus {
-            color: #748095;
             font-size: 11px;
             padding: 8px 2px;
         }
@@ -3105,23 +3195,19 @@ def main():
         #pageTitle {
             font-size: 29px;
             font-weight: 800;
-            color: #172334;
+            color: #172435;
             padding-bottom: 4px;
         }
 
         #sectionTitle {
             font-size: 16px;
             font-weight: 700;
-            color: #233348;
-        }
-
-        #muted {
-            color: #718096;
+            color: #26384d;
         }
 
         #statCard, #panel {
             background: #ffffff;
-            border: 1px solid #dbe3ec;
+            border: 1px solid #d9e2ec;
             border-radius: 16px;
         }
 
@@ -3133,61 +3219,167 @@ def main():
         #statValue {
             font-size: 34px;
             font-weight: 800;
-            color: #172334;
+            color: #172435;
         }
 
         #cameraPreview {
-            background: #e9eef4;
-            border: 1px solid #d5dee8;
+            background: #eaf0f5;
+            border: 1px solid #d4dde7;
             border-radius: 10px;
-            color: #738196;
+            color: #728197;
         }
 
-        QTableWidget {
+        QLineEdit, QDateEdit, QComboBox {
+            background: #ffffff;
+            color: #253244;
+            border: 1px solid #cbd6e2;
+            border-radius: 9px;
+            padding: 9px 11px;
+            selection-background-color: #dbe9f8;
+            selection-color: #1e3045;
+        }
+
+        QLineEdit:focus, QDateEdit:focus, QComboBox:focus {
+            border: 1px solid #78a7d5;
+            background: #ffffff;
+        }
+
+        QLineEdit:disabled, QDateEdit:disabled, QComboBox:disabled {
+            background: #eef2f6;
+            color: #9aa7b5;
+        }
+
+        QLineEdit[readOnly="true"] {
+            background: #f3f6f9;
+        }
+
+        QComboBox::drop-down {
+            subcontrol-origin: padding;
+            subcontrol-position: left center;
+            width: 30px;
+            border: none;
+            background: transparent;
+        }
+
+        QComboBox QAbstractItemView {
+            background: #ffffff;
+            color: #253244;
+            border: 1px solid #cbd6e2;
+            selection-background-color: #dbe9f8;
+            selection-color: #1e3045;
+            padding: 4px;
+            outline: none;
+        }
+
+        QDateEdit::drop-down {
+            subcontrol-origin: padding;
+            subcontrol-position: left center;
+            width: 30px;
+            border: none;
+            background: transparent;
+        }
+
+        QTableWidget, QTableView {
             background: #ffffff;
             alternate-background-color: #f7f9fc;
-            border: 1px solid #dbe3ec;
+            color: #253244;
+            border: 1px solid #d9e2ec;
             border-radius: 10px;
-            gridline-color: #e3e9f0;
-            selection-background-color: #dce9f8;
-            selection-color: #1f2d3d;
+            gridline-color: #e1e7ee;
+            selection-background-color: #dbe9f8;
+            selection-color: #1e3045;
+        }
+
+        QTableWidget::item {
+            padding: 7px;
         }
 
         QHeaderView::section {
-            background: #eef3f8;
-            color: #536276;
+            background: #edf2f7;
+            color: #526174;
             border: none;
             padding: 10px;
             font-weight: 700;
         }
 
-        QLineEdit, QDateEdit, QComboBox {
-            background: #ffffff;
-            border: 1px solid #cfd9e5;
-            border-radius: 9px;
-            padding: 9px 11px;
-            color: #243142;
-        }
-
-        QLineEdit:focus, QDateEdit:focus, QComboBox:focus {
-            border: 1px solid #6ea3d8;
-        }
-
         QPushButton {
             background: #ffffff;
             color: #2f4054;
-            border: 1px solid #cfd9e5;
+            border: 1px solid #cbd6e2;
             border-radius: 9px;
             padding: 9px 14px;
+            min-height: 34px;
         }
 
         QPushButton:hover {
-            background: #f2f6fa;
+            background: #f0f5fa;
             border-color: #b9c8d8;
         }
 
         QPushButton:pressed {
-            background: #e8eef5;
+            background: #e6edf5;
+        }
+
+        QPushButton:disabled {
+            background: #eef2f6;
+            color: #9aa7b5;
+            border-color: #d7dee7;
+        }
+
+        QMenu {
+            background: #ffffff;
+            color: #253244;
+            border: 1px solid #cbd6e2;
+            padding: 5px;
+        }
+
+        QMenu::item {
+            padding: 8px 24px;
+            border-radius: 6px;
+        }
+
+        QMenu::item:selected {
+            background: #e5eef9;
+            color: #1e5a9f;
+        }
+
+        QToolTip {
+            background: #253244;
+            color: #ffffff;
+            border: 1px solid #3b4b60;
+            padding: 5px;
+        }
+
+        QMessageBox {
+            background: #ffffff;
+            color: #253244;
+        }
+
+        QMessageBox QLabel {
+            color: #253244;
+            min-width: 280px;
+        }
+
+        QScrollBar:vertical {
+            background: #eef2f6;
+            width: 12px;
+            margin: 0;
+        }
+
+        QScrollBar::handle:vertical {
+            background: #c5d0dc;
+            min-height: 35px;
+            border-radius: 6px;
+        }
+
+        QScrollBar::handle:vertical:hover {
+            background: #aebccc;
+        }
+
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+            background: transparent;
+            border: none;
         }
         """
     )
