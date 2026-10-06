@@ -45,6 +45,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS academic_years (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
+            start_date TEXT,
+            end_date TEXT,
             is_active INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
@@ -163,27 +165,84 @@ def init_db():
         "WHERE status IS NULL OR status = ''"
     )
 
+    _ensure_column(
+        conn,
+        "academic_years",
+        "start_date",
+        "TEXT",
+    )
+    _ensure_column(
+        conn,
+        "academic_years",
+        "end_date",
+        "TEXT",
+    )
+
     year_count = conn.execute(
         "SELECT COUNT(*) FROM academic_years"
     ).fetchone()[0]
 
     if year_count == 0:
-        year_name = f"{datetime.now().year}-{datetime.now().year + 1}"
+        current_year = datetime.now().year
+        if datetime.now().month < 9:
+            current_year -= 1
+
+        start_date = f"{current_year:04d}-09-01"
+        end_date = f"{current_year + 1:04d}-06-30"
+        year_name = f"{current_year}-{current_year + 1}"
+
         conn.execute(
-            "INSERT INTO academic_years (name, is_active) VALUES (?, 1)",
-            (year_name,),
+            """
+            INSERT INTO academic_years
+                (name, start_date, end_date, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            (year_name, start_date, end_date),
         )
-    elif conn.execute(
-        "SELECT COUNT(*) FROM academic_years WHERE is_active = 1"
-    ).fetchone()[0] == 0:
-        first_year = conn.execute(
-            "SELECT id FROM academic_years ORDER BY id LIMIT 1"
-        ).fetchone()
-        if first_year:
-            conn.execute(
-                "UPDATE academic_years SET is_active = 1 WHERE id = ?",
-                (first_year[0],),
-            )
+    else:
+        legacy_rows = conn.execute(
+            """
+            SELECT id, name
+            FROM academic_years
+            WHERE start_date IS NULL OR end_date IS NULL
+            """
+        ).fetchall()
+
+        for year_id, name in legacy_rows:
+            parts = str(name).strip().replace("/", "-").split("-")
+            if (
+                len(parts) == 2
+                and parts[0].isdigit()
+                and parts[1].isdigit()
+                and len(parts[0]) == 4
+                and len(parts[1]) == 4
+            ):
+                start_year = int(parts[0])
+                end_year = int(parts[1])
+                conn.execute(
+                    """
+                    UPDATE academic_years
+                    SET start_date = ?, end_date = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        f"{start_year:04d}-09-01",
+                        f"{end_year:04d}-06-30",
+                        year_id,
+                    ),
+                )
+
+        if conn.execute(
+            "SELECT COUNT(*) FROM academic_years WHERE is_active = 1"
+        ).fetchone()[0] == 0:
+            first_year = conn.execute(
+                "SELECT id FROM academic_years ORDER BY id LIMIT 1"
+            ).fetchone()
+            if first_year:
+                conn.execute(
+                    "UPDATE academic_years SET is_active = 1 WHERE id = ?",
+                    (first_year[0],),
+                )
 
     conn.commit()
     conn.close()
@@ -222,9 +281,9 @@ def list_academic_years():
     try:
         return conn.execute(
             """
-            SELECT id, name, is_active
+            SELECT id, name, start_date, end_date, is_active
             FROM academic_years
-            ORDER BY is_active DESC, name DESC
+            ORDER BY is_active DESC, start_date DESC, id DESC
             """
         ).fetchall()
     finally:
@@ -236,7 +295,7 @@ def get_active_academic_year():
     try:
         return conn.execute(
             """
-            SELECT id, name, is_active
+            SELECT id, name, start_date, end_date, is_active
             FROM academic_years
             WHERE is_active = 1
             ORDER BY id DESC
@@ -247,21 +306,50 @@ def get_active_academic_year():
         conn.close()
 
 
-def add_academic_year(name, active=False):
-    name = name.strip()
-    if not name:
-        raise ValueError("نام سال تحصیلی الزامی است.")
+def add_academic_year(start_date, end_date, active=False):
+    start_date = start_date.strip()
+    end_date = end_date.strip()
+
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError("تاریخ سال تحصیلی نامعتبر است.") from exc
+
+    if end <= start:
+        raise ValueError("تاریخ پایان باید بعد از تاریخ شروع باشد.")
 
     conn = get_connection()
     try:
+        overlap = conn.execute(
+            """
+            SELECT id, name
+            FROM academic_years
+            WHERE start_date IS NOT NULL
+              AND end_date IS NOT NULL
+              AND start_date < ?
+              AND end_date > ?
+            """,
+            (end_date, start_date),
+        ).fetchone()
+
+        if overlap:
+            raise ValueError(
+                f"بازه انتخاب‌شده با سال تحصیلی «{overlap[1]}» هم‌پوشانی دارد."
+            )
+
+        name = f"{start.year:04d}-{end.year:04d}"
+
         if active:
             conn.execute("UPDATE academic_years SET is_active = 0")
+
         cursor = conn.execute(
             """
-            INSERT INTO academic_years (name, is_active)
-            VALUES (?, ?)
+            INSERT INTO academic_years
+                (name, start_date, end_date, is_active)
+            VALUES (?, ?, ?, ?)
             """,
-            (name, 1 if active else 0),
+            (name, start_date, end_date, 1 if active else 0),
         )
         conn.commit()
         return cursor.lastrowid
@@ -272,6 +360,14 @@ def add_academic_year(name, active=False):
 def set_active_academic_year(year_id):
     conn = get_connection()
     try:
+        exists = conn.execute(
+            "SELECT 1 FROM academic_years WHERE id = ?",
+            (year_id,),
+        ).fetchone()
+
+        if not exists:
+            raise ValueError("سال تحصیلی انتخاب‌شده پیدا نشد.")
+
         conn.execute("UPDATE academic_years SET is_active = 0")
         conn.execute(
             "UPDATE academic_years SET is_active = 1 WHERE id = ?",
@@ -392,8 +488,11 @@ def list_classes(academic_year_id=None):
 def add_class(name, grade, major_id, academic_year_id):
     name = name.strip()
     grade = grade.strip()
+
     if not name:
         raise ValueError("نام کلاس الزامی است.")
+    if not grade:
+        raise ValueError("پایه الزامی است.")
     if not academic_year_id:
         raise ValueError("سال تحصیلی انتخاب نشده است.")
 
@@ -414,6 +513,16 @@ def add_class(name, grade, major_id, academic_year_id):
 
 
 def update_class(class_id, name, grade, major_id, academic_year_id):
+    name = name.strip()
+    grade = grade.strip()
+
+    if not name:
+        raise ValueError("نام کلاس الزامی است.")
+    if not grade:
+        raise ValueError("پایه الزامی است.")
+    if not academic_year_id:
+        raise ValueError("سال تحصیلی انتخاب نشده است.")
+
     conn = get_connection()
     try:
         conn.execute(
