@@ -70,8 +70,15 @@ CAMERA_NAME = "camera_0"
 
 CONFIDENCE = 0.35
 IMAGE_SIZE = 640
-FACE_DISTANCE_THRESHOLD = 0.50
+# Recognition is intentionally conservative: a single unusually-close
+# embedding must not be enough to identify a person.
+FACE_DISTANCE_THRESHOLD = 0.46
+FACE_STABILITY_THRESHOLD = 0.49
+
 RECOGNITION_INTERVAL = 5
+RECOGNITION_CONFIRMATIONS = 3
+REVALIDATION_INTERVAL = 25
+
 MIN_FACE_SIZE = 60
 
 ENROLLMENT_SAMPLES = 5
@@ -145,28 +152,69 @@ class FaceMatcher:
         self.students = load_students()
 
     def recognize(self, frame, bbox):
+        """
+        Return:
+            (student_index, best_distance, stability_score)
+
+        We use both the closest embedding and the mean of the three
+        closest embeddings for the same student. This prevents one
+        accidental embedding match from being enough.
+        """
         if not self.students:
-            return None, None
+            return None, None, None
 
         embedding = face_embedding(frame, bbox)
         if embedding is None:
-            return None, None
+            return None, None, None
 
-        best_student = None
-        best_distance = float("inf")
+        candidates = []
 
         for index, student in enumerate(self.students):
-            for known_embedding in student["embeddings"]:
-                distance = np.linalg.norm(embedding - known_embedding)
+            if not student["embeddings"]:
+                continue
 
-                if distance < best_distance:
-                    best_distance = float(distance)
-                    best_student = index
+            distances = [
+                float(np.linalg.norm(embedding - known_embedding))
+                for known_embedding in student["embeddings"]
+            ]
 
-        if best_student is not None and best_distance < FACE_DISTANCE_THRESHOLD:
-            return best_student, best_distance
+            distances.sort()
 
-        return None, best_distance
+            best_distance = distances[0]
+            top_k = distances[: min(3, len(distances))]
+            stability_score = float(np.mean(top_k))
+
+            candidates.append(
+                (index, best_distance, stability_score)
+            )
+
+        if not candidates:
+            return None, None, None
+
+        candidates.sort(key=lambda item: (item[1], item[2]))
+
+        best_index, best_distance, best_stability = candidates[0]
+
+        # The face must be close to at least one enrolled sample AND
+        # reasonably close to several samples of the same person.
+        if (
+            best_distance > FACE_DISTANCE_THRESHOLD
+            or best_stability > FACE_STABILITY_THRESHOLD
+        ):
+            return None, best_distance, best_stability
+
+        # When there is more than one student, also require separation
+        # from the runner-up. This blocks ambiguous nearest-neighbor matches.
+        if len(candidates) > 1:
+            _, second_distance, second_stability = candidates[1]
+
+            if (
+                second_distance - best_distance < 0.05
+                or second_stability - best_stability < 0.04
+            ):
+                return None, best_distance, best_stability
+
+        return best_index, best_distance, best_stability
 
 
 # ---------------------------------------------------------------------------
@@ -274,62 +322,124 @@ class CameraWorker(QThread):
                             tracks[track_id] = {
                                 "student_index": None,
                                 "distance": None,
+                                "stability": None,
+                                "candidate_index": None,
+                                "candidate_hits": 0,
                                 "last_recognition": -RECOGNITION_INTERVAL,
+                                "last_validation": -REVALIDATION_INTERVAL,
                             }
 
                         track = tracks[track_id]
 
-                        should_recognize = (
-                            track["student_index"] is None
-                            and frame_count - track["last_recognition"]
-                            >= RECOGNITION_INTERVAL
-                        )
+                        if track["student_index"] is None:
+                            should_recognize = (
+                                frame_count - track["last_recognition"]
+                                >= RECOGNITION_INTERVAL
+                            )
+                        else:
+                            should_recognize = (
+                                frame_count - track["last_validation"]
+                                >= REVALIDATION_INTERVAL
+                            )
 
                         if should_recognize:
                             track["last_recognition"] = frame_count
 
-                            student_index, distance = matcher.recognize(
+                            (
+                                student_index,
+                                distance,
+                                stability,
+                            ) = matcher.recognize(
                                 frame,
                                 (x1, y1, x2, y2),
                             )
 
-                            if student_index is not None:
-                                track["student_index"] = student_index
-                                track["distance"] = distance
-
-                                student = matcher.students[student_index]
-                                student_id = student["id"]
-
-                                inserted = mark_attendance(
-                                    student_id,
-                                    CAMERA_NAME,
-                                )
-
-                                if inserted:
-                                    timestamp = datetime.now().strftime(
-                                        "%H:%M:%S"
+                            if track["student_index"] is None:
+                                # Unknown -> candidate -> confirmed.
+                                if student_index == track["candidate_index"]:
+                                    track["candidate_hits"] += 1
+                                else:
+                                    track["candidate_index"] = student_index
+                                    track["candidate_hits"] = (
+                                        1 if student_index is not None else 0
                                     )
 
-                                    self.attendance_added.emit(
-                                        {
-                                            "student_id": student_id,
-                                            "student_code": student["student_code"],
-                                            "name": student["name"],
-                                            "time": timestamp,
-                                            "camera": CAMERA_NAME,
-                                        }
+                                if (
+                                    student_index is not None
+                                    and track["candidate_hits"]
+                                    >= RECOGNITION_CONFIRMATIONS
+                                ):
+                                    track["student_index"] = student_index
+                                    track["distance"] = distance
+                                    track["stability"] = stability
+                                    track["last_validation"] = frame_count
+
+                                    student = matcher.students[student_index]
+                                    student_id = student["id"]
+
+                                    inserted = mark_attendance(
+                                        student_id,
+                                        CAMERA_NAME,
                                     )
+
+                                    if inserted:
+                                        timestamp = datetime.now().strftime(
+                                            "%H:%M:%S"
+                                        )
+
+                                        self.attendance_added.emit(
+                                            {
+                                                "student_id": student_id,
+                                                "student_code": student["student_code"],
+                                                "name": student["name"],
+                                                "time": timestamp,
+                                                "camera": CAMERA_NAME,
+                                            }
+                                        )
+
+                            else:
+                                track["last_validation"] = frame_count
+
+                                # Re-validation failed or points to another
+                                # person: drop the cached identity and start
+                                # confirmation again instead of keeping a
+                                # stale identity forever.
+                                if (
+                                    student_index != track["student_index"]
+                                    or student_index is None
+                                ):
+                                    track["student_index"] = None
+                                    track["distance"] = None
+                                    track["stability"] = None
+                                    track["candidate_index"] = student_index
+                                    track["candidate_hits"] = (
+                                        1 if student_index is not None else 0
+                                    )
+                                else:
+                                    track["distance"] = distance
+                                    track["stability"] = stability
 
                         if track["student_index"] is not None:
                             student = matcher.students[track["student_index"]]
                             name = student["name"]
                             distance = track["distance"]
+                            stability = track["stability"]
 
-                            label = f"{name} [{distance:.2f}]"
+                            label = (
+                                f"{name} "
+                                f"[{distance:.2f}/{stability:.2f}]"
+                            )
                             box_color = (0, 220, 80)
-                        else:
-                            label = "Recognizing..."
+                        elif track["candidate_index"] is not None:
+                            candidate = matcher.students[track["candidate_index"]]
+                            label = (
+                                f"Confirming {candidate['name']} "
+                                f"({track['candidate_hits']}/{RECOGNITION_CONFIRMATIONS})"
+                            )
                             box_color = (0, 210, 255)
+                        else:
+                            label = "Unknown"
+                            box_color = (0, 140, 255)
 
                         cv2.rectangle(
                             frame,
