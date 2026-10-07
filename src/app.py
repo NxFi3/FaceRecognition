@@ -172,7 +172,9 @@ FACE_STABILITY_THRESHOLD = 0.49
 
 RECOGNITION_INTERVAL = 5
 RECOGNITION_CONFIRMATIONS = 3
-REVALIDATION_INTERVAL = 25
+REVALIDATION_INTERVAL = 60
+REVALIDATION_MIN_INTERVAL = 10
+REVALIDATION_IOU_THRESHOLD = 0.72
 
 # Do not discard usable distant faces too early.
 MIN_FACE_SIZE = 35
@@ -629,6 +631,7 @@ class CameraWorker(QThread):
             fps = 0.0
             fps_counter = 0
             fps_start = time.time()
+            preview_interval = 1.0 / max(1, min(target_fps, 60))
             detection_interval = 1
             frames_since_detection = detection_interval
             last_detections = []
@@ -685,6 +688,7 @@ class CameraWorker(QThread):
                             "candidate_hits": 0,
                             "last_recognition": -RECOGNITION_INTERVAL,
                             "last_validation": -REVALIDATION_INTERVAL,
+                            "validated_bbox": None,
                             "misses": 0,
                         })
                         state["bbox"] = bbox
@@ -716,9 +720,22 @@ class CameraWorker(QThread):
                             >= RECOGNITION_INTERVAL
                         )
                     else:
+                        validated_bbox = track.get("validated_bbox")
+                        moved_since_validation = (
+                            validated_bbox is not None
+                            and self._iou(
+                                validated_bbox,
+                                track["bbox"],
+                            ) < REVALIDATION_IOU_THRESHOLD
+                        )
                         should_recognize = (
                             frame_count - track["last_validation"]
                             >= REVALIDATION_INTERVAL
+                            or (
+                                moved_since_validation
+                                and frame_count - track["last_validation"]
+                                >= REVALIDATION_MIN_INTERVAL
+                            )
                         )
 
                     if should_recognize:
@@ -750,6 +767,7 @@ class CameraWorker(QThread):
                                 track["distance"] = distance
                                 track["stability"] = stability
                                 track["last_validation"] = frame_count
+                                track["validated_bbox"] = track["bbox"]
 
                                 student = matcher.students[student_index]
                                 student_id = student["id"]
@@ -768,6 +786,7 @@ class CameraWorker(QThread):
                                     })
                         else:
                             track["last_validation"] = frame_count
+                            track["validated_bbox"] = track["bbox"]
                             if (
                                 student_index != track["student_index"]
                                 or student_index is None
@@ -775,6 +794,7 @@ class CameraWorker(QThread):
                                 track["student_index"] = None
                                 track["distance"] = None
                                 track["stability"] = None
+                                track["validated_bbox"] = None
                                 track["candidate_index"] = student_index
                                 track["candidate_hits"] = (
                                     1 if student_index is not None else 0
@@ -855,7 +875,7 @@ class CameraWorker(QThread):
                 )
 
                 now = time.time()
-                if now - last_preview >= UI_FRAME_LIMIT:
+                if now - last_preview >= preview_interval:
                     self.frame_ready.emit(frame_to_qimage(frame))
                     last_preview = now
 
@@ -1112,7 +1132,7 @@ class EnrollmentDialog(QDialog):
             pixmap.scaled(
                 self.preview.size(),
                 Qt.KeepAspectRatio,
-                Qt.SmoothTransformation,
+                Qt.FastTransformation,
             )
         )
 
