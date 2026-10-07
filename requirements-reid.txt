@@ -4,3 +4,5 @@ torch
 torchvision
 torchreid
 gdown
+
+ultralytics
