@@ -1,7 +1,8 @@
 opencv-python
-face_recognition
+face_recognition_models
 numpy
 PySide6
 openpyxl
+dlib
 setuptools<81
 lap>=0.5.12
