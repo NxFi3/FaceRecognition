@@ -63,6 +63,7 @@ try:
         set_school_weekdays,
         delete_school_day_override,
         get_setting,
+        set_setting,
         get_student,
         get_student_class,
         init_db,
@@ -107,6 +108,7 @@ except ModuleNotFoundError:
         set_school_weekdays,
         delete_school_day_override,
         get_setting,
+        set_setting,
         get_student,
         get_student_class,
         init_db,
@@ -148,6 +150,8 @@ YUNET_MODEL_PATH = BASE_DIR / YUNET_MODEL_FILENAME
 
 CAMERA_ID = 0
 CAMERA_NAME = "camera_0"
+DEFAULT_CAMERA_TARGET_FPS = 60
+CAMERA_SCAN_LIMIT = 8
 
 YUNET_SCORE_THRESHOLD = 0.60
 YUNET_NMS_THRESHOLD = 0.30
@@ -197,13 +201,86 @@ def _camera_backends():
     return [cv2.CAP_ANY]
 
 
-def _open_camera(camera_id):
+def _open_camera(camera_id, target_fps=DEFAULT_CAMERA_TARGET_FPS):
     for backend in _camera_backends():
         cap = cv2.VideoCapture(camera_id, backend)
-        if cap.isOpened():
-            return cap
-        cap.release()
+        if not cap.isOpened():
+            cap.release()
+            continue
+
+        if target_fps >= 60:
+            try:
+                cap.set(
+                    cv2.CAP_PROP_FOURCC,
+                    cv2.VideoWriter_fourcc(*"MJPG"),
+                )
+            except Exception:
+                pass
+
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+        cap.set(cv2.CAP_PROP_FPS, target_fps)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        return cap
+
     raise RuntimeError("Could not open camera.")
+
+
+def _discover_cameras():
+    ids = list(range(CAMERA_SCAN_LIMIT))
+
+    if sys.platform.startswith("linux"):
+        device_ids = []
+        for path in sorted(Path("/dev").glob("video*")):
+            suffix = path.name[5:]
+            if suffix.isdigit():
+                device_ids.append(int(suffix))
+        if device_ids:
+            ids = sorted(set(device_ids))
+
+    cameras = []
+    target_fps = int(
+        get_setting(
+            "camera_target_fps",
+            DEFAULT_CAMERA_TARGET_FPS,
+        )
+    )
+
+    for camera_id in ids:
+        cap = None
+        try:
+            for backend in _camera_backends():
+                candidate = cv2.VideoCapture(camera_id, backend)
+                if candidate.isOpened():
+                    cap = candidate
+                    break
+                candidate.release()
+
+            if cap is None:
+                continue
+
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+            cap.set(cv2.CAP_PROP_FPS, target_fps)
+
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or CAMERA_WIDTH
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or CAMERA_HEIGHT
+            fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+
+            cameras.append({
+                "id": camera_id,
+                "label": (
+                    f"Camera {camera_id} — "
+                    f"{width}x{height} — {fps:.0f} FPS"
+                ),
+            })
+        except Exception:
+            continue
+        finally:
+            if cap is not None:
+                cap.release()
+
+    return cameras
 
 
 _FACE_MODELS = None
@@ -321,6 +398,17 @@ def face_embedding(frame, bbox):
     return np.asarray(descriptor, dtype=np.float32)
 
 
+def get_camera_settings():
+    camera_id = int(get_setting("camera_id", CAMERA_ID))
+    target_fps = int(
+        get_setting(
+            "camera_target_fps",
+            DEFAULT_CAMERA_TARGET_FPS,
+        )
+    )
+    return camera_id, target_fps
+
+
 def draw_text(frame, text, origin, scale=0.65, color=(255, 255, 255), thickness=2):
     cv2.putText(
         frame,
@@ -340,7 +428,8 @@ class FaceMatcher:
     def __init__(self):
         self.students = []
         self.embedding_matrix = np.empty((0, 128), dtype=np.float32)
-        self.embedding_owner = np.empty((0,), dtype=np.int32)
+        self.embedding_norms = np.empty((0,), dtype=np.float32)
+        self.student_slices = []
         self.refresh()
 
     def refresh(self):
@@ -356,15 +445,33 @@ class FaceMatcher:
                     vectors.append(vector)
                     owners.append(student_index)
 
-        if vectors:
-            self.embedding_matrix = np.vstack(vectors).astype(
-                np.float32,
-                copy=False,
-            )
-            self.embedding_owner = np.asarray(owners, dtype=np.int32)
-        else:
+        if not vectors:
             self.embedding_matrix = np.empty((0, 128), dtype=np.float32)
-            self.embedding_owner = np.empty((0,), dtype=np.int32)
+            self.embedding_norms = np.empty((0,), dtype=np.float32)
+            self.student_slices = []
+            return
+
+        self.embedding_matrix = np.ascontiguousarray(
+            np.vstack(vectors),
+            dtype=np.float32,
+        )
+        self.embedding_norms = np.einsum(
+            "ij,ij->i",
+            self.embedding_matrix,
+            self.embedding_matrix,
+        )
+
+        owners = np.asarray(owners, dtype=np.int32)
+        self.student_slices = []
+        start = 0
+
+        for student_index in range(len(self.students)):
+            count = int(np.count_nonzero(owners == student_index))
+            if count:
+                self.student_slices.append(
+                    (student_index, start, start + count)
+                )
+                start += count
 
     def recognize(self, frame, bbox):
         if self.embedding_matrix.size == 0:
@@ -374,27 +481,44 @@ class FaceMatcher:
         if embedding is None:
             return None, None, None
 
-        diff = self.embedding_matrix - embedding
-        distances = np.sqrt(np.einsum("ij,ij->i", diff, diff))
+        embedding_norm = float(np.dot(embedding, embedding))
+
+        squared = (
+            self.embedding_norms
+            + embedding_norm
+            - 2.0 * (self.embedding_matrix @ embedding)
+        )
+        np.maximum(squared, 0.0, out=squared)
 
         candidates = []
 
-        for student_index in np.unique(self.embedding_owner):
-            student_distances = distances[self.embedding_owner == student_index]
-            student_distances.sort()
+        for student_index, start, end in self.student_slices:
+            student_sq = squared[start:end]
+            if student_sq.size == 0:
+                continue
 
-            best_distance = float(student_distances[0])
-            stability_score = float(np.mean(student_distances[:3]))
+            best_squared = float(np.min(student_sq))
+            count = min(3, student_sq.size)
+
+            if count == student_sq.size:
+                top3_squared = student_sq
+            else:
+                top3_squared = np.partition(
+                    student_sq,
+                    count - 1,
+                )[:count]
+
+            best_distance = float(np.sqrt(best_squared))
+            stability_score = float(np.mean(np.sqrt(top3_squared)))
 
             candidates.append(
-                (int(student_index), best_distance, stability_score)
+                (student_index, best_distance, stability_score)
             )
 
         if not candidates:
             return None, None, None
 
         candidates.sort(key=lambda item: (item[1], item[2]))
-
         best_index, best_distance, best_stability = candidates[0]
 
         if (
@@ -412,8 +536,6 @@ class FaceMatcher:
                 return None, best_distance, best_stability
 
         return best_index, best_distance, best_stability
-
-
 class CameraWorker(QThread):
     frame_ready = Signal(QImage)
     attendance_added = Signal(object)
@@ -489,14 +611,14 @@ class CameraWorker(QThread):
                 YUNET_TOP_K,
             )
 
-            cap = _open_camera(CAMERA_ID)
+            camera_id, target_fps = get_camera_settings()
+            cap = _open_camera(camera_id, target_fps)
 
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            _get_face_models()
 
             actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            actual_fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
             detector.setInputSize((actual_width, actual_height))
 
             matcher = FaceMatcher()
@@ -513,7 +635,8 @@ class CameraWorker(QThread):
 
             self.status_changed.emit(
                 f"Camera online • {actual_width}x{actual_height} • "
-                f"YuNet • {len(matcher.students)} students loaded"
+                f"{actual_fps:.0f} FPS • YuNet • "
+                f"{len(matcher.students)} students loaded"
             )
 
             while self._running:
@@ -632,7 +755,7 @@ class CameraWorker(QThread):
                                 student_id = student["id"]
                                 inserted = mark_attendance(
                                     student_id,
-                                    CAMERA_NAME,
+                                    f"camera_{camera_id}",
                                 )
 
                                 if inserted:
@@ -641,7 +764,7 @@ class CameraWorker(QThread):
                                         "student_code": student["student_code"],
                                         "name": student["name"],
                                         "time": datetime.now().strftime("%H:%M:%S"),
-                                        "camera": CAMERA_NAME,
+                                        "camera": f"camera_{camera_id}",
                                     })
                         else:
                             track["last_validation"] = frame_count
@@ -777,11 +900,10 @@ class EnrollmentWorker(QThread):
                 YUNET_TOP_K,
             )
 
-            cap = _open_camera(CAMERA_ID)
+            camera_id, target_fps = get_camera_settings()
+            cap = _open_camera(camera_id, target_fps)
 
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            _get_face_models()
 
             actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -872,9 +994,6 @@ class EnrollmentWorker(QThread):
             if cap is not None:
                 cap.release()
             self._running = False
-
-
-
 
 class EnrollmentDialog(QDialog):
     def __init__(self, show_student_fields=True, student_id=None, parent=None):
@@ -2363,6 +2482,7 @@ class MainWindow(QMainWindow):
             ("رشته‌ها", 3),
             ("حضور و غیاب", 4),
             ("گزارش‌ها", 5),
+            ("تنظیمات", 6),
         )
 
         for text, index in navigation:
@@ -2405,6 +2525,7 @@ class MainWindow(QMainWindow):
         self.build_majors_page()
         self.build_attendance_page()
         self.build_reports_page()
+        self.build_settings_page()
 
         main_layout.addWidget(content, 1)
         self.show_page(0)
@@ -2829,6 +2950,127 @@ class MainWindow(QMainWindow):
         layout.addWidget(details_panel, 2)
 
         self.stack.addWidget(page)
+    def build_settings_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setSpacing(14)
+
+        panel = QFrame()
+        panel.setObjectName("panel")
+        panel_layout = QVBoxLayout(panel)
+
+        title = QLabel("تنظیمات دوربین")
+        title.setObjectName("sectionTitle")
+        panel_layout.addWidget(title)
+
+        form = QFormLayout()
+
+        self.settings_camera_combo = QComboBox()
+        self.settings_refresh_cameras_button = QPushButton("بازخوانی دوربین‌ها")
+        self.settings_refresh_cameras_button.clicked.connect(
+            self.refresh_camera_choices
+        )
+
+        camera_row = QHBoxLayout()
+        camera_row.addWidget(self.settings_camera_combo, 1)
+        camera_row.addWidget(self.settings_refresh_cameras_button)
+
+        self.settings_fps_combo = QComboBox()
+        self.settings_fps_combo.addItem("30 FPS", 30)
+        self.settings_fps_combo.addItem(
+            "60 FPS (در صورت پشتیبانی دوربین)",
+            60,
+        )
+
+        form.addRow("دوربین", camera_row)
+        form.addRow("نرخ هدف", self.settings_fps_combo)
+        panel_layout.addLayout(form)
+
+        info = QLabel(
+            "رزولوشن 1280×720 درخواست می‌شود. نرخ 60 فقط وقتی واقعی است که "
+            "خود دوربین و درایور آن این حالت را پشتیبانی کنند."
+        )
+        info.setObjectName("muted")
+        info.setWordWrap(True)
+        panel_layout.addWidget(info)
+
+        self.settings_camera_status = QLabel()
+        self.settings_camera_status.setObjectName("muted")
+        panel_layout.addWidget(self.settings_camera_status)
+
+        apply_button = QPushButton("ذخیره و راه‌اندازی مجدد دوربین")
+        apply_button.clicked.connect(self.apply_camera_settings)
+        panel_layout.addWidget(apply_button)
+
+        layout.addWidget(panel)
+        layout.addStretch(1)
+        self.stack.addWidget(page)
+
+    def refresh_camera_choices(self):
+        if not hasattr(self, "settings_camera_combo"):
+            return
+
+        current_id = int(get_setting("camera_id", CAMERA_ID))
+        current_fps = int(
+            get_setting(
+                "camera_target_fps",
+                DEFAULT_CAMERA_TARGET_FPS,
+            )
+        )
+
+        cameras = _discover_cameras()
+
+        self.settings_camera_combo.blockSignals(True)
+        self.settings_camera_combo.clear()
+
+        selected = -1
+        for index, camera in enumerate(cameras):
+            self.settings_camera_combo.addItem(
+                camera["label"],
+                camera["id"],
+            )
+            if camera["id"] == current_id:
+                selected = index
+
+        if not cameras:
+            self.settings_camera_combo.addItem(
+                "هیچ دوربینی پیدا نشد",
+                None,
+            )
+            self.settings_camera_combo.setEnabled(False)
+        else:
+            self.settings_camera_combo.setEnabled(True)
+            if selected >= 0:
+                self.settings_camera_combo.setCurrentIndex(selected)
+
+        fps_index = self.settings_fps_combo.findData(current_fps)
+        if fps_index >= 0:
+            self.settings_fps_combo.setCurrentIndex(fps_index)
+
+        self.settings_camera_combo.blockSignals(False)
+        self.settings_camera_status.setText(
+            f"{len(cameras)} دوربین پیدا شد."
+        )
+
+    def apply_camera_settings(self):
+        camera_id = self.settings_camera_combo.currentData()
+        if camera_id is None:
+            QMessageBox.warning(
+                self,
+                "دوربین",
+                "ابتدا یک دوربین معتبر انتخاب کنید.",
+            )
+            return
+
+        target_fps = int(self.settings_fps_combo.currentData())
+        set_setting("camera_id", int(camera_id))
+        set_setting("camera_target_fps", target_fps)
+
+        self.restart_camera()
+
+        self.settings_camera_status.setText(
+            f"دوربین {camera_id} با نرخ هدف {target_fps} FPS اعمال شد."
+        )
 
 
     def configure_table(self, table):
@@ -2851,6 +3093,7 @@ class MainWindow(QMainWindow):
             "رشته‌ها",
             "حضور و غیاب",
             "گزارش‌ها",
+            "تنظیمات",
         ]
         self.page_title.setText(titles[index])
 
@@ -2871,6 +3114,72 @@ class MainWindow(QMainWindow):
         elif index == 5:
             self.refresh_report_filters()
             self.refresh_report()
+        elif index == 6:
+            self.refresh_camera_choices()
+
+    def refresh_camera_choices(self):
+        if not hasattr(self, "settings_camera_combo"):
+            return
+        current_id = int(get_setting("camera_id", CAMERA_ID))
+        current_fps = int(
+            get_setting(
+                "camera_target_fps",
+                DEFAULT_CAMERA_TARGET_FPS,
+            )
+        )
+        cameras = _discover_cameras()
+
+        self.settings_camera_combo.blockSignals(True)
+        self.settings_camera_combo.clear()
+
+        selected = -1
+        for index, camera in enumerate(cameras):
+            self.settings_camera_combo.addItem(
+                camera["label"],
+                camera["id"],
+            )
+            if camera["id"] == current_id:
+                selected = index
+
+        if not cameras:
+            self.settings_camera_combo.addItem(
+                "هیچ دوربینی پیدا نشد",
+                None,
+            )
+            self.settings_camera_combo.setEnabled(False)
+        else:
+            self.settings_camera_combo.setEnabled(True)
+            if selected >= 0:
+                self.settings_camera_combo.setCurrentIndex(selected)
+
+        fps_index = self.settings_fps_combo.findData(current_fps)
+        if fps_index >= 0:
+            self.settings_fps_combo.setCurrentIndex(fps_index)
+
+        self.settings_camera_combo.blockSignals(False)
+        self.settings_camera_status.setText(
+            f"{len(cameras)} دوربین پیدا شد."
+        )
+
+    def apply_camera_settings(self):
+        camera_id = self.settings_camera_combo.currentData()
+        if camera_id is None:
+            QMessageBox.warning(
+                self,
+                "دوربین",
+                "ابتدا یک دوربین معتبر انتخاب کنید.",
+            )
+            return
+
+        target_fps = int(self.settings_fps_combo.currentData())
+        set_setting("camera_id", int(camera_id))
+        set_setting("camera_target_fps", target_fps)
+        self.restart_camera()
+
+        self.settings_camera_status.setText(
+            f"دوربین {camera_id} با نرخ هدف {target_fps} FPS اعمال شد."
+        )
+
 
     def start_camera(self):
         if self.camera_worker is not None and self.camera_worker.isRunning():
