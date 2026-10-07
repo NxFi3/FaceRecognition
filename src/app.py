@@ -3153,6 +3153,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(details_panel, 2)
 
         self.stack.addWidget(page)
+    def configure_table(self, table):
+        table.setAlternatingRowColors(True)
+        table.setSelectionBehavior(QTableWidget.SelectRows)
+        table.setSelectionMode(QTableWidget.SingleSelection)
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        table.setMinimumHeight(260)
+
+
     def build_settings_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -3265,27 +3275,6 @@ class MainWindow(QMainWindow):
         self.settings_camera_combo.blockSignals(False)
         self.settings_camera_status.setText(
             f"{len(cameras)} دوربین پیدا شد."
-        )
-
-    def apply_camera_settings(self):
-        camera_id = self.settings_camera_combo.currentData()
-        if camera_id is None:
-            QMessageBox.warning(
-                self,
-                "دوربین",
-                "ابتدا یک دوربین معتبر انتخاب کنید.",
-            )
-            return
-
-        target_fps = int(self.settings_fps_combo.currentData())
-
-        set_setting("camera_id", int(camera_id))
-        set_setting("camera_target_fps", target_fps)
-
-        self.restart_camera()
-
-        self.settings_camera_status.setText(
-            f"دوربین {camera_id} با نرخ هدف {target_fps} FPS اعمال شد."
         )
 
 
