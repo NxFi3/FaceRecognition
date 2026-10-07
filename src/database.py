@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import sys
 from datetime import datetime
@@ -118,6 +119,27 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_face_embeddings_student
         ON face_embeddings(student_id);
+
+        CREATE TABLE IF NOT EXISTS events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            student_id INTEGER,
+            track_id INTEGER,
+            camera_id TEXT NOT NULL DEFAULT 'camera_0',
+            timestamp TEXT NOT NULL,
+            confidence REAL,
+            metadata TEXT NOT NULL DEFAULT '{}',
+
+            FOREIGN KEY (student_id)
+                REFERENCES students(id)
+                ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_events_timestamp
+        ON events(timestamp);
+
+        CREATE INDEX IF NOT EXISTS idx_events_student
+        ON events(student_id);
 
         CREATE TABLE IF NOT EXISTS attendance (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1306,10 +1328,10 @@ def get_daily_report_summary(
         query = """
             SELECT a.date, a.status, COUNT(*)
             FROM attendance a
-            JOIN student_enrollments se
+            LEFT JOIN student_enrollments se
                 ON se.student_id = a.student_id
                 AND se.academic_year_id = ?
-            JOIN school_classes c ON c.id = se.class_id
+            LEFT JOIN school_classes c ON c.id = se.class_id
             LEFT JOIN majors m ON m.id = c.major_id
             WHERE a.date BETWEEN ? AND ?
         """
@@ -1330,10 +1352,10 @@ def get_daily_report_summary(
         student_query = """
             SELECT COUNT(*)
             FROM students s
-            JOIN student_enrollments se
+            LEFT JOIN student_enrollments se
                 ON se.student_id = s.id
                 AND se.academic_year_id = ?
-            JOIN school_classes c ON c.id = se.class_id
+            LEFT JOIN school_classes c ON c.id = se.class_id
             LEFT JOIN majors m ON m.id = c.major_id
             WHERE 1 = 1
         """
@@ -1632,14 +1654,14 @@ def get_report_rows(
                 s.id,
                 s.student_code,
                 s.name,
-                c.name,
+                c.grade,
                 COALESCE(m.name, ''),
-                c.grade
+                c.name
             FROM students s
-            JOIN student_enrollments se
+            LEFT JOIN student_enrollments se
                 ON se.student_id = s.id
                 AND se.academic_year_id = ?
-            JOIN school_classes c ON c.id = se.class_id
+            LEFT JOIN school_classes c ON c.id = se.class_id
             LEFT JOIN majors m ON m.id = c.major_id
             WHERE 1 = 1
         """
@@ -1663,10 +1685,10 @@ def get_report_rows(
                 a.date,
                 a.status
             FROM attendance a
-            JOIN student_enrollments se
+            LEFT JOIN student_enrollments se
                 ON se.student_id = a.student_id
                 AND se.academic_year_id = ?
-            JOIN school_classes c
+            LEFT JOIN school_classes c
                 ON c.id = se.class_id
             LEFT JOIN majors m
                 ON m.id = c.major_id
@@ -1768,3 +1790,81 @@ def get_today_attendance():
         for row in get_attendance()
         if row[5] in {"present", "late", "excused"}
     ]
+
+
+
+def add_event(
+    event_type,
+    student_id=None,
+    track_id=None,
+    camera_id="camera_0",
+    confidence=None,
+    metadata=None,
+    timestamp=None,
+):
+    """Persist a camera/event-engine event without affecting attendance rows."""
+    timestamp = timestamp or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    payload = json.dumps(metadata or {}, ensure_ascii=False, separators=(",", ":"))
+
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO events
+                (event_type, student_id, track_id, camera_id,
+                 timestamp, confidence, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(event_type),
+                student_id,
+                track_id,
+                str(camera_id),
+                timestamp,
+                confidence,
+                payload,
+            ),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def get_recent_events(limit=100, date=None):
+    conn = get_connection()
+    try:
+        query = """
+            SELECT
+                e.id,
+                e.event_type,
+                e.student_id,
+                COALESCE(s.student_code, ''),
+                COALESCE(s.name, ''),
+                e.track_id,
+                e.camera_id,
+                e.timestamp,
+                e.confidence,
+                e.metadata
+            FROM events e
+            LEFT JOIN students s ON s.id = e.student_id
+        """
+        params = []
+        if date is not None:
+            query += " WHERE date(e.timestamp) = ?"
+            params.append(date)
+        query += " ORDER BY e.timestamp DESC, e.id DESC LIMIT ?"
+        params.append(int(limit))
+        rows = conn.execute(query, params).fetchall()
+    finally:
+        conn.close()
+
+    result = []
+    for row in rows:
+        metadata = row[9]
+        try:
+            metadata = json.loads(metadata)
+        except (TypeError, ValueError):
+            metadata = {}
+        result.append(row[:9] + (metadata,))
+    return result
