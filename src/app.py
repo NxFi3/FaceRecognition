@@ -1,6 +1,9 @@
 import csv
+import os
 import sys
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -285,13 +288,13 @@ def _discover_cameras():
     return cameras
 
 
-_FACE_MODELS = None
+_FACE_MODELS_LOCAL = threading.local()
 
 
 def _get_face_models():
-    global _FACE_MODELS
+    models = getattr(_FACE_MODELS_LOCAL, "models", None)
 
-    if _FACE_MODELS is None:
+    if models is None:
         shape_model = Path(
             face_recognition_models.pose_predictor_five_point_model_location()
         )
@@ -306,14 +309,13 @@ def _get_face_models():
                 f"Face encoding model not found: {encoding_model}"
             )
 
-        _FACE_MODELS = (
+        models = (
             dlib.shape_predictor(str(shape_model)),
             dlib.face_recognition_model_v1(str(encoding_model)),
         )
+        _FACE_MODELS_LOCAL.models = models
 
-    return _FACE_MODELS
-
-
+    return models
 
 
 def frame_to_qimage(frame):
@@ -566,6 +568,22 @@ class CameraWorker(QThread):
         union = area_a + area_b - intersection
         return intersection / union if union > 0 else 0.0
 
+    @staticmethod
+    def _predict_bbox(track, frame_shape):
+        x1, y1, x2, y2 = track["bbox"]
+        dx, dy, dw, dh = track.get(
+            "velocity",
+            (0.0, 0.0, 0.0, 0.0),
+        )
+        width = max(1, int((x2 - x1) + dw))
+        height = max(1, int((y2 - y1) + dh))
+        frame_h, frame_w = frame_shape[:2]
+        nx1 = max(0, min(int(x1 + dx), frame_w - 1))
+        ny1 = max(0, min(int(y1 + dy), frame_h - 1))
+        nx2 = min(frame_w, nx1 + width)
+        ny2 = min(frame_h, ny1 + height)
+        track["bbox"] = (nx1, ny1, nx2, ny2)
+
     def _assign_tracks(self, detections, tracks, next_track_id):
         unmatched = set(range(len(detections)))
         assignments = {}
@@ -578,8 +596,8 @@ class CameraWorker(QThread):
                     candidates.append((score, track_id, index))
 
         candidates.sort(reverse=True)
-
         used_tracks = set()
+
         for score, track_id, index in candidates:
             if track_id in used_tracks or index not in unmatched:
                 continue
@@ -593,10 +611,16 @@ class CameraWorker(QThread):
 
         return assignments, next_track_id
 
+    @staticmethod
+    def _recognize_task(matcher, frame, bbox, track_id):
+        return track_id, matcher.recognize(frame, bbox)
+
     def run(self):
         self._running = True
         self.status_changed.emit("Loading face detector...")
         cap = None
+        executor = None
+        futures = set()
 
         try:
             if not YUNET_MODEL_PATH.exists():
@@ -616,30 +640,38 @@ class CameraWorker(QThread):
             camera_id, target_fps = get_camera_settings()
             cap = _open_camera(camera_id, target_fps)
 
-            _get_face_models()
-
             actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             actual_fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
             detector.setInputSize((actual_width, actual_height))
 
             matcher = FaceMatcher()
+
+            cpu_count = os.cpu_count() or 1
+            worker_count = 2 if cpu_count >= 2 else 1
+            if worker_count == 2:
+                executor = ThreadPoolExecutor(
+                    max_workers=2,
+                    thread_name_prefix="face-recognition",
+                )
+
             tracks = {}
             next_track_id = 1
             frame_count = 0
-            last_preview = 0.0
+            frames_since_detection = 0
             fps = 0.0
             fps_counter = 0
-            fps_start = time.time()
-            preview_interval = 1.0 / max(1, min(target_fps, 60))
+            fps_start = time.perf_counter()
+            last_preview = 0.0
+            preview_interval = 1.0 / 20.0
             detection_interval = 1
-            frames_since_detection = detection_interval
             last_detections = []
 
             self.status_changed.emit(
                 f"Camera online • {actual_width}x{actual_height} • "
                 f"{actual_fps:.0f} FPS • YuNet • "
-                f"{len(matcher.students)} students loaded"
+                f"{len(matcher.students)} students • "
+                f"recognition workers: {worker_count}"
             )
 
             while self._running:
@@ -649,11 +681,39 @@ class CameraWorker(QThread):
                     break
 
                 frame_count += 1
-
                 frames_since_detection += 1
+
+                for future in tuple(futures):
+                    if not future.done():
+                        continue
+
+                    futures.remove(future)
+                    try:
+                        track_id, result = future.result()
+                    except Exception as exc:
+                        self.error.emit(
+                            f"Recognition worker failed: {exc}"
+                        )
+                        continue
+
+                    track = tracks.get(track_id)
+                    if track is None:
+                        continue
+
+                    student_index, distance, stability = result
+                    track["recognition_pending"] = False
+                    track["recognition_done"] = True
+                    track["student_index"] = student_index
+                    track["distance"] = distance
+                    track["stability"] = stability
+                    track["candidate_index"] = student_index
+                    track["candidate_hits"] = (
+                        1 if student_index is not None else 0
+                    )
 
                 if frames_since_detection >= detection_interval:
                     frames_since_detection = 0
+
                     _, detections = detector.detect(frame)
                     last_detections = []
 
@@ -673,24 +733,62 @@ class CameraWorker(QThread):
                                 last_detections.append(bbox)
 
                     assignments, next_track_id = self._assign_tracks(
-                        last_detections, tracks, next_track_id
+                        last_detections,
+                        tracks,
+                        next_track_id,
                     )
 
                     new_tracks = {}
+
                     for index, bbox in enumerate(last_detections):
                         track_id = assignments[index]
-                        state = tracks.get(track_id, {
-                            "bbox": bbox,
-                            "student_index": None,
-                            "distance": None,
-                            "stability": None,
-                            "candidate_index": None,
-                            "candidate_hits": 0,
-                            "last_recognition": -RECOGNITION_INTERVAL,
-                            "last_validation": -REVALIDATION_INTERVAL,
-                            "validated_bbox": None,
-                            "misses": 0,
-                        })
+                        state = tracks.get(
+                            track_id,
+                            {
+                                "bbox": bbox,
+                                "velocity": (
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                ),
+                                "student_index": None,
+                                "distance": None,
+                                "stability": None,
+                                "candidate_index": None,
+                                "candidate_hits": 0,
+                                "recognition_pending": False,
+                                "recognition_done": False,
+                                "attendance_marked": False,
+                                "misses": 0,
+                            },
+                        )
+
+                        old_bbox = state["bbox"]
+                        old_w = old_bbox[2] - old_bbox[0]
+                        old_h = old_bbox[3] - old_bbox[1]
+                        new_w = bbox[2] - bbox[0]
+                        new_h = bbox[3] - bbox[1]
+
+                        if state["misses"] == 0:
+                            measured = (
+                                bbox[0] - old_bbox[0],
+                                bbox[1] - old_bbox[1],
+                                new_w - old_w,
+                                new_h - old_h,
+                            )
+                            previous = state.get(
+                                "velocity",
+                                (0.0, 0.0, 0.0, 0.0),
+                            )
+                            state["velocity"] = tuple(
+                                0.5 * old_v + 0.5 * new_v
+                                for old_v, new_v in zip(
+                                    previous,
+                                    measured,
+                                )
+                            )
+
                         state["bbox"] = bbox
                         state["misses"] = 0
                         new_tracks[track_id] = state
@@ -702,6 +800,13 @@ class CameraWorker(QThread):
                                 new_tracks[track_id] = state
 
                     tracks = new_tracks
+                else:
+                    for state in tracks.values():
+                        if state["misses"] == 0:
+                            self._predict_bbox(
+                                state,
+                                frame.shape,
+                            )
 
                 for track_id, track in list(tracks.items()):
                     if track["misses"] > 0:
@@ -714,115 +819,97 @@ class CameraWorker(QThread):
                     ):
                         continue
 
-                    if track["student_index"] is None:
-                        should_recognize = (
-                            frame_count - track["last_recognition"]
-                            >= RECOGNITION_INTERVAL
+                    # Exactly one dlib embedding per tracked face.
+                    if (
+                        not track["recognition_done"]
+                        and not track["recognition_pending"]
+                        and matcher.embedding_matrix.size != 0
+                    ):
+                        track["recognition_pending"] = True
+                        recognition_frame = np.ascontiguousarray(
+                            frame.copy(),
+                            dtype=np.uint8,
                         )
-                    else:
-                        validated_bbox = track.get("validated_bbox")
-                        moved_since_validation = (
-                            validated_bbox is not None
-                            and self._iou(
-                                validated_bbox,
-                                track["bbox"],
-                            ) < REVALIDATION_IOU_THRESHOLD
-                        )
-                        should_recognize = (
-                            frame_count - track["last_validation"]
-                            >= REVALIDATION_INTERVAL
-                            or (
-                                moved_since_validation
-                                and frame_count - track["last_validation"]
-                                >= REVALIDATION_MIN_INTERVAL
+
+                        if executor is None:
+                            student_index, distance, stability = (
+                                matcher.recognize(
+                                    recognition_frame,
+                                    (x1, y1, x2, y2),
+                                )
                             )
-                        )
-
-                    if should_recognize:
-                        track["last_recognition"] = frame_count
-                        (
-                            student_index,
-                            distance,
-                            stability,
-                        ) = matcher.recognize(
-                            frame,
-                            (x1, y1, x2, y2),
-                        )
-
-                        if track["student_index"] is None:
-                            if student_index == track["candidate_index"]:
-                                track["candidate_hits"] += 1
-                            else:
-                                track["candidate_index"] = student_index
-                                track["candidate_hits"] = (
-                                    1 if student_index is not None else 0
-                                )
-
-                            if (
-                                student_index is not None
-                                and track["candidate_hits"]
-                                >= RECOGNITION_CONFIRMATIONS
-                            ):
-                                track["student_index"] = student_index
-                                track["distance"] = distance
-                                track["stability"] = stability
-                                track["last_validation"] = frame_count
-                                track["validated_bbox"] = track["bbox"]
-
-                                student = matcher.students[student_index]
-                                student_id = student["id"]
-                                inserted = mark_attendance(
-                                    student_id,
-                                    f"camera_{camera_id}",
-                                )
-
-                                if inserted:
-                                    self.attendance_added.emit({
-                                        "student_id": student_id,
-                                        "student_code": student["student_code"],
-                                        "name": student["name"],
-                                        "time": datetime.now().strftime("%H:%M:%S"),
-                                        "camera": f"camera_{camera_id}",
-                                    })
+                            track["recognition_pending"] = False
+                            track["recognition_done"] = True
+                            track["student_index"] = student_index
+                            track["distance"] = distance
+                            track["stability"] = stability
+                            track["candidate_index"] = student_index
+                            track["candidate_hits"] = (
+                                1 if student_index is not None else 0
+                            )
                         else:
-                            track["last_validation"] = frame_count
-                            track["validated_bbox"] = track["bbox"]
-                            if (
-                                student_index != track["student_index"]
-                                or student_index is None
-                            ):
-                                track["student_index"] = None
-                                track["distance"] = None
-                                track["stability"] = None
-                                track["validated_bbox"] = None
-                                track["candidate_index"] = student_index
-                                track["candidate_hits"] = (
-                                    1 if student_index is not None else 0
+                            futures.add(
+                                executor.submit(
+                                    self._recognize_task,
+                                    matcher,
+                                    recognition_frame,
+                                    (x1, y1, x2, y2),
+                                    track_id,
                                 )
-                            else:
-                                track["distance"] = distance
-                                track["stability"] = stability
+                            )
 
-                    if track["student_index"] is not None:
+                    if (
+                        track["recognition_done"]
+                        and track["student_index"] is not None
+                    ):
+                        if track["candidate_hits"] < RECOGNITION_CONFIRMATIONS:
+                            track["candidate_hits"] += 1
+
+                        if (
+                            track["candidate_hits"]
+                            >= RECOGNITION_CONFIRMATIONS
+                            and not track["attendance_marked"]
+                        ):
+                            track["attendance_marked"] = True
+                            student = matcher.students[
+                                track["student_index"]
+                            ]
+
+                            inserted = mark_attendance(
+                                student["id"],
+                                f"camera_{camera_id}",
+                            )
+
+                            if inserted:
+                                self.attendance_added.emit({
+                                    "student_id": student["id"],
+                                    "student_code": student["student_code"],
+                                    "name": student["name"],
+                                    "time": datetime.now().strftime("%H:%M:%S"),
+                                    "camera": f"camera_{camera_id}",
+                                })
+
+                    if track["recognition_pending"]:
+                        label = "Scanning..."
+                        box_color = (255, 180, 0)
+                    elif track["student_index"] is not None:
                         student = matcher.students[track["student_index"]]
                         label = (
                             f"{student['name']} "
-                            f"[{track['distance']:.2f}/{track['stability']:.2f}]"
+                            f"[{track['distance']:.2f}/"
+                            f"{track['stability']:.2f}]"
                         )
                         box_color = (0, 220, 80)
-                    elif track["candidate_index"] is not None:
-                        candidate = matcher.students[track["candidate_index"]]
-                        label = (
-                            f"Confirming {candidate['name']} "
-                            f"({track['candidate_hits']}/{RECOGNITION_CONFIRMATIONS})"
-                        )
-                        box_color = (0, 210, 255)
                     else:
                         label = "Unknown"
                         box_color = (0, 140, 255)
 
                     cv2.rectangle(
-                        frame, (x1, y1), (x2, y2), box_color, 2
+                        frame,
+                        (x1, y1),
+                        (x2, y2),
+                        box_color,
+                        2,
                     )
                     draw_text(
                         frame,
@@ -844,7 +931,7 @@ class CameraWorker(QThread):
                 tracks = {
                     track_id: state
                     for track_id, state in tracks.items()
-                    if state["misses"] <= 3
+                    if state["misses"] <= TRACK_MAX_MISSES
                 }
 
                 if not last_detections:
@@ -855,26 +942,21 @@ class CameraWorker(QThread):
                     detection_interval = 1
 
                 fps_counter += 1
-                elapsed = time.time() - fps_start
+                elapsed = time.perf_counter() - fps_start
                 if elapsed >= 1.0:
                     fps = fps_counter / elapsed
                     fps_counter = 0
-                    fps_start = time.time()
+                    fps_start = time.perf_counter()
 
+                draw_text(frame, f"FPS: {fps:.1f}", (15, 28), 0.68)
                 draw_text(
                     frame,
-                    f"FPS: {fps:.1f}",
-                    (15, 28),
-                    0.68,
-                )
-                draw_text(
-                    frame,
-                    datetime.now().strftime("%Y-%m-%d"),
+                    f"CAM: {actual_fps:.0f}",
                     (15, 54),
                     0.52,
                 )
 
-                now = time.time()
+                now = time.perf_counter()
                 if now - last_preview >= preview_interval:
                     self.frame_ready.emit(frame_to_qimage(frame))
                     last_preview = now
@@ -883,11 +965,16 @@ class CameraWorker(QThread):
             self.error.emit(str(exc))
             self.status_changed.emit("Camera stopped")
         finally:
+            if executor is not None:
+                executor.shutdown(
+                    wait=True,
+                    cancel_futures=True,
+                )
+
             if cap is not None:
                 cap.release()
+
             self._running = False
-
-
 class EnrollmentWorker(QThread):
     frame_ready = Signal(QImage)
     progress = Signal(int, int)
@@ -3038,7 +3125,19 @@ class MainWindow(QMainWindow):
             )
         )
 
-        cameras = _discover_cameras()
+        was_running = (
+            self.camera_worker is not None
+            and self.camera_worker.isRunning()
+        )
+
+        if was_running:
+            self.stop_camera()
+
+        try:
+            cameras = _discover_cameras()
+        finally:
+            if was_running:
+                self.start_camera()
 
         self.settings_camera_combo.blockSignals(True)
         self.settings_camera_combo.clear()
@@ -3083,117 +3182,10 @@ class MainWindow(QMainWindow):
             return
 
         target_fps = int(self.settings_fps_combo.currentData())
+
         set_setting("camera_id", int(camera_id))
         set_setting("camera_target_fps", target_fps)
 
-        self.restart_camera()
-
-        self.settings_camera_status.setText(
-            f"دوربین {camera_id} با نرخ هدف {target_fps} FPS اعمال شد."
-        )
-
-
-    def configure_table(self, table):
-        table.setAlternatingRowColors(True)
-        table.setSelectionBehavior(QTableWidget.SelectRows)
-        table.setSelectionMode(QTableWidget.SingleSelection)
-        table.verticalHeader().setVisible(False)
-        table.setEditTriggers(QTableWidget.NoEditTriggers)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        table.setMinimumHeight(260)
-
-    def show_page(self, index):
-        self.current_page = index
-        self.stack.setCurrentIndex(index)
-
-        titles = [
-            "داشبورد",
-            "دانش‌آموزان",
-            "کلاس‌ها",
-            "رشته‌ها",
-            "حضور و غیاب",
-            "گزارش‌ها",
-            "تنظیمات",
-        ]
-        self.page_title.setText(titles[index])
-
-        for i, button in enumerate(self.nav_buttons):
-            button.setChecked(i == index)
-
-        if index == 0:
-            self.refresh_dashboard()
-        elif index == 1:
-            self.refresh_students()
-        elif index == 2:
-            self.refresh_classes()
-        elif index == 3:
-            self.refresh_majors()
-        elif index == 4:
-            self.refresh_attendance_filters()
-            self.refresh_attendance()
-        elif index == 5:
-            self.refresh_report_filters()
-            self.refresh_report()
-        elif index == 6:
-            self.refresh_camera_choices()
-
-    def refresh_camera_choices(self):
-        if not hasattr(self, "settings_camera_combo"):
-            return
-        current_id = int(get_setting("camera_id", CAMERA_ID))
-        current_fps = int(
-            get_setting(
-                "camera_target_fps",
-                DEFAULT_CAMERA_TARGET_FPS,
-            )
-        )
-        cameras = _discover_cameras()
-
-        self.settings_camera_combo.blockSignals(True)
-        self.settings_camera_combo.clear()
-
-        selected = -1
-        for index, camera in enumerate(cameras):
-            self.settings_camera_combo.addItem(
-                camera["label"],
-                camera["id"],
-            )
-            if camera["id"] == current_id:
-                selected = index
-
-        if not cameras:
-            self.settings_camera_combo.addItem(
-                "هیچ دوربینی پیدا نشد",
-                None,
-            )
-            self.settings_camera_combo.setEnabled(False)
-        else:
-            self.settings_camera_combo.setEnabled(True)
-            if selected >= 0:
-                self.settings_camera_combo.setCurrentIndex(selected)
-
-        fps_index = self.settings_fps_combo.findData(current_fps)
-        if fps_index >= 0:
-            self.settings_fps_combo.setCurrentIndex(fps_index)
-
-        self.settings_camera_combo.blockSignals(False)
-        self.settings_camera_status.setText(
-            f"{len(cameras)} دوربین پیدا شد."
-        )
-
-    def apply_camera_settings(self):
-        camera_id = self.settings_camera_combo.currentData()
-        if camera_id is None:
-            QMessageBox.warning(
-                self,
-                "دوربین",
-                "ابتدا یک دوربین معتبر انتخاب کنید.",
-            )
-            return
-
-        target_fps = int(self.settings_fps_combo.currentData())
-        set_setting("camera_id", int(camera_id))
-        set_setting("camera_target_fps", target_fps)
         self.restart_camera()
 
         self.settings_camera_status.setText(
