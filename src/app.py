@@ -757,7 +757,7 @@ class FaceMatcher:
 
             if (
                 second_distance - best_distance < 0.05
-                and second_stability - best_stability < 0.04
+                or second_stability - best_stability < 0.04
             ):
                 return None, best_distance, best_stability
 
@@ -2980,6 +2980,14 @@ class MainWindow(QMainWindow):
         self._preview_timer.timeout.connect(self._render_latest_camera_previews)
 
         self.presence_state = AttendancePresenceState()
+        # Rebuild today's presence after an application restart so an in-memory
+        # reset cannot turn already-recorded students into unexpected exits.
+        try:
+            for row in get_attendance():
+                if row[5] in {"present", "late", "excused"}:
+                    self.presence_state.present.add(int(row[0]))
+        except Exception:
+            pass
         self.global_identity_manager = GlobalIdentityManager(
             presence_state=self.presence_state,
             setting_callback=get_setting,
