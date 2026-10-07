@@ -33,7 +33,7 @@ PERSON_DETECTION_INTERVAL_CPU = 3
 FACE_DETECTION_INTERVAL = 2
 MAX_FACE_RECOGNITION_JOBS = 2
 FACE_RECOGNITION_INTERVAL = 5
-FACE_CONFIRMATIONS = 2
+FACE_CONFIRMATIONS = 3
 PREVIEW_FPS = 15.0
 PERSON_IMAGE_SIZE = 480
 LINE_POSITION = 0.50
@@ -457,6 +457,10 @@ class SmartCameraWorker(QThread):
                     student = matcher.students[student_index]
                     student_id = student["id"]
 
+                    # Require multiple independent recognitions before
+                    # assigning a new identity. Once a track is identified, a
+                    # single noisy recognition must not be allowed to swap it to
+                    # another student.
                     if track.candidate_student_id == student_id:
                         track.candidate_hits += 1
                     else:
@@ -465,10 +469,15 @@ class SmartCameraWorker(QThread):
 
                     confidence = self._confidence(distance, stability)
 
-                    if (
-                        track.student_id == student_id
-                        or track.candidate_hits >= FACE_CONFIRMATIONS
-                    ):
+                    identity_is_current = track.student_id == student_id
+                    identity_is_new = (
+                        track.student_id is None
+                        or track.student_id != student_id
+                    )
+
+                    if identity_is_current:
+                        track.candidate_hits = FACE_CONFIRMATIONS
+                    elif identity_is_new and track.candidate_hits >= FACE_CONFIRMATIONS:
                         was_reconciled = event_engine.on_face_identity(
                             track,
                             student_id,
