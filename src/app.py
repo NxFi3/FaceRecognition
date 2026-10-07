@@ -2850,6 +2850,27 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(content, 1)
         self.show_page(0)
 
+    def show_page(self, index):
+        if not self.stack or not (0 <= index < self.stack.count()):
+            return
+
+        self.current_page = index
+        self.stack.setCurrentIndex(index)
+
+        for button_index, button in enumerate(self.nav_buttons):
+            button.setChecked(button_index == index)
+
+        titles = (
+            "داشبورد",
+            "دانش‌آموزان",
+            "کلاس‌ها",
+            "رشته‌ها",
+            "حضور و غیاب",
+            "گزارش‌ها",
+            "تنظیمات",
+        )
+        self.page_title.setText(titles[index])
+
     def make_card(self, title):
         card = QFrame()
         card.setObjectName("statCard")
@@ -3394,6 +3415,43 @@ class MainWindow(QMainWindow):
             f"{len(cameras)} دوربین پیدا شد."
         )
 
+    def apply_camera_settings(self):
+        camera_id = self.settings_camera_combo.currentData()
+        if camera_id is None:
+            QMessageBox.warning(
+                self,
+                "دوربین یافت نشد",
+                "ابتدا یک دوربین معتبر انتخاب کنید.",
+            )
+            return
+
+        try:
+            camera_id = int(camera_id)
+            target_fps = int(self.settings_fps_combo.currentData())
+        except (TypeError, ValueError):
+            QMessageBox.warning(
+                self,
+                "تنظیمات نامعتبر",
+                "مقدار دوربین یا نرخ فریم معتبر نیست.",
+            )
+            return
+
+        set_setting("camera_id", camera_id)
+        set_setting("camera_target_fps", target_fps)
+
+        try:
+            self.restart_camera()
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "راه‌اندازی دوربین ناموفق بود",
+                str(exc),
+            )
+            return
+
+        self.settings_camera_status.setText(
+            f"دوربین {camera_id} با نرخ هدف {target_fps} FPS ذخیره شد."
+        )
 
     def start_camera(self):
         if self.camera_worker is not None and self.camera_worker.isRunning():
