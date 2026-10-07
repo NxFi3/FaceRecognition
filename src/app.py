@@ -777,6 +777,15 @@ class FaceMatcher:
             embedding
         )
 
+    def recognize_crop_with_embedding(self, crop, bbox):
+        """Return both the face embedding and its matcher result.
+
+        The smart-camera backlog uses the embedding only in RAM to reject a
+        mixed track before voting across its best face samples.
+        """
+        embedding = _encode_face_crop(crop, bbox)
+        return embedding, self.match_embedding(embedding)
+
     def recognize(self, frame, bbox):
         embedding = face_embedding(
             frame,
