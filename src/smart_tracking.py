@@ -396,10 +396,12 @@ class LineCrossing:
 
 
 def make_person_model_candidates(base_dir: Path):
+    # Keep model discovery portable. Never depend on a developer's
+    # machine-specific Trash/media paths.
     candidates = [
         base_dir / "yolo26n.pt",
+        base_dir / "yolov8n.pt",
         base_dir / "models" / "yolo26n.pt",
-        Path.home() / ".local/share/Trash/files/FaceRecognition/yolo26n.pt",
-        Path("/media/itsnxfi3/AAE2C7A6E2C7755B/.Trash-1000/files/yolo26n.pt"),
+        base_dir / "models" / "yolov8n.pt",
     ]
     return [path for path in candidates if path.exists()]
