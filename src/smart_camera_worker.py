@@ -818,7 +818,7 @@ class SmartCameraWorker(QThread):
                                 bbox[2] - bbox[0] >= 28
                                 and bbox[3] - bbox[1] >= 28
                             ):
-                                last_face_detections.append(bbox)
+                                last_face_detections.append((bbox, detection))
 
                 submitted_tracks = set()
                 if (
@@ -829,7 +829,7 @@ class SmartCameraWorker(QThread):
                 else:
                     last_face_detections_for_recognition = last_face_detections
 
-                for face_bbox in last_face_detections_for_recognition:
+                for face_bbox, face_detection in last_face_detections_for_recognition:
                     track = self._find_track_for_face(
                         face_bbox,
                         list(tracker.tracks.values()),
@@ -855,7 +855,7 @@ class SmartCameraWorker(QThread):
                     if compact is not None:
                         compact_crop, compact_bbox = compact
                         quality = self._face_quality_score(
-                            detection,
+                            face_detection,
                             face_crop,
                         )
                         track.cache_face_sample(
