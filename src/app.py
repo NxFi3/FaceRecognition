@@ -5,7 +5,8 @@ from datetime import datetime
 from pathlib import Path
 
 import cv2
-import face_recognition
+import dlib
+import face_recognition_models
 import numpy as np
 from PySide6.QtCore import QDate, QLibraryInfo, QThread, QTranslator, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap
@@ -142,7 +143,8 @@ if getattr(sys, "frozen", False):
 else:
     BASE_DIR = Path(__file__).resolve().parent.parent
 
-YUNET_MODEL_PATH = BASE_DIR / "face_detection_yunet_2023mar.onnx"
+YUNET_MODEL_FILENAME = "face_detection_yunet_2023mar.onnx"
+YUNET_MODEL_PATH = BASE_DIR / YUNET_MODEL_FILENAME
 
 CAMERA_ID = 0
 CAMERA_NAME = "camera_0"
@@ -169,7 +171,11 @@ RECOGNITION_CONFIRMATIONS = 3
 REVALIDATION_INTERVAL = 25
 
 # Do not discard usable distant faces too early.
-MIN_FACE_SIZE = 45
+MIN_FACE_SIZE = 35
+
+# Runtime tracking/UI tuning.
+TRACK_IOU_THRESHOLD = 0.20
+TRACK_MAX_MISSES = 3
 
 # Enrollment should cover natural variation rather than five near-identical frames.
 ENROLLMENT_SAMPLES = 12
@@ -181,7 +187,54 @@ FACE_CROP_PADDING = 0.20
 SMALL_FACE_THRESHOLD = 120
 SMALL_FACE_UPSCALE = 2.0
 
-UI_FRAME_LIMIT = 1.0 / 30.0
+UI_FRAME_LIMIT = 1.0 / 20.0
+
+def _camera_backends():
+    if sys.platform.startswith("win"):
+        return [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]
+    if sys.platform.startswith("linux"):
+        return [cv2.CAP_V4L2, cv2.CAP_ANY]
+    return [cv2.CAP_ANY]
+
+
+def _open_camera(camera_id):
+    for backend in _camera_backends():
+        cap = cv2.VideoCapture(camera_id, backend)
+        if cap.isOpened():
+            return cap
+        cap.release()
+    raise RuntimeError("Could not open camera.")
+
+
+_FACE_MODELS = None
+
+
+def _get_face_models():
+    global _FACE_MODELS
+
+    if _FACE_MODELS is None:
+        shape_model = Path(
+            face_recognition_models.pose_predictor_five_point_model_location()
+        )
+        encoding_model = Path(
+            face_recognition_models.face_recognition_model_location()
+        )
+
+        if not shape_model.exists():
+            raise FileNotFoundError(f"5-point model not found: {shape_model}")
+        if not encoding_model.exists():
+            raise FileNotFoundError(
+                f"Face encoding model not found: {encoding_model}"
+            )
+
+        _FACE_MODELS = (
+            dlib.shape_predictor(str(shape_model)),
+            dlib.face_recognition_model_v1(str(encoding_model)),
+        )
+
+    return _FACE_MODELS
+
+
 
 
 def frame_to_qimage(frame):
@@ -199,10 +252,10 @@ def frame_to_qimage(frame):
 
 def face_embedding(frame, bbox):
     """
-    Encode a padded face crop instead of the raw full-frame bounding box.
+    Encode a padded face crop with dlib directly.
 
-    Small/distant faces are upscaled locally before encoding. This improves
-    the amount of facial detail seen by dlib without upscaling the whole frame.
+    The camera frame stays at native resolution. Only small face crops are
+    locally upscaled before the 5-point landmark + 128D encoder pass.
     """
     x1, y1, x2, y2 = [int(value) for value in bbox]
 
@@ -226,9 +279,6 @@ def face_embedding(frame, bbox):
     if crop.size == 0:
         return None
 
-    crop_h, crop_w = crop.shape[:2]
-
-    # Only upscale small faces. Large faces already contain enough detail.
     if max(face_w, face_h) < SMALL_FACE_THRESHOLD:
         crop = cv2.resize(
             crop,
@@ -241,26 +291,31 @@ def face_embedding(frame, bbox):
     else:
         scale = 1.0
 
-    local_x1 = int((x1 - crop_x1) * scale)
-    local_y1 = int((y1 - crop_y1) * scale)
-    local_x2 = int((x2 - crop_x1) * scale)
-    local_y2 = int((y2 - crop_y1) * scale)
+    local_x1 = max(0, int((x1 - crop_x1) * scale))
+    local_y1 = max(0, int((y1 - crop_y1) * scale))
+    local_x2 = min(crop.shape[1] - 1, int((x2 - crop_x1) * scale))
+    local_y2 = min(crop.shape[0] - 1, int((y2 - crop_y1) * scale))
 
-    rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
-
-    location = (local_y1, local_x2, local_y2, local_x1)
-
-    encodings = face_recognition.face_encodings(
-        rgb,
-        known_face_locations=[location],
-        model="small",
-        num_jitters=1,
-    )
-
-    if not encodings:
+    if local_x2 <= local_x1 or local_y2 <= local_y1:
         return None
 
-    return encodings[0].astype(np.float32)
+    shape_predictor, face_encoder = _get_face_models()
+
+    rect = dlib.rectangle(
+        left=local_x1,
+        top=local_y1,
+        right=local_x2,
+        bottom=local_y2,
+    )
+
+    shape = shape_predictor(crop, rect)
+    descriptor = face_encoder.compute_face_descriptor(
+        crop,
+        shape,
+        0,
+    )
+
+    return np.asarray(descriptor, dtype=np.float32)
 
 
 def draw_text(frame, text, origin, scale=0.65, color=(255, 255, 255), thickness=2):
@@ -281,46 +336,55 @@ def draw_text(frame, text, origin, scale=0.65, color=(255, 255, 255), thickness=
 class FaceMatcher:
     def __init__(self):
         self.students = []
+        self.embedding_matrix = np.empty((0, 128), dtype=np.float32)
+        self.embedding_owner = np.empty((0,), dtype=np.int32)
         self.refresh()
 
     def refresh(self):
         self.students = load_students()
 
-    def recognize(self, frame, bbox):
-        """
-        Return:
-            (student_index, best_distance, stability_score)
+        vectors = []
+        owners = []
 
-        We use both the closest embedding and the mean of the three
-        closest embeddings for the same student. This prevents one
-        accidental embedding match from being enough.
-        """
-        if not self.students:
+        for student_index, student in enumerate(self.students):
+            for embedding in student["embeddings"]:
+                vector = np.asarray(embedding, dtype=np.float32).reshape(-1)
+                if vector.shape == (128,):
+                    vectors.append(vector)
+                    owners.append(student_index)
+
+        if vectors:
+            self.embedding_matrix = np.vstack(vectors).astype(
+                np.float32,
+                copy=False,
+            )
+            self.embedding_owner = np.asarray(owners, dtype=np.int32)
+        else:
+            self.embedding_matrix = np.empty((0, 128), dtype=np.float32)
+            self.embedding_owner = np.empty((0,), dtype=np.int32)
+
+    def recognize(self, frame, bbox):
+        if self.embedding_matrix.size == 0:
             return None, None, None
 
         embedding = face_embedding(frame, bbox)
         if embedding is None:
             return None, None, None
 
+        diff = self.embedding_matrix - embedding
+        distances = np.sqrt(np.einsum("ij,ij->i", diff, diff))
+
         candidates = []
 
-        for index, student in enumerate(self.students):
-            if not student["embeddings"]:
-                continue
+        for student_index in np.unique(self.embedding_owner):
+            student_distances = distances[self.embedding_owner == student_index]
+            student_distances.sort()
 
-            distances = [
-                float(np.linalg.norm(embedding - known_embedding))
-                for known_embedding in student["embeddings"]
-            ]
-
-            distances.sort()
-
-            best_distance = distances[0]
-            top_k = distances[: min(3, len(distances))]
-            stability_score = float(np.mean(top_k))
+            best_distance = float(student_distances[0])
+            stability_score = float(np.mean(student_distances[:3]))
 
             candidates.append(
-                (index, best_distance, stability_score)
+                (int(student_index), best_distance, stability_score)
             )
 
         if not candidates:
@@ -338,7 +402,6 @@ class FaceMatcher:
 
         if len(candidates) > 1:
             _, second_distance, second_stability = candidates[1]
-
             if (
                 second_distance - best_distance < 0.05
                 or second_stability - best_stability < 0.04
@@ -346,8 +409,6 @@ class FaceMatcher:
                 return None, best_distance, best_stability
 
         return best_index, best_distance, best_stability
-
-
 
 
 class CameraWorker(QThread):
@@ -386,7 +447,7 @@ class CameraWorker(QThread):
         for track_id, track in tracks.items():
             for index, bbox in enumerate(detections):
                 score = self._iou(track["bbox"], bbox)
-                if score >= 0.20:
+                if score >= TRACK_IOU_THRESHOLD:
                     candidates.append((score, track_id, index))
 
         candidates.sort(reverse=True)
@@ -425,13 +486,7 @@ class CameraWorker(QThread):
                 YUNET_TOP_K,
             )
 
-            cap = cv2.VideoCapture(CAMERA_ID, cv2.CAP_DSHOW)
-            if not cap.isOpened():
-                cap.release()
-                cap = cv2.VideoCapture(CAMERA_ID, cv2.CAP_MSMF)
-
-            if not cap.isOpened():
-                raise RuntimeError("Could not open camera.")
+            cap = _open_camera(CAMERA_ID)
 
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
@@ -450,6 +505,7 @@ class CameraWorker(QThread):
             fps_counter = 0
             fps_start = time.time()
             detection_interval = 1
+            frames_since_detection = detection_interval
             last_detections = []
 
             self.status_changed.emit(
@@ -465,7 +521,10 @@ class CameraWorker(QThread):
 
                 frame_count += 1
 
-                if frame_count % detection_interval == 0 or not last_detections:
+                frames_since_detection += 1
+
+                if frames_since_detection >= detection_interval:
+                    frames_since_detection = 0
                     _, detections = detector.detect(frame)
                     last_detections = []
 
@@ -715,13 +774,7 @@ class EnrollmentWorker(QThread):
                 YUNET_TOP_K,
             )
 
-            cap = cv2.VideoCapture(CAMERA_ID, cv2.CAP_DSHOW)
-            if not cap.isOpened():
-                cap.release()
-                cap = cv2.VideoCapture(CAMERA_ID, cv2.CAP_MSMF)
-
-            if not cap.isOpened():
-                raise RuntimeError("دوربین باز نشد.")
+            cap = _open_camera(CAMERA_ID)
 
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
@@ -4265,10 +4318,8 @@ def run_smoke_test():
     import face_recognition_models
 
     model_locations = {
-        "68-point": face_recognition_models.pose_predictor_model_location(),
         "5-point": face_recognition_models.pose_predictor_five_point_model_location(),
         "face-encoding": face_recognition_models.face_recognition_model_location(),
-        "cnn-face": face_recognition_models.cnn_face_detector_model_location(),
     }
 
     for name, model_path in model_locations.items():
