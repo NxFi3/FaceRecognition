@@ -22,13 +22,15 @@ jobs:
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://huggingface.co/opencv/opencv_zoo/resolve/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx" -OutFile "face_detection_yunet_2023mar.onnx"
-          if ((Get-Item "face_detection_yunet_2023mar.onnx").Length -lt 100000) { throw "YuNet model download looks invalid." }
+          if ((Get-Item "face_detection_yunet_2023mar.onnx").Length -lt 100000) {
+            throw "YuNet model download looks invalid."
+          }
 
       - name: Install dependencies
         shell: pwsh
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          $requirements = Get-Content requirements.txt | Where-Object { $_ -notmatch '^\s*face_recognition\s*
+          $requirements = Get-Content requirements.txt | Where-Object { $_ -notmatch '^\s*face_recognition\s*$' }
           $requirements | Set-Content windows-requirements.txt
           python -m pip install -r windows-requirements.txt
           python -m pip install dlib-bin==20.0.1.post1
@@ -73,75 +75,16 @@ jobs:
         run: |
           $exe = (Resolve-Path 'dist/FaceRecognition/FaceRecognition.exe').Path
           $process = Start-Process -FilePath $exe -ArgumentList '--smoke-test' -PassThru -Wait
-          if ($process.ExitCode -ne 0) { throw "Packaged executable smoke test failed with exit code $($process.ExitCode)." }
+          if ($process.ExitCode -ne 0) {
+            throw "Packaged executable smoke test failed with exit code $($process.ExitCode)."
+          }
 
       - name: Create ZIP
         shell: pwsh
         run: |
-          if (Test-Path 'FaceRecognition-Windows.zip') { Remove-Item 'FaceRecognition-Windows.zip' -Force }
-          Compress-Archive -Path 'dist/FaceRecognition/*' -DestinationPath 'FaceRecognition-Windows.zip'
-
-      - name: Upload Windows build
-        uses: actions/upload-artifact@v4
-        with:
-          name: FaceRecognition-Windows
-          path: FaceRecognition-Windows.zip
- }
-          $requirements | Set-Content windows-requirements.txt
-          python -m pip install -r windows-requirements.txt
-          python -m pip install dlib-bin==20.0.1.post1
-          python -m pip install face_recognition_models
-          python -m pip install face_recognition --no-deps
-          python -m pip install pyinstaller
-
-      - name: Verify Python runtime dependencies
-        shell: pwsh
-        run: |
-          python -c "import cv2, dlib, face_recognition, face_recognition_models, numpy, PySide6, ultralytics; print('PYTHON_RUNTIME_OK')"
-          python -c "from ultralytics import YOLO; YOLO('yolov8n-face.pt'); print('YOLO_MODEL_LOAD_OK')"
-
-      - name: Build Windows application
-        shell: pwsh
-        run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name FaceRecognition --add-data 'yolov8n-face.pt;.' --hidden-import ultralytics --hidden-import ultralytics.nn.tasks --hidden-import face_recognition_models --collect-all ultralytics --collect-all face_recognition --collect-all face_recognition_models --collect-binaries dlib src/app.py
-
-      - name: Verify packaged files
-        shell: pwsh
-        run: |
-          if (-not (Test-Path 'dist/FaceRecognition/FaceRecognition.exe')) {
-            throw 'PyInstaller did not produce FaceRecognition.exe.'
+          if (Test-Path 'FaceRecognition-Windows.zip') {
+            Remove-Item 'FaceRecognition-Windows.zip' -Force
           }
-
-          $package = Resolve-Path 'dist/FaceRecognition'
-          $model = Get-ChildItem -Path $package -Filter 'yolov8n-face.pt' -File -Recurse | Select-Object -First 1
-
-          if (-not $model) {
-            throw 'YOLO model was not found anywhere in the PyInstaller package.'
-          }
-
-          $target = Join-Path $package 'yolov8n-face.pt'
-          if ($model.FullName -ne $target) {
-            Copy-Item -LiteralPath $model.FullName -Destination $target -Force
-          }
-
-          if (-not (Test-Path $target)) {
-            throw 'YOLO model could not be placed next to the executable.'
-          }
-
-          Write-Host "Packaged YOLO model: $target"
-          Write-Host "Size: $((Get-Item $target).Length) bytes"
-
-      - name: Smoke test packaged executable
-        shell: pwsh
-        run: |
-          $exe = (Resolve-Path 'dist/FaceRecognition/FaceRecognition.exe').Path
-          $process = Start-Process -FilePath $exe -ArgumentList '--smoke-test' -PassThru -Wait
-          if ($process.ExitCode -ne 0) { throw "Packaged executable smoke test failed with exit code $($process.ExitCode)." }
-
-      - name: Create ZIP
-        shell: pwsh
-        run: |
-          if (Test-Path 'FaceRecognition-Windows.zip') { Remove-Item 'FaceRecognition-Windows.zip' -Force }
           Compress-Archive -Path 'dist/FaceRecognition/*' -DestinationPath 'FaceRecognition-Windows.zip'
 
       - name: Upload Windows build
