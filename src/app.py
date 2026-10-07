@@ -155,6 +155,7 @@ CAMERA_ID = 0
 CAMERA_NAME = "camera_0"
 DEFAULT_CAMERA_TARGET_FPS = 60
 CAMERA_SCAN_LIMIT = 8
+MAX_RECOGNITION_JOBS = 2
 
 YUNET_SCORE_THRESHOLD = 0.60
 YUNET_NMS_THRESHOLD = 0.30
@@ -427,13 +428,7 @@ def frame_to_qimage(frame):
     return image.copy()
 
 
-def face_embedding(frame, bbox):
-    """
-    Encode a padded face crop with dlib directly.
-
-    The camera frame stays at native resolution. Only small face crops are
-    locally upscaled before the 5-point landmark + 128D encoder pass.
-    """
+def _prepare_face_crop(frame, bbox):
     x1, y1, x2, y2 = [int(value) for value in bbox]
 
     frame_h, frame_w = frame.shape[:2]
@@ -456,8 +451,12 @@ def face_embedding(frame, bbox):
     if crop.size == 0:
         return None
 
-    # dlib's NumPy binding requires a C-contiguous uint8 image.
-    crop = np.ascontiguousarray(crop, dtype=np.uint8)
+    crop = np.ascontiguousarray(
+        crop,
+        dtype=np.uint8,
+    )
+
+    scale = 1.0
 
     if max(face_w, face_h) < SMALL_FACE_THRESHOLD:
         crop = cv2.resize(
@@ -468,34 +467,73 @@ def face_embedding(frame, bbox):
             interpolation=cv2.INTER_CUBIC,
         )
         scale = SMALL_FACE_UPSCALE
-    else:
-        scale = 1.0
 
-    local_x1 = max(0, int((x1 - crop_x1) * scale))
-    local_y1 = max(0, int((y1 - crop_y1) * scale))
-    local_x2 = min(crop.shape[1] - 1, int((x2 - crop_x1) * scale))
-    local_y2 = min(crop.shape[0] - 1, int((y2 - crop_y1) * scale))
-
-    if local_x2 <= local_x1 or local_y2 <= local_y1:
-        return None
-
-    shape_predictor, face_encoder = _get_face_models()
-
-    rect = dlib.rectangle(
-        left=local_x1,
-        top=local_y1,
-        right=local_x2,
-        bottom=local_y2,
+    local_bbox = (
+        max(0, int((x1 - crop_x1) * scale)),
+        max(0, int((y1 - crop_y1) * scale)),
+        min(
+            crop.shape[1] - 1,
+            int((x2 - crop_x1) * scale),
+        ),
+        min(
+            crop.shape[0] - 1,
+            int((y2 - crop_y1) * scale),
+        ),
     )
 
-    shape = shape_predictor(crop, rect)
+    if (
+        local_bbox[2] <= local_bbox[0]
+        or local_bbox[3] <= local_bbox[1]
+    ):
+        return None
+
+    return crop, local_bbox
+
+
+def _encode_face_crop(crop, bbox):
+    shape_predictor, face_encoder = _get_face_models()
+
+    x1, y1, x2, y2 = [int(value) for value in bbox]
+
+    rect = dlib.rectangle(
+        left=x1,
+        top=y1,
+        right=x2,
+        bottom=y2,
+    )
+
+    shape = shape_predictor(
+        crop,
+        rect,
+    )
+
     descriptor = face_encoder.compute_face_descriptor(
         crop,
         shape,
         0,
     )
 
-    return np.asarray(descriptor, dtype=np.float32)
+    return np.asarray(
+        descriptor,
+        dtype=np.float32,
+    )
+
+
+def face_embedding(frame, bbox):
+    prepared = _prepare_face_crop(
+        frame,
+        bbox,
+    )
+
+    if prepared is None:
+        return None
+
+    crop, local_bbox = prepared
+
+    return _encode_face_crop(
+        crop,
+        local_bbox,
+    )
 
 
 def get_camera_settings():
@@ -573,32 +611,47 @@ class FaceMatcher:
                 )
                 start += count
 
-    def recognize(self, frame, bbox):
+    def match_embedding(self, embedding):
         if self.embedding_matrix.size == 0:
             return None, None, None
 
-        embedding = face_embedding(frame, bbox)
-        if embedding is None:
-            return None, None, None
-
-        embedding_norm = float(np.dot(embedding, embedding))
+        embedding_norm = float(
+            np.dot(
+                embedding,
+                embedding,
+            )
+        )
 
         squared = (
             self.embedding_norms
             + embedding_norm
-            - 2.0 * (self.embedding_matrix @ embedding)
+            - 2.0 * (
+                self.embedding_matrix @ embedding
+            )
         )
-        np.maximum(squared, 0.0, out=squared)
+
+        np.maximum(
+            squared,
+            0.0,
+            out=squared,
+        )
 
         candidates = []
 
         for student_index, start, end in self.student_slices:
             student_sq = squared[start:end]
+
             if student_sq.size == 0:
                 continue
 
-            best_squared = float(np.min(student_sq))
-            count = min(3, student_sq.size)
+            best_squared = float(
+                np.min(student_sq)
+            )
+
+            count = min(
+                3,
+                student_sq.size,
+            )
 
             if count == student_sq.size:
                 top3_squared = student_sq
@@ -608,17 +661,34 @@ class FaceMatcher:
                     count - 1,
                 )[:count]
 
-            best_distance = float(np.sqrt(best_squared))
-            stability_score = float(np.mean(np.sqrt(top3_squared)))
+            best_distance = float(
+                np.sqrt(best_squared)
+            )
+
+            stability_score = float(
+                np.mean(
+                    np.sqrt(top3_squared)
+                )
+            )
 
             candidates.append(
-                (student_index, best_distance, stability_score)
+                (
+                    student_index,
+                    best_distance,
+                    stability_score,
+                )
             )
 
         if not candidates:
             return None, None, None
 
-        candidates.sort(key=lambda item: (item[1], item[2]))
+        candidates.sort(
+            key=lambda item: (
+                item[1],
+                item[2],
+            )
+        )
+
         best_index, best_distance, best_stability = candidates[0]
 
         if (
@@ -629,13 +699,42 @@ class FaceMatcher:
 
         if len(candidates) > 1:
             _, second_distance, second_stability = candidates[1]
+
             if (
                 second_distance - best_distance < 0.05
                 or second_stability - best_stability < 0.04
             ):
                 return None, best_distance, best_stability
 
-        return best_index, best_distance, best_stability
+        return (
+            best_index,
+            best_distance,
+            best_stability,
+        )
+
+    def recognize_crop(self, crop, bbox):
+        embedding = _encode_face_crop(
+            crop,
+            bbox,
+        )
+
+        return self.match_embedding(
+            embedding
+        )
+
+    def recognize(self, frame, bbox):
+        embedding = face_embedding(
+            frame,
+            bbox,
+        )
+
+        if embedding is None:
+            return None, None, None
+
+        return self.match_embedding(
+            embedding
+        )
+
 class CameraWorker(QThread):
     frame_ready = Signal(QImage)
     attendance_added = Signal(object)
@@ -708,8 +807,8 @@ class CameraWorker(QThread):
         return assignments, next_track_id
 
     @staticmethod
-    def _recognize_task(matcher, frame, bbox, track_id):
-        return track_id, matcher.recognize(frame, bbox)
+    def _recognize_task(matcher, crop, bbox, track_id):
+        return track_id, matcher.recognize_crop(crop, bbox)
 
     def run(self):
         self._running = True
@@ -744,10 +843,18 @@ class CameraWorker(QThread):
             matcher = FaceMatcher()
 
             cpu_count = os.cpu_count() or 1
-            worker_count = 2 if cpu_count >= 2 else 1
-            if worker_count == 2:
+            worker_count = (
+                min(
+                    MAX_RECOGNITION_JOBS,
+                    cpu_count,
+                )
+                if cpu_count >= 2
+                else 1
+            )
+
+            if worker_count >= 2:
                 executor = ThreadPoolExecutor(
-                    max_workers=2,
+                    max_workers=worker_count,
                     thread_name_prefix="face-recognition",
                 )
 
@@ -920,39 +1027,49 @@ class CameraWorker(QThread):
                         not track["recognition_done"]
                         and not track["recognition_pending"]
                         and matcher.embedding_matrix.size != 0
+                        and (
+                            executor is None
+                            or len(futures) < MAX_RECOGNITION_JOBS
+                        )
                     ):
-                        track["recognition_pending"] = True
-                        recognition_frame = np.ascontiguousarray(
-                            frame.copy(),
-                            dtype=np.uint8,
+                        prepared = _prepare_face_crop(
+                            frame,
+                            (x1, y1, x2, y2),
                         )
 
-                        if executor is None:
-                            student_index, distance, stability = (
-                                matcher.recognize(
-                                    recognition_frame,
-                                    (x1, y1, x2, y2),
+                        if prepared is not None:
+                            face_crop, local_bbox = prepared
+                            track["recognition_pending"] = True
+
+                            if executor is None:
+                                student_index, distance, stability = (
+                                    matcher.recognize_crop(
+                                        face_crop,
+                                        local_bbox,
+                                    )
                                 )
-                            )
-                            track["recognition_pending"] = False
-                            track["recognition_done"] = True
-                            track["student_index"] = student_index
-                            track["distance"] = distance
-                            track["stability"] = stability
-                            track["candidate_index"] = student_index
-                            track["candidate_hits"] = (
-                                1 if student_index is not None else 0
-                            )
-                        else:
-                            futures.add(
-                                executor.submit(
-                                    self._recognize_task,
-                                    matcher,
-                                    recognition_frame,
-                                    (x1, y1, x2, y2),
-                                    track_id,
+
+                                track["recognition_pending"] = False
+                                track["recognition_done"] = True
+                                track["student_index"] = student_index
+                                track["distance"] = distance
+                                track["stability"] = stability
+                                track["candidate_index"] = student_index
+                                track["candidate_hits"] = (
+                                    1
+                                    if student_index is not None
+                                    else 0
                                 )
-                            )
+                            else:
+                                futures.add(
+                                    executor.submit(
+                                        self._recognize_task,
+                                        matcher,
+                                        face_crop,
+                                        local_bbox,
+                                        track_id,
+                                    )
+                                )
 
                     if (
                         track["recognition_done"]
@@ -3310,7 +3427,7 @@ class MainWindow(QMainWindow):
             pixmap.scaled(
                 self.camera_preview.size(),
                 Qt.KeepAspectRatio,
-                Qt.SmoothTransformation,
+                Qt.FastTransformation,
             )
         )
 
