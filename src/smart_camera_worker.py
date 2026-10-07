@@ -539,37 +539,19 @@ class SmartCameraWorker(QThread):
                                 camera_id,
                             )
                             if identity_match is not None:
-                                confidence = max(
-                                    0.0,
-                                    min(1.0, identity_match.similarity),
-                                )
-                                event_engine.on_reid_identity(
-                                    track,
-                                    identity_match.student_id,
-                                    identity_match.student_code,
-                                    identity_match.student_name,
-                                    confidence,
-                                    camera_id,
-                                    {
-                                        "similarity": round(
-                                            identity_match.similarity,
-                                            4,
-                                        ),
-                                        "score": round(
-                                            identity_match.score,
-                                            4,
-                                        ),
-                                        "source_camera": identity_match.source_camera,
-                                        "source_track_id": identity_match.source_track_id,
-                                        "reason": identity_match.reason,
-                                    },
-                                )
-                                track.metadata["global_identity"] = {
+                                # Re-ID is a tracking/linking signal, not an
+                                # attendance-grade identity proof. Keep the
+                                # candidate pending until face recognition
+                                # confirms the student.
+                                track.metadata["pending_global_identity"] = {
+                                    "student_id": identity_match.student_id,
+                                    "student_code": identity_match.student_code,
+                                    "student_name": identity_match.student_name,
                                     "similarity": identity_match.similarity,
                                     "source_camera": identity_match.source_camera,
                                     "source_track_id": identity_match.source_track_id,
+                                    "reason": identity_match.reason,
                                 }
-                                track.metadata["identity_source"] = "global_reid"
 
                         event_engine.on_track_seen(track, camera_id)
 
