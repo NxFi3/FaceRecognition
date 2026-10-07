@@ -279,6 +279,9 @@ def face_embedding(frame, bbox):
     if crop.size == 0:
         return None
 
+    # dlib's NumPy binding requires a C-contiguous uint8 image.
+    crop = np.ascontiguousarray(crop, dtype=np.uint8)
+
     if max(face_w, face_h) < SMALL_FACE_THRESHOLD:
         crop = cv2.resize(
             crop,
@@ -834,7 +837,7 @@ class EnrollmentWorker(QThread):
                 elif len(faces) == 0:
                     draw_text(
                         frame,
-                        "چهره‌ای پیدا نشد",
+                        "No face detected",
                         (20, 40),
                         0.72,
                         (0, 80, 255),
@@ -843,7 +846,7 @@ class EnrollmentWorker(QThread):
                 else:
                     draw_text(
                         frame,
-                        "فقط یک نفر باید جلوی دوربین باشد",
+                        "Only one person should be in front of the camera",
                         (20, 40),
                         0.62,
                         (0, 80, 255),
@@ -852,7 +855,7 @@ class EnrollmentWorker(QThread):
 
                 draw_text(
                     frame,
-                    f"نمونه‌ها: {len(embeddings)}/{ENROLLMENT_SAMPLES}",
+                    f"Samples: {len(embeddings)}/{ENROLLMENT_SAMPLES}",
                     (20, frame.shape[0] - 20),
                     0.68,
                 )
