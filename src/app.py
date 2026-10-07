@@ -568,7 +568,7 @@ class CameraWorker(QThread):
                     for track_id, state in tracks.items():
                         if track_id not in new_tracks:
                             state["misses"] += 1
-                            if state["misses"] <= 3:
+                            if state["misses"] <= TRACK_MAX_MISSES:
                                 new_tracks[track_id] = state
 
                     tracks = new_tracks
