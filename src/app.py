@@ -232,18 +232,6 @@ def _open_camera(camera_id, target_fps=DEFAULT_CAMERA_TARGET_FPS):
 
 
 def _discover_cameras():
-    ids = list(range(CAMERA_SCAN_LIMIT))
-
-    if sys.platform.startswith("linux"):
-        device_ids = []
-        for path in sorted(Path("/dev").glob("video*")):
-            suffix = path.name[5:]
-            if suffix.isdigit():
-                device_ids.append(int(suffix))
-        if device_ids:
-            ids = sorted(set(device_ids))
-
-    cameras = []
     target_fps = int(
         get_setting(
             "camera_target_fps",
@@ -251,8 +239,107 @@ def _discover_cameras():
         )
     )
 
-    for camera_id in ids:
+    if sys.platform.startswith("linux"):
+        cameras = []
+
+        for path in sorted(
+            Path("/dev").glob("video*"),
+            key=lambda item: item.name,
+        ):
+            suffix = path.name[5:]
+            if not suffix.isdigit():
+                continue
+
+            camera_id = int(suffix)
+            device_name = "Video device"
+
+            name_path = Path(
+                f"/sys/class/video4linux/{path.name}/name"
+            )
+            try:
+                if name_path.exists():
+                    value = name_path.read_text(
+                        encoding="utf-8",
+                        errors="ignore",
+                    ).strip()
+                    if value:
+                        device_name = value
+            except OSError:
+                pass
+
+            # Try to read live capture capabilities when the device is
+            # available. If the backend is temporarily busy, keep the device
+            # in the list anyway so Settings never becomes empty just because
+            # another process has the camera open.
+            width = CAMERA_WIDTH
+            height = CAMERA_HEIGHT
+            fps = 0.0
+            cap = None
+
+            try:
+                for backend in _camera_backends():
+                    candidate = cv2.VideoCapture(camera_id, backend)
+                    if candidate.isOpened():
+                        cap = candidate
+                        break
+                    candidate.release()
+
+                if cap is not None:
+                    if target_fps >= 60:
+                        try:
+                            cap.set(
+                                cv2.CAP_PROP_FOURCC,
+                                cv2.VideoWriter_fourcc(*"MJPG"),
+                            )
+                        except Exception:
+                            pass
+
+                    cap.set(
+                        cv2.CAP_PROP_FRAME_WIDTH,
+                        CAMERA_WIDTH,
+                    )
+                    cap.set(
+                        cv2.CAP_PROP_FRAME_HEIGHT,
+                        CAMERA_HEIGHT,
+                    )
+                    cap.set(cv2.CAP_PROP_FPS, target_fps)
+
+                    width = int(
+                        cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+                    ) or width
+                    height = int(
+                        cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+                    ) or height
+                    fps = float(
+                        cap.get(cv2.CAP_PROP_FPS) or 0.0
+                    )
+            except Exception:
+                pass
+            finally:
+                if cap is not None:
+                    cap.release()
+
+            fps_label = (
+                f"{fps:.0f} FPS"
+                if fps > 0
+                else "FPS auto"
+            )
+
+            cameras.append({
+                "id": camera_id,
+                "label": (
+                    f"Camera {camera_id} — {device_name} — "
+                    f"{width}x{height} — {fps_label}"
+                ),
+            })
+
+        return cameras
+
+    cameras = []
+
+    for camera_id in range(CAMERA_SCAN_LIMIT):
         cap = None
+
         try:
             for backend in _camera_backends():
                 candidate = cv2.VideoCapture(camera_id, backend)
@@ -263,6 +350,15 @@ def _discover_cameras():
 
             if cap is None:
                 continue
+
+            if target_fps >= 60:
+                try:
+                    cap.set(
+                        cv2.CAP_PROP_FOURCC,
+                        cv2.VideoWriter_fourcc(*"MJPG"),
+                    )
+                except Exception:
+                    pass
 
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
