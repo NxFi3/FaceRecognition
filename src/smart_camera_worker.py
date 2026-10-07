@@ -474,6 +474,7 @@ class SmartCameraWorker(QThread):
                         track.student_id is None
                         or track.student_id != student_id
                     )
+                    was_reconciled = False
 
                     if identity_is_current:
                         track.candidate_hits = FACE_CONFIRMATIONS
