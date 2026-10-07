@@ -905,14 +905,27 @@ class CameraWorker(QThread):
 
                     student_index, distance, stability = result
                     track["recognition_pending"] = False
-                    track["recognition_done"] = True
-                    track["student_index"] = student_index
-                    track["distance"] = distance
-                    track["stability"] = stability
-                    track["candidate_index"] = student_index
-                    track["candidate_hits"] = (
-                        1 if student_index is not None else 0
-                    )
+                    track["last_recognition_frame"] = frame_count
+
+                    if student_index is None:
+                        # A weak first frame must not permanently lock the track
+                        # as Unknown. Keep trying at the recognition interval.
+                        track["recognition_done"] = False
+                        track["candidate_index"] = None
+                        track["candidate_hits"] = 0
+
+                        if track["student_index"] is None:
+                            track["distance"] = distance
+                            track["stability"] = stability
+                    else:
+                        track["recognition_done"] = True
+                        track["student_index"] = student_index
+                        track["distance"] = distance
+                        track["stability"] = stability
+                        track["candidate_index"] = student_index
+                        track["candidate_hits"] = 1
+                        track["last_validation_frame"] = frame_count
+                        track["validated_bbox"] = track["bbox"]
 
                 if frames_since_detection >= detection_interval:
                     frames_since_detection = 0
@@ -960,6 +973,9 @@ class CameraWorker(QThread):
                                 "stability": None,
                                 "candidate_index": None,
                                 "candidate_hits": 0,
+                                "last_recognition_frame": -RECOGNITION_INTERVAL,
+                                "last_validation_frame": -REVALIDATION_INTERVAL,
+                                "validated_bbox": None,
                                 "recognition_pending": False,
                                 "recognition_done": False,
                                 "attendance_marked": False,
@@ -1022,9 +1038,39 @@ class CameraWorker(QThread):
                     ):
                         continue
 
-                    # Exactly one dlib embedding per tracked face.
+                    # Recognition is scheduled by track state:
+                    # - Unknown tracks retry every RECOGNITION_INTERVAL frames.
+                    # - Known tracks revalidate only after enough time or movement.
+                    should_recognize = track["student_index"] is None
+
+                    if not should_recognize:
+                        validated_bbox = track.get("validated_bbox")
+                        moved_since_validation = (
+                            validated_bbox is not None
+                            and self._iou(
+                                validated_bbox,
+                                track["bbox"],
+                            ) < REVALIDATION_IOU_THRESHOLD
+                        )
+                        should_recognize = (
+                            frame_count - track["last_validation_frame"]
+                            >= REVALIDATION_INTERVAL
+                            or (
+                                moved_since_validation
+                                and frame_count
+                                - track["last_validation_frame"]
+                                >= REVALIDATION_MIN_INTERVAL
+                            )
+                        )
+
+                    can_submit_recognition = (
+                        frame_count - track["last_recognition_frame"]
+                        >= RECOGNITION_INTERVAL
+                    )
+
                     if (
-                        not track["recognition_done"]
+                        should_recognize
+                        and can_submit_recognition
                         and not track["recognition_pending"]
                         and matcher.embedding_matrix.size != 0
                         and (
@@ -1050,16 +1096,24 @@ class CameraWorker(QThread):
                                 )
 
                                 track["recognition_pending"] = False
-                                track["recognition_done"] = True
-                                track["student_index"] = student_index
-                                track["distance"] = distance
-                                track["stability"] = stability
-                                track["candidate_index"] = student_index
-                                track["candidate_hits"] = (
-                                    1
-                                    if student_index is not None
-                                    else 0
-                                )
+                                track["last_recognition_frame"] = frame_count
+
+                                if student_index is None:
+                                    track["recognition_done"] = False
+                                    track["candidate_index"] = None
+                                    track["candidate_hits"] = 0
+                                    if track["student_index"] is None:
+                                        track["distance"] = distance
+                                        track["stability"] = stability
+                                else:
+                                    track["recognition_done"] = True
+                                    track["student_index"] = student_index
+                                    track["distance"] = distance
+                                    track["stability"] = stability
+                                    track["candidate_index"] = student_index
+                                    track["candidate_hits"] = 1
+                                    track["last_validation_frame"] = frame_count
+                                    track["validated_bbox"] = track["bbox"]
                             else:
                                 futures.add(
                                     executor.submit(
