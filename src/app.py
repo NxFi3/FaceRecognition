@@ -142,12 +142,14 @@ if getattr(sys, "frozen", False):
 else:
     BASE_DIR = Path(__file__).resolve().parent.parent
 
-MODEL_PATH = BASE_DIR / "yolov8n-face.pt"
+YUNET_MODEL_PATH = BASE_DIR / "face_detection_yunet_2023mar.onnx"
 
 CAMERA_ID = 0
 CAMERA_NAME = "camera_0"
 
-CONFIDENCE = 0.35
+YUNET_SCORE_THRESHOLD = 0.60
+YUNET_NMS_THRESHOLD = 0.30
+YUNET_TOP_K = 5000
 
 # Capture more pixels so faces remain usable at longer distances.
 CAMERA_WIDTH = 1280
@@ -361,261 +363,313 @@ class CameraWorker(QThread):
     def stop(self):
         self._running = False
 
+    @staticmethod
+    def _iou(a, b):
+        ax1, ay1, ax2, ay2 = a
+        bx1, by1, bx2, by2 = b
+        ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+        ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+        iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
+        intersection = iw * ih
+        if intersection <= 0:
+            return 0.0
+        area_a = max(0, ax2 - ax1) * max(0, ay2 - ay1)
+        area_b = max(0, bx2 - bx1) * max(0, by2 - by1)
+        union = area_a + area_b - intersection
+        return intersection / union if union > 0 else 0.0
+
+    def _assign_tracks(self, detections, tracks, next_track_id):
+        unmatched = set(range(len(detections)))
+        assignments = {}
+        candidates = []
+
+        for track_id, track in tracks.items():
+            for index, bbox in enumerate(detections):
+                score = self._iou(track["bbox"], bbox)
+                if score >= 0.20:
+                    candidates.append((score, track_id, index))
+
+        candidates.sort(reverse=True)
+
+        used_tracks = set()
+        for score, track_id, index in candidates:
+            if track_id in used_tracks or index not in unmatched:
+                continue
+            assignments[index] = track_id
+            used_tracks.add(track_id)
+            unmatched.remove(index)
+
+        for index in unmatched:
+            assignments[index] = next_track_id
+            next_track_id += 1
+
+        return assignments, next_track_id
+
     def run(self):
         self._running = True
         self.status_changed.emit("Loading face detector...")
-
         cap = None
 
         try:
-            if not MODEL_PATH.exists():
+            if not YUNET_MODEL_PATH.exists():
                 raise FileNotFoundError(
-                    f"Model not found: {MODEL_PATH}"
+                    f"YuNet model not found: {YUNET_MODEL_PATH}"
                 )
 
-            model = __import__("ultralytics").YOLO(str(MODEL_PATH))
+            detector = cv2.FaceDetectorYN.create(
+                str(YUNET_MODEL_PATH),
+                "",
+                (CAMERA_WIDTH, CAMERA_HEIGHT),
+                YUNET_SCORE_THRESHOLD,
+                YUNET_NMS_THRESHOLD,
+                YUNET_TOP_K,
+            )
 
-            cap = cv2.VideoCapture(CAMERA_ID)
+            cap = cv2.VideoCapture(CAMERA_ID, cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                cap.release()
+                cap = cv2.VideoCapture(CAMERA_ID, cv2.CAP_MSMF)
 
             if not cap.isOpened():
                 raise RuntimeError("Could not open camera.")
 
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
             actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            detector.setInputSize((actual_width, actual_height))
 
             matcher = FaceMatcher()
             tracks = {}
-
+            next_track_id = 1
             frame_count = 0
             last_preview = 0.0
             fps = 0.0
             fps_counter = 0
             fps_start = time.time()
+            detection_interval = 1
+            last_detections = []
 
             self.status_changed.emit(
                 f"Camera online • {actual_width}x{actual_height} • "
-                f"{len(matcher.students)} students loaded"
+                f"YuNet • {len(matcher.students)} students loaded"
             )
 
             while self._running:
                 ret, frame = cap.read()
-
                 if not ret:
                     self.error.emit("Camera frame failed.")
                     break
 
                 frame_count += 1
 
-                try:
-                    results = model.track(
-                        frame,
-                        imgsz=IMAGE_SIZE,
-                        conf=CONFIDENCE,
-                        persist=True,
-                        tracker="bytetrack.yaml",
-                        verbose=False,
+                if frame_count % detection_interval == 0 or not last_detections:
+                    _, detections = detector.detect(frame)
+                    last_detections = []
+
+                    if detections is not None:
+                        for detection in detections:
+                            x, y, w, h = detection[:4]
+                            bbox = (
+                                max(0, int(x)),
+                                max(0, int(y)),
+                                min(frame.shape[1], int(x + w)),
+                                min(frame.shape[0], int(y + h)),
+                            )
+                            if (
+                                bbox[2] - bbox[0] >= MIN_FACE_SIZE
+                                and bbox[3] - bbox[1] >= MIN_FACE_SIZE
+                            ):
+                                last_detections.append(bbox)
+
+                    assignments, next_track_id = self._assign_tracks(
+                        last_detections, tracks, next_track_id
                     )
-                except Exception as exc:
-                    self.error.emit(f"Tracking error: {exc}")
-                    break
 
-                active_track_ids = set()
+                    new_tracks = {}
+                    for index, bbox in enumerate(last_detections):
+                        track_id = assignments[index]
+                        state = tracks.get(track_id, {
+                            "bbox": bbox,
+                            "student_index": None,
+                            "distance": None,
+                            "stability": None,
+                            "candidate_index": None,
+                            "candidate_hits": 0,
+                            "last_recognition": -RECOGNITION_INTERVAL,
+                            "last_validation": -REVALIDATION_INTERVAL,
+                            "misses": 0,
+                        })
+                        state["bbox"] = bbox
+                        state["misses"] = 0
+                        new_tracks[track_id] = state
 
-                if results and results[0].boxes is not None:
-                    boxes = results[0].boxes
+                    for track_id, state in tracks.items():
+                        if track_id not in new_tracks:
+                            state["misses"] += 1
+                            if state["misses"] <= 3:
+                                new_tracks[track_id] = state
 
-                    for box in boxes:
-                        if box.id is None:
-                            continue
+                    tracks = new_tracks
 
-                        track_id = int(box.id[0].item())
-                        active_track_ids.add(track_id)
+                for track_id, track in list(tracks.items()):
+                    if track["misses"] > 0:
+                        continue
 
-                        coords = box.xyxy[0].cpu().numpy().astype(int)
-                        x1, y1, x2, y2 = coords
+                    x1, y1, x2, y2 = track["bbox"]
+                    if (
+                        x2 - x1 < MIN_FACE_SIZE
+                        or y2 - y1 < MIN_FACE_SIZE
+                    ):
+                        continue
 
-                        x1 = max(0, x1)
-                        y1 = max(0, y1)
-                        x2 = min(frame.shape[1], x2)
-                        y2 = min(frame.shape[0], y2)
+                    if track["student_index"] is None:
+                        should_recognize = (
+                            frame_count - track["last_recognition"]
+                            >= RECOGNITION_INTERVAL
+                        )
+                    else:
+                        should_recognize = (
+                            frame_count - track["last_validation"]
+                            >= REVALIDATION_INTERVAL
+                        )
 
-                        width = x2 - x1
-                        height = y2 - y1
-
-                        if width < MIN_FACE_SIZE or height < MIN_FACE_SIZE:
-                            continue
-
-                        if track_id not in tracks:
-                            tracks[track_id] = {
-                                "student_index": None,
-                                "distance": None,
-                                "stability": None,
-                                "candidate_index": None,
-                                "candidate_hits": 0,
-                                "last_recognition": -RECOGNITION_INTERVAL,
-                                "last_validation": -REVALIDATION_INTERVAL,
-                            }
-
-                        track = tracks[track_id]
+                    if should_recognize:
+                        track["last_recognition"] = frame_count
+                        (
+                            student_index,
+                            distance,
+                            stability,
+                        ) = matcher.recognize(
+                            frame,
+                            (x1, y1, x2, y2),
+                        )
 
                         if track["student_index"] is None:
-                            should_recognize = (
-                                frame_count - track["last_recognition"]
-                                >= RECOGNITION_INTERVAL
-                            )
-                        else:
-                            should_recognize = (
-                                frame_count - track["last_validation"]
-                                >= REVALIDATION_INTERVAL
-                            )
-
-                        if should_recognize:
-                            track["last_recognition"] = frame_count
-
-                            (
-                                student_index,
-                                distance,
-                                stability,
-                            ) = matcher.recognize(
-                                frame,
-                                (x1, y1, x2, y2),
-                            )
-
-                            if track["student_index"] is None:
-          
-                                if student_index == track["candidate_index"]:
-                                    track["candidate_hits"] += 1
-                                else:
-                                    track["candidate_index"] = student_index
-                                    track["candidate_hits"] = (
-                                        1 if student_index is not None else 0
-                                    )
-
-                                if (
-                                    student_index is not None
-                                    and track["candidate_hits"]
-                                    >= RECOGNITION_CONFIRMATIONS
-                                ):
-                                    track["student_index"] = student_index
-                                    track["distance"] = distance
-                                    track["stability"] = stability
-                                    track["last_validation"] = frame_count
-
-                                    student = matcher.students[student_index]
-                                    student_id = student["id"]
-
-                                    inserted = mark_attendance(
-                                        student_id,
-                                        CAMERA_NAME,
-                                    )
-
-                                    if inserted:
-                                        timestamp = datetime.now().strftime(
-                                            "%H:%M:%S"
-                                        )
-
-                                        self.attendance_added.emit(
-                                            {
-                                                "student_id": student_id,
-                                                "student_code": student["student_code"],
-                                                "name": student["name"],
-                                                "time": timestamp,
-                                                "camera": CAMERA_NAME,
-                                            }
-                                        )
-
+                            if student_index == track["candidate_index"]:
+                                track["candidate_hits"] += 1
                             else:
+                                track["candidate_index"] = student_index
+                                track["candidate_hits"] = (
+                                    1 if student_index is not None else 0
+                                )
+
+                            if (
+                                student_index is not None
+                                and track["candidate_hits"]
+                                >= RECOGNITION_CONFIRMATIONS
+                            ):
+                                track["student_index"] = student_index
+                                track["distance"] = distance
+                                track["stability"] = stability
                                 track["last_validation"] = frame_count
 
-                                if (
-                                    student_index != track["student_index"]
-                                    or student_index is None
-                                ):
-                                    track["student_index"] = None
-                                    track["distance"] = None
-                                    track["stability"] = None
-                                    track["candidate_index"] = student_index
-                                    track["candidate_hits"] = (
-                                        1 if student_index is not None else 0
-                                    )
-                                else:
-                                    track["distance"] = distance
-                                    track["stability"] = stability
+                                student = matcher.students[student_index]
+                                student_id = student["id"]
+                                inserted = mark_attendance(
+                                    student_id,
+                                    CAMERA_NAME,
+                                )
 
-                        if track["student_index"] is not None:
-                            student = matcher.students[track["student_index"]]
-                            name = student["name"]
-                            distance = track["distance"]
-                            stability = track["stability"]
-
-                            label = (
-                                f"{name} "
-                                f"[{distance:.2f}/{stability:.2f}]"
-                            )
-                            box_color = (0, 220, 80)
-                        elif track["candidate_index"] is not None:
-                            candidate = matcher.students[track["candidate_index"]]
-                            label = (
-                                f"Confirming {candidate['name']} "
-                                f"({track['candidate_hits']}/{RECOGNITION_CONFIRMATIONS})"
-                            )
-                            box_color = (0, 210, 255)
+                                if inserted:
+                                    self.attendance_added.emit({
+                                        "student_id": student_id,
+                                        "student_code": student["student_code"],
+                                        "name": student["name"],
+                                        "time": datetime.now().strftime("%H:%M:%S"),
+                                        "camera": CAMERA_NAME,
+                                    })
                         else:
-                            label = "Unknown"
-                            box_color = (0, 140, 255)
+                            track["last_validation"] = frame_count
+                            if (
+                                student_index != track["student_index"]
+                                or student_index is None
+                            ):
+                                track["student_index"] = None
+                                track["distance"] = None
+                                track["stability"] = None
+                                track["candidate_index"] = student_index
+                                track["candidate_hits"] = (
+                                    1 if student_index is not None else 0
+                                )
+                            else:
+                                track["distance"] = distance
+                                track["stability"] = stability
 
-                        cv2.rectangle(
-                            frame,
-                            (x1, y1),
-                            (x2, y2),
-                            box_color,
-                            2,
+                    if track["student_index"] is not None:
+                        student = matcher.students[track["student_index"]]
+                        label = (
+                            f"{student['name']} "
+                            f"[{track['distance']:.2f}/{track['stability']:.2f}]"
                         )
-
-                        draw_text(
-                            frame,
-                            label,
-                            (x1, max(25, y1 - 10)),
-                            0.58,
-                            box_color,
-                            2,
+                        box_color = (0, 220, 80)
+                    elif track["candidate_index"] is not None:
+                        candidate = matcher.students[track["candidate_index"]]
+                        label = (
+                            f"Confirming {candidate['name']} "
+                            f"({track['candidate_hits']}/{RECOGNITION_CONFIRMATIONS})"
                         )
+                        box_color = (0, 210, 255)
+                    else:
+                        label = "Unknown"
+                        box_color = (0, 140, 255)
 
-                        draw_text(
-                            frame,
-                            f"ID: {track_id}",
-                            (x1, min(frame.shape[0] - 8, y2 + 20)),
-                            0.48,
-                            box_color,
-                            1,
-                        )
+                    cv2.rectangle(
+                        frame, (x1, y1), (x2, y2), box_color, 2
+                    )
+                    draw_text(
+                        frame,
+                        label,
+                        (x1, max(25, y1 - 10)),
+                        0.58,
+                        box_color,
+                        2,
+                    )
+                    draw_text(
+                        frame,
+                        f"ID: {track_id}",
+                        (x1, min(frame.shape[0] - 8, y2 + 20)),
+                        0.48,
+                        box_color,
+                        1,
+                    )
 
-                disappeared = [
-                    track_id
-                    for track_id in tracks
-                    if track_id not in active_track_ids
-                ]
+                tracks = {
+                    track_id: state
+                    for track_id, state in tracks.items()
+                    if state["misses"] <= 3
+                }
 
-                for track_id in disappeared:
-                    del tracks[track_id]
+                if not last_detections:
+                    detection_interval = 3
+                elif len(last_detections) <= 2:
+                    detection_interval = 2
+                else:
+                    detection_interval = 1
 
                 fps_counter += 1
                 elapsed = time.time() - fps_start
-
                 if elapsed >= 1.0:
                     fps = fps_counter / elapsed
                     fps_counter = 0
                     fps_start = time.time()
 
-                today = datetime.now().strftime("%Y-%m-%d")
-                draw_text(frame, f"FPS: {fps:.1f}", (15, 28), 0.68)
-                draw_text(frame, today, (15, 54), 0.52)
+                draw_text(
+                    frame,
+                    f"FPS: {fps:.1f}",
+                    (15, 28),
+                    0.68,
+                )
+                draw_text(
+                    frame,
+                    datetime.now().strftime("%Y-%m-%d"),
+                    (15, 54),
+                    0.52,
+                )
 
                 now = time.time()
-
                 if now - last_preview >= UI_FRAME_LIMIT:
                     self.frame_ready.emit(frame_to_qimage(frame))
                     last_preview = now
@@ -623,11 +677,9 @@ class CameraWorker(QThread):
         except Exception as exc:
             self.error.emit(str(exc))
             self.status_changed.emit("Camera stopped")
-
         finally:
             if cap is not None:
                 cap.release()
-
             self._running = False
 
 
@@ -649,18 +701,35 @@ class EnrollmentWorker(QThread):
         cap = None
 
         try:
-            if not MODEL_PATH.exists():
-                raise FileNotFoundError(f"مدل پیدا نشد: {MODEL_PATH}")
+            if not YUNET_MODEL_PATH.exists():
+                raise FileNotFoundError(
+                    f"مدل YuNet پیدا نشد: {YUNET_MODEL_PATH}"
+                )
 
-            model = __import__("ultralytics").YOLO(str(MODEL_PATH))
+            detector = cv2.FaceDetectorYN.create(
+                str(YUNET_MODEL_PATH),
+                "",
+                (CAMERA_WIDTH, CAMERA_HEIGHT),
+                YUNET_SCORE_THRESHOLD,
+                YUNET_NMS_THRESHOLD,
+                YUNET_TOP_K,
+            )
 
-            cap = cv2.VideoCapture(CAMERA_ID)
+            cap = cv2.VideoCapture(CAMERA_ID, cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                cap.release()
+                cap = cv2.VideoCapture(CAMERA_ID, cv2.CAP_MSMF)
 
             if not cap.isOpened():
                 raise RuntimeError("دوربین باز نشد.")
 
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+            actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            detector.setInputSize((actual_width, actual_height))
 
             embeddings = []
             last_sample = 0.0
@@ -670,39 +739,29 @@ class EnrollmentWorker(QThread):
                 if not ret:
                     raise RuntimeError("دریافت تصویر از دوربین ناموفق بود.")
 
-                results = model.predict(
-                    frame,
-                    imgsz=IMAGE_SIZE,
-                    conf=CONFIDENCE,
-                    verbose=False,
-                )
-
+                _, detections = detector.detect(frame)
                 faces = []
 
-                if results and results[0].boxes is not None:
-                    for box in results[0].boxes:
-                        coords = box.xyxy[0].cpu().numpy().astype(int)
-                        x1, y1, x2, y2 = coords
-
-                        x1 = max(0, x1)
-                        y1 = max(0, y1)
-                        x2 = min(frame.shape[1], x2)
-                        y2 = min(frame.shape[0], y2)
-
+                if detections is not None:
+                    for detection in detections:
+                        x, y, w, h = detection[:4]
+                        bbox = (
+                            max(0, int(x)),
+                            max(0, int(y)),
+                            min(frame.shape[1], int(x + w)),
+                            min(frame.shape[0], int(y + h)),
+                        )
                         if (
-                            x2 - x1 >= ENROLLMENT_MIN_FACE_SIZE
-                            and y2 - y1 >= ENROLLMENT_MIN_FACE_SIZE
+                            bbox[2] - bbox[0] >= ENROLLMENT_MIN_FACE_SIZE
+                            and bbox[3] - bbox[1] >= ENROLLMENT_MIN_FACE_SIZE
                         ):
-                            faces.append((x1, y1, x2, y2))
+                            faces.append(bbox)
 
                 if len(faces) == 1:
                     bbox = faces[0]
                     now = time.time()
-
                     if now - last_sample >= ENROLLMENT_SAMPLE_INTERVAL:
-                        # Encode clean camera pixels before drawing UI overlays.
                         embedding = face_embedding(frame, bbox)
-
                         if embedding is not None:
                             embeddings.append(embedding)
                             last_sample = now
@@ -719,7 +778,6 @@ class EnrollmentWorker(QThread):
                         (0, 220, 80),
                         2,
                     )
-
                 elif len(faces) == 0:
                     draw_text(
                         frame,
@@ -745,22 +803,21 @@ class EnrollmentWorker(QThread):
                     (20, frame.shape[0] - 20),
                     0.68,
                 )
-
                 self.frame_ready.emit(frame_to_qimage(frame))
 
-            if len(embeddings) == ENROLLMENT_SAMPLES:
-                self.capture_done.emit(embeddings)
-            else:
-                self.capture_done.emit(None)
+            self.capture_done.emit(
+                embeddings if len(embeddings) == ENROLLMENT_SAMPLES else None
+            )
 
         except Exception as exc:
             self.error.emit(str(exc))
             self.capture_done.emit(None)
-
         finally:
             if cap is not None:
                 cap.release()
             self._running = False
+
+
 
 
 class EnrollmentDialog(QDialog):
@@ -4201,12 +4258,11 @@ def ensure_admin_access():
 
 
 def run_smoke_test():
-    if not MODEL_PATH.exists():
-        raise RuntimeError(f"YOLO model missing: {MODEL_PATH}")
+    if not YUNET_MODEL_PATH.exists():
+        raise RuntimeError(f"YuNet model missing: {YUNET_MODEL_PATH}")
 
     import dlib
     import face_recognition_models
-    from ultralytics import YOLO
 
     model_locations = {
         "68-point": face_recognition_models.pose_predictor_model_location(),
@@ -4221,15 +4277,22 @@ def run_smoke_test():
                 f"face_recognition model missing ({name}): {model_path}"
             )
 
-    # Force-load the native dlib resources used by face_recognition.
     dlib.face_recognition_model_v1(
         model_locations["face-encoding"]
     )
 
-    # Force-load the packaged YOLO weights as the application does at runtime.
-    YOLO(str(MODEL_PATH))
+    detector = cv2.FaceDetectorYN.create(
+        str(YUNET_MODEL_PATH),
+        "",
+        (CAMERA_WIDTH, CAMERA_HEIGHT),
+        YUNET_SCORE_THRESHOLD,
+        YUNET_NMS_THRESHOLD,
+        YUNET_TOP_K,
+    )
+    detector.setInputSize((CAMERA_WIDTH, CAMERA_HEIGHT))
 
     print("FACE_RECOGNITION_SMOKE_TEST_OK")
+
 
 
 def main():
