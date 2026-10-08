@@ -1696,6 +1696,7 @@ class EnrollmentDialog(QDialog):
         self.accept()
 
     def closeEvent(self, event):
+        logger.info("APP_CLOSE_EVENT")
         if self.worker is not None and self.worker.isRunning():
             self.worker.stop()
             self.worker.wait(3000)
@@ -4305,6 +4306,7 @@ class MainWindow(QMainWindow):
         )
 
     def start_camera(self):
+        logger.info("APP_START_CAMERA requested")
         self._camera_supervisor_enabled = True
         if self.camera_workers and any(
             worker.isRunning() for worker in self.camera_workers.values()
@@ -4478,6 +4480,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(1500, restart)
 
     def stop_camera(self):
+        logger.info("APP_STOP_CAMERA requested")
         self._camera_supervisor_enabled = False
         workers = list(self.camera_workers.values())
         for worker in workers:
