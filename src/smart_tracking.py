@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Optional
 
 import cv2
+import logging
+
+logger = logging.getLogger(__name__)
 import numpy as np
 
 
@@ -88,6 +91,7 @@ class PersonDetector:
         self.imgsz = max(320, int(imgsz))
 
     def detect(self, frame):
+        logger.debug("PERSON_DETECT_START device=%s imgsz=%s", self.device, self.imgsz)
         result = self.model.predict(
             frame,
             imgsz=self.imgsz,
