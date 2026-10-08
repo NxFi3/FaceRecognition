@@ -168,7 +168,8 @@ class SmartCameraWorker(QThread):
 
     @staticmethod
     def _recognize_task(matcher, crop, bbox, track_id):
-        return track_id, matcher.recognize_crop(crop, bbox)
+        embedding = _encode_face_crop(crop, bbox)
+        return track_id, embedding, matcher.match_embedding(embedding)
 
     @staticmethod
     def _face_quality_score(detection, crop):
@@ -226,9 +227,16 @@ class SmartCameraWorker(QThread):
         clusters = []
         for sample in samples:
             try:
-                embedding, result = matcher.recognize_crop_with_embedding(
-                    sample["crop"], sample["bbox"]
-                )
+                cached_embedding = sample.get("embedding")
+                if cached_embedding is None:
+                    embedding = _encode_face_crop(
+                        sample["crop"], sample["bbox"]
+                    )
+                else:
+                    embedding = np.asarray(
+                        cached_embedding, dtype=np.float32
+                    )
+                result = matcher.match_embedding(embedding)
             except Exception:
                 continue
             student_index, distance, stability = result
@@ -640,7 +648,7 @@ class SmartCameraWorker(QThread):
 
                     futures.remove(future)
                     try:
-                        track_id, result = future.result()
+                        track_id, embedding, result = future.result()
                     except Exception as exc:
                         self.error.emit(f"Face recognition worker failed: {exc}")
                         continue
@@ -651,6 +659,18 @@ class SmartCameraWorker(QThread):
 
                     student_index, distance, stability = result
                     track.last_face_frame = frame_no
+
+                    # Reuse the exact embedding produced by live recognition
+                    # when the cache is finalized, avoiding a second dlib pass.
+                    for sample in reversed(track.face_cache):
+                        if (
+                            sample.get("frame_no") == frame_no
+                            and sample.get("embedding") is None
+                        ):
+                            sample["embedding"] = np.asarray(
+                                embedding, dtype=np.float32
+                            ).copy()
+                            break
 
                     if student_index is None:
                         track.candidate_student_id = None
