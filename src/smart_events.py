@@ -213,6 +213,19 @@ class AttendanceEventEngine:
         if student_id is None:
             return [EVENT_UNKNOWN_PERSON]
 
+        if not track.metadata.get("face_witnessed_for_crossing", False):
+            self._emit(
+                EVENT_UNKNOWN_PERSON,
+                track,
+                camera_id,
+                track.identity_confidence,
+                {
+                    "direction": "enter",
+                    "reason": "face_witness_required",
+                },
+            )
+            return [EVENT_UNKNOWN_PERSON]
+
         with self._state.lock:
             if student_id in self.present:
                 return []
