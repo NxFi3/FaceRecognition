@@ -1,8 +1,11 @@
 """Event and presence state machine for the smart attendance camera."""
 
+logger = logging.getLogger(__name__)
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import logging
 from datetime import datetime
 from threading import RLock
 
