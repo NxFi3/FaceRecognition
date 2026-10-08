@@ -163,6 +163,7 @@ class PersonTrack:
             "bbox": tuple(int(v) for v in bbox),
             "quality": float(quality),
             "frame_no": int(frame_no),
+            "embedding": None,
         }
 
         self.face_cache.append(sample)
@@ -181,6 +182,7 @@ class PersonTrack:
                 "bbox": tuple(sample["bbox"]),
                 "quality": float(sample["quality"]),
                 "frame_no": int(sample["frame_no"]),
+                "embedding": None if sample.get("embedding") is None else np.asarray(sample["embedding"], dtype=np.float32).copy(),
             }
             for sample in self.face_cache
         ]
