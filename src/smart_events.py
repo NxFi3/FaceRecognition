@@ -12,6 +12,9 @@ class AttendancePresenceState:
     present: set[int] = field(default_factory=set)
     last_entered: dict[int, datetime] = field(default_factory=dict)
     active_tracks: dict[int, set[tuple[str, int]]] = field(default_factory=dict)
+    current_date: str = field(
+        default_factory=lambda: datetime.now().strftime("%Y-%m-%d")
+    )
     lock: RLock = field(default_factory=RLock, repr=False)
 
 
@@ -42,6 +45,18 @@ class AttendanceEventEngine:
     @property
     def present(self):
         return self._state.present
+
+    def ensure_current_day(self):
+        """Reset in-memory presence when the calendar day rolls over."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        with self._state.lock:
+            if self._state.current_date == today:
+                return False
+            self._state.current_date = today
+            self._state.present.clear()
+            self._state.last_entered.clear()
+            self._state.active_tracks.clear()
+        return True
 
     @property
     def last_entered(self):
@@ -176,6 +191,8 @@ class AttendanceEventEngine:
         )
 
     def on_crossing(self, track, direction, camera_id):
+        self.ensure_current_day()
+
         if track.student_id is None:
             self._emit(
                 EVENT_UNKNOWN_PERSON,
@@ -200,9 +217,6 @@ class AttendanceEventEngine:
             if student_id in self.present:
                 return []
 
-            self.present.add(student_id)
-            self.last_entered[student_id] = datetime.now()
-
         start = self._time_setting("school_start_time", "08:00")
         late_enabled = self._bool_setting(
             self._get_setting("enable_late_events", "1"),
@@ -220,6 +234,10 @@ class AttendanceEventEngine:
                 else ""
             ),
         )
+
+        with self._state.lock:
+            self.present.add(student_id)
+            self.last_entered[student_id] = datetime.now()
 
         emitted = [EVENT_PERSON_ENTERED]
         self._emit(
@@ -323,6 +341,8 @@ class AttendanceEventEngine:
         return False
 
     def clear(self):
-        self.present.clear()
-        self.last_entered.clear()
-        self._state.active_tracks.clear()
+        with self._state.lock:
+            self.present.clear()
+            self.last_entered.clear()
+            self._state.active_tracks.clear()
+            self._state.current_date = datetime.now().strftime("%Y-%m-%d")
