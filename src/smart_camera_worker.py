@@ -413,6 +413,7 @@ class SmartCameraWorker(QThread):
                 YUNET_SCORE_THRESHOLD,
                 YUNET_TOP_K,
                 FaceMatcher,
+                _encode_face_crop,
                 _open_camera,
                 _prepare_face_crop,
                 get_camera_settings,
