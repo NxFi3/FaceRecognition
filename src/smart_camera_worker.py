@@ -9,6 +9,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Lock
 import math
+import logging
+
+logger = logging.getLogger(__name__)
 
 from .camera_capture import LatestFrameCapture
 
@@ -399,6 +402,7 @@ class SmartCameraWorker(QThread):
 
     def run(self):
         self._running = True
+        logger.info("WORKER_START slot=%s config=%s", self.camera_slot, self.camera_config)
         capture = None
         futures = set()
         cache_futures = set()
@@ -491,6 +495,7 @@ class SmartCameraWorker(QThread):
                 _open_camera,
                 raw_bayer=use_raw_bayer,
             )
+            logger.info("WORKER_CAMERA_START slot=%s camera_id=%s target_fps=%s raw_bayer=%s", self.camera_slot, camera_id, target_fps, use_raw_bayer)
             capture.start()
 
             actual_width = capture.width or CAMERA_WIDTH
@@ -584,6 +589,7 @@ class SmartCameraWorker(QThread):
             fps_start = time.perf_counter()
             fps = 0.0
 
+            logger.info("WORKER_ONLINE slot=%s camera_id=%s role=%s actual=%sx%s fps=%s students=%s reid=%s", self.camera_slot, camera_id, camera_role, actual_width, actual_height, actual_fps, len(matcher.students), reid_status)
             self.status_changed.emit(
                 f"Smart camera online • Camera {self.camera_slot} "
                 f"({camera_role}) • {actual_width}x{actual_height} • "
@@ -597,6 +603,7 @@ class SmartCameraWorker(QThread):
                     timeout=1.0,
                 )
                 if frame is None:
+                    logger.debug("FRAME_WAIT_TIMEOUT slot=%s", self.camera_slot)
                     continue
 
                 # The capture thread may have consumed many physical frames
