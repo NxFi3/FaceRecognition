@@ -79,6 +79,7 @@ try:
         list_majors,
         list_students,
         mark_attendance,
+        get_current_presence_ids,
         set_active_academic_year,
         set_attendance_status,
         update_academic_year,
@@ -2979,6 +2980,9 @@ class MainWindow(QMainWindow):
         self.camera_workers = {}
         self.camera_worker = None  # Backwards-compatible alias for Camera 1.
         self._dual_camera_fps_cap = 30
+        self._camera_supervisor_enabled = True
+        self._camera_restart_pending = False
+        self._shutting_down = False
 
         # Preview frames use a latest-value mailbox rather than queued GUI
         # events. This prevents a slow GUI from displaying stale camera frames.
@@ -2989,12 +2993,11 @@ class MainWindow(QMainWindow):
         self._preview_timer.timeout.connect(self._render_latest_camera_previews)
 
         self.presence_state = AttendancePresenceState()
-        # Rebuild today's presence after an application restart so an in-memory
-        # reset cannot turn already-recorded students into unexpected exits.
+        # Restore only students whose latest movement event says they are
+        # currently inside. Attendance rows alone cannot distinguish someone
+        # who already exited from someone still present.
         try:
-            for row in get_attendance():
-                if row[5] in {"present", "late", "excused"}:
-                    self.presence_state.present.add(int(row[0]))
+            self.presence_state.present.update(get_current_presence_ids())
         except Exception:
             pass
         self.global_identity_manager = GlobalIdentityManager(
@@ -4260,6 +4263,7 @@ class MainWindow(QMainWindow):
         )
 
     def start_camera(self):
+        self._camera_supervisor_enabled = True
         if self.camera_workers and any(
             worker.isRunning() for worker in self.camera_workers.values()
         ):
@@ -4387,6 +4391,9 @@ class MainWindow(QMainWindow):
                     f"Camera {s}: {message}"
                 )
             )
+            worker.finished.connect(
+                lambda s=slot, w=worker: self._camera_worker_finished(s, w)
+            )
             worker.start()
             self.camera_workers[slot] = worker
 
@@ -4397,7 +4404,39 @@ class MainWindow(QMainWindow):
         if hasattr(self, "camera_previews") and 2 not in self.camera_workers:
             self.camera_previews[2].setText("Camera 2 غیرفعال است.")
 
+    def _camera_worker_finished(self, slot, worker):
+        """Restart the whole camera pipeline after an unexpected worker stop."""
+        if self.camera_workers.get(slot) is not worker:
+            return
+
+        self.camera_workers.pop(slot, None)
+        if self.camera_worker is worker:
+            self.camera_worker = None
+
+        if not self._camera_supervisor_enabled or self._shutting_down:
+            return
+
+        self.camera_error(
+            f"Camera {slot}: worker stopped unexpectedly; restarting cameras."
+        )
+        if self._camera_restart_pending:
+            return
+
+        self._camera_restart_pending = True
+
+        def restart():
+            self._camera_restart_pending = False
+            if self._shutting_down or not self._camera_supervisor_enabled:
+                return
+            self._camera_supervisor_enabled = False
+            self.stop_camera()
+            self._camera_supervisor_enabled = True
+            self.start_camera()
+
+        QTimer.singleShot(1500, restart)
+
     def stop_camera(self):
+        self._camera_supervisor_enabled = False
         workers = list(self.camera_workers.values())
         for worker in workers:
             if worker.isRunning():
@@ -4409,6 +4448,7 @@ class MainWindow(QMainWindow):
 
     def restart_camera(self):
         self.stop_camera()
+        self._camera_supervisor_enabled = True
         self.start_camera()
 
     def _store_camera_preview(self, camera_slot, image):
@@ -5836,6 +5876,8 @@ class MainWindow(QMainWindow):
             )
 
     def closeEvent(self, event):
+        self._shutting_down = True
+        self._camera_supervisor_enabled = False
         self.stop_camera()
         event.accept()
 
