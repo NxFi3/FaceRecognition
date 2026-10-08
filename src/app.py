@@ -125,6 +125,7 @@ except ModuleNotFoundError:
         list_majors,
         list_students,
         mark_attendance,
+        get_current_presence_ids,
         set_active_academic_year,
         set_attendance_status,
         update_class,
