@@ -15,7 +15,10 @@ import numpy as np
 
 REID_INTERVAL = 6
 MAX_MISSES = 18
-MIN_PERSON_SIZE = 45
+# Keep small/distant people in the tracking stream; face recognition has its
+# own stricter identity gates, so a slightly more permissive person detector
+# does not by itself grant attendance.
+MIN_PERSON_SIZE = 36
 ASSOCIATION_IOU_GATE = 0.08
 ASSOCIATION_REID_GATE = 0.70
 ASSOCIATION_REID_STRONG = 0.84

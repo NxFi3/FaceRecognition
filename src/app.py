@@ -174,7 +174,7 @@ DEFAULT_CAMERA_TARGET_FPS = 60
 CAMERA_SCAN_LIMIT = 8
 MAX_RECOGNITION_JOBS = 2
 
-YUNET_SCORE_THRESHOLD = 0.52
+YUNET_SCORE_THRESHOLD = 0.18
 YUNET_NMS_THRESHOLD = 0.30
 YUNET_TOP_K = 5000
 
@@ -198,7 +198,7 @@ REVALIDATION_MIN_INTERVAL = 10
 REVALIDATION_IOU_THRESHOLD = 0.72
 
 # Do not discard usable distant faces too early.
-MIN_FACE_SIZE = 28
+MIN_FACE_SIZE = 24
 
 # Runtime tracking/UI tuning.
 TRACK_IOU_THRESHOLD = 0.20
@@ -600,13 +600,19 @@ def _encode_face_crop(crop, bbox):
         bottom=y2,
     )
 
+    # dlib's face_recognition model expects RGB pixels. Enrollment uses
+    # face_recognition on an RGB conversion, so recognition must use the same
+    # color convention; passing OpenCV's native BGR here silently produces
+    # incompatible embeddings.
+    rgb_crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+
     shape = shape_predictor(
-        crop,
+        rgb_crop,
         rect,
     )
 
     descriptor = face_encoder.compute_face_descriptor(
-        crop,
+        rgb_crop,
         shape,
         0,
     )

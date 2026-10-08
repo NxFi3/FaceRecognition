@@ -1,7 +1,5 @@
 """Event and presence state machine for the smart attendance camera."""
 
-logger = logging.getLogger(__name__)
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -104,6 +102,34 @@ class AttendanceEventEngine:
             track.student_code = student_code
             track.student_name = student_name
             track.identity_confidence = max(track.identity_confidence, confidence)
+
+            # A Re-ID hand-off can assign the same student before the face
+            # recognizer confirms them. When the face later agrees, still emit
+            # the stronger FACE_RECOGNIZED event and reconcile a crossing that
+            # happened while the provisional identity was active.
+            if event_type == EVENT_FACE_RECOGNIZED:
+                payload = dict(metadata or {})
+                payload.setdefault("student_code", student_code)
+                payload.setdefault("student_name", student_name)
+                self._emit(
+                    event_type,
+                    track,
+                    camera_id,
+                    confidence,
+                    payload,
+                )
+                if (
+                    track.last_crossing == "enter"
+                    and student_id not in self.present
+                ):
+                    self._enter(track, camera_id)
+                    return True
+                if (
+                    track.last_crossing == "exit"
+                    and student_id in self.present
+                ):
+                    self._exit(track, camera_id)
+                    return True
             return False
 
         if old_student_id is not None and old_student_id != student_id:
