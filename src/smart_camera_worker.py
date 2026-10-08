@@ -40,6 +40,7 @@ FACE_CACHE_MAX_SIDE = 160
 FACE_CACHE_MIN_VOTE_RATIO = 0.50
 FACE_CACHE_CLUSTER_DISTANCE = 0.58
 FACE_CACHE_DISTANCE_MARGIN = 0.035
+FACE_WITNESS_MAX_AGE_FRAMES = 45
 PREVIEW_FPS = 15.0
 PERSON_IMAGE_SIZE = 480
 LINE_POSITION = 0.50
@@ -623,6 +624,9 @@ class SmartCameraWorker(QThread):
                         track.metadata["identity_source"] = "face_cache"
 
                     if pending is not None:
+                        track.metadata["face_witnessed_for_crossing"] = (
+                            result is not None
+                        )
                         event_engine.on_crossing(
                             track,
                             pending["direction"],
@@ -771,6 +775,12 @@ class SmartCameraWorker(QThread):
 
                         direction = line.check(track, frame.shape, frame_no)
                         if direction is not None:
+                            track.metadata["face_witnessed_for_crossing"] = (
+                                track.last_face_frame >= 0
+                                and frame_no - track.last_face_frame
+                                <= FACE_WITNESS_MAX_AGE_FRAMES
+                                and track.metadata.get("identity_source") == "face"
+                            )
                             if (
                                 track.metadata.get("pending_crossing") is None
                                 and track.face_cache
