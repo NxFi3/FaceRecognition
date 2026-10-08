@@ -3,6 +3,8 @@ import os
 import sys
 import time
 import threading
+import logging
+from logging.handlers import RotatingFileHandler
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -214,6 +216,40 @@ SMALL_FACE_UPSCALE = 2.5
 
 UI_FRAME_LIMIT = 1.0 / 20.0
 
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOG_DIR / "facerecognition.log"
+
+
+def _configure_logging():
+    root = logging.getLogger()
+    if any(isinstance(handler, RotatingFileHandler) for handler in root.handlers):
+        return
+    root.setLevel(logging.INFO)
+    formatter = logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(name)s | %(threadName)s | %(message)s"
+    )
+    file_handler = RotatingFileHandler(
+        LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+    )
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+    console = logging.StreamHandler()
+    console.setFormatter(formatter)
+    root.addHandler(console)
+
+    def excepthook(exc_type, exc_value, exc_traceback):
+        logging.getLogger("uncaught").critical(
+            "UNCAUGHT EXCEPTION", exc_info=(exc_type, exc_value, exc_traceback)
+        )
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+    sys.excepthook = excepthook
+
+
+_configure_logging()
+logger = logging.getLogger(__name__)
+
 
 def _configure_cpu_runtime():
     """Bound CPU parallelism when multiple camera pipelines share one host."""
@@ -271,9 +307,12 @@ def _camera_backends():
 
 
 def _open_camera(camera_id, target_fps=DEFAULT_CAMERA_TARGET_FPS):
+    logger.info("CAMERA_OPEN_START id=%s target_fps=%s requested=%sx%s backends=%s", camera_id, target_fps, CAMERA_WIDTH, CAMERA_HEIGHT, _camera_backends())
     for backend in _camera_backends():
+        logger.info("CAMERA_OPEN_TRY id=%s backend=%s", camera_id, backend)
         cap = cv2.VideoCapture(camera_id, backend)
         if not cap.isOpened():
+            logger.warning("CAMERA_OPEN_FAIL id=%s backend=%s isOpened=false", camera_id, backend)
             cap.release()
             continue
 
@@ -284,8 +323,10 @@ def _open_camera(camera_id, target_fps=DEFAULT_CAMERA_TARGET_FPS):
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
         cap.set(cv2.CAP_PROP_FPS, target_fps)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        logger.info("CAMERA_OPEN_OK id=%s backend=%s actual=%sx%s fps=%s fourcc=%s", camera_id, backend, cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT), cap.get(cv2.CAP_PROP_FPS), cap.get(cv2.CAP_PROP_FOURCC))
         return cap
 
+    logger.error("CAMERA_OPEN_FAILED_ALL id=%s", camera_id)
     raise RuntimeError("Could not open camera.")
 
 
