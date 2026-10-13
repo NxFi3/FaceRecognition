@@ -16,10 +16,15 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .reid import OSNetReID
+try:
+    from .engine.reid import OSNetReID
+except ImportError:
+    from engine.reid import OSNetReID
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-PERSON_MODEL = BASE_DIR / "yolo26n.pt"
+PERSON_MODEL = BASE_DIR / "models" / "yolo26n.pt"
+if not PERSON_MODEL.exists():
+    PERSON_MODEL = BASE_DIR / "yolo26n.pt"
 
 CAMERA_INDEX = 0
 DETECT_EVERY = 2

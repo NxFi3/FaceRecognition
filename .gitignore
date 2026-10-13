@@ -1,11 +1,34 @@
+# Python
 __pycache__/
 *.py[cod]
-.vscode/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .venv/
+venv/
 .env
+.env.*
 
+# Local application data
 data/*.db
+data/*.db-wal
+data/*.db-shm
+logs/
+*.log
 exports/*
 !exports/.gitkeep
-logs/
-*.pkl
+
+# Downloaded datasets and generated artifacts
+datasets/
+artifacts/
+benchmarks/results/
+*.csv.tmp
+
+# Build/package output
+build/
+dist/
+*.spec
+
+# Editors
+.vscode/
+.idea/

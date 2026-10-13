@@ -21,7 +21,11 @@ import numpy as np
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QImage
 
-from .database import add_event, get_setting, mark_attendance
+try:
+    from ..database import add_event, get_setting, mark_attendance
+except ImportError:
+    # Supports direct execution where src/ is the import root.
+    from database import add_event, get_setting, mark_attendance
 from .smart_events import AttendanceEventEngine, AttendancePresenceState
 from .smart_tracking import (
     LineCrossing,
@@ -31,7 +35,7 @@ from .smart_tracking import (
 )
 
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = Path(__file__).resolve().parents[2]
 PERSON_DETECTION_INTERVAL_GPU = 2
 PERSON_DETECTION_INTERVAL_CPU = 3
 FACE_DETECTION_INTERVAL = 2
@@ -384,13 +388,13 @@ class SmartCameraWorker(QThread):
             return configured
 
         candidates = make_person_model_candidates(
-            Path(__file__).resolve().parent.parent
+            BASE_DIR
         )
         if candidates:
             return str(candidates[0])
 
         raise FileNotFoundError(
-            "YOLO person model not found. Put yolo26n.pt in the project root "
+            "YOLO person model not found. Put yolo26n.pt in the models/ folder "
             "or set the 'person_model_path' application setting."
         )
 
@@ -415,20 +419,36 @@ class SmartCameraWorker(QThread):
 
         try:
             # Importing app at runtime avoids a module-level circular import.
-            from .app import (
-                CAMERA_HEIGHT,
-                CAMERA_WIDTH,
-                YUNET_MODEL_PATH,
-                YUNET_NMS_THRESHOLD,
-                YUNET_SCORE_THRESHOLD,
-                YUNET_TOP_K,
-                FaceMatcher,
-                _encode_face_crop,
-                _open_camera,
-                _prepare_face_crop,
-                get_camera_settings,
-                frame_to_qimage,
-            )
+            try:
+                from ..app import (
+                    CAMERA_HEIGHT,
+                    CAMERA_WIDTH,
+                    YUNET_MODEL_PATH,
+                    YUNET_NMS_THRESHOLD,
+                    YUNET_SCORE_THRESHOLD,
+                    YUNET_TOP_K,
+                    FaceMatcher,
+                    _encode_face_crop,
+                    _open_camera,
+                    _prepare_face_crop,
+                    get_camera_settings,
+                    frame_to_qimage,
+                )
+            except ImportError:
+                from app import (
+                    CAMERA_HEIGHT,
+                    CAMERA_WIDTH,
+                    YUNET_MODEL_PATH,
+                    YUNET_NMS_THRESHOLD,
+                    YUNET_SCORE_THRESHOLD,
+                    YUNET_TOP_K,
+                    FaceMatcher,
+                    _encode_face_crop,
+                    _open_camera,
+                    _prepare_face_crop,
+                    get_camera_settings,
+                    frame_to_qimage,
+                )
 
             if not YUNET_MODEL_PATH.exists():
                 raise FileNotFoundError(

@@ -455,9 +455,9 @@ def make_person_model_candidates(base_dir: Path):
     # Keep model discovery portable. Never depend on a developer's
     # machine-specific Trash/media paths.
     candidates = [
-        base_dir / "yolo26n.pt",
-        base_dir / "yolov8n.pt",
         base_dir / "models" / "yolo26n.pt",
         base_dir / "models" / "yolov8n.pt",
+        base_dir / "yolo26n.pt",  # Backward compatibility with older checkouts.
+        base_dir / "yolov8n.pt",
     ]
     return [path for path in candidates if path.exists()]

@@ -152,13 +152,14 @@ except ModuleNotFoundError:
     )
 
 try:
-    from .smart_camera_worker import SmartCameraWorker
-    from .smart_events import AttendancePresenceState
-    from .global_identity import GlobalIdentityManager
+    from .engine.smart_camera_worker import SmartCameraWorker
+    from .engine.smart_events import AttendancePresenceState
+    from .engine.global_identity import GlobalIdentityManager
 except ImportError:
-    from smart_camera_worker import SmartCameraWorker
-    from smart_events import AttendancePresenceState
-    from global_identity import GlobalIdentityManager
+    # Direct execution: python src/app.py (src/ is then on sys.path).
+    from engine.smart_camera_worker import SmartCameraWorker
+    from engine.smart_events import AttendancePresenceState
+    from engine.global_identity import GlobalIdentityManager
 
 if getattr(sys, "frozen", False):
     BASE_DIR = Path(sys.executable).resolve().parent
@@ -166,7 +167,10 @@ else:
     BASE_DIR = Path(__file__).resolve().parent.parent
 
 YUNET_MODEL_FILENAME = "face_detection_yunet_2023mar.onnx"
-YUNET_MODEL_PATH = BASE_DIR / YUNET_MODEL_FILENAME
+YUNET_MODEL_PATH = BASE_DIR / "models" / YUNET_MODEL_FILENAME
+# Compatibility fallback for existing portable builds or user-supplied installs.
+if not YUNET_MODEL_PATH.exists():
+    YUNET_MODEL_PATH = BASE_DIR / YUNET_MODEL_FILENAME
 
 CAMERA_ID = 0
 CAMERA_NAME = "camera_0"
@@ -5974,7 +5978,19 @@ def run_smoke_test():
     )
     detector.setInputSize((CAMERA_WIDTH, CAMERA_HEIGHT))
 
+    # Validate the person detector too, so packaged builds cannot silently ship
+    # without the model required by the real-time attendance pipeline.
+    person_model_path = BASE_DIR / "models" / "yolo26n.pt"
+    if not person_model_path.exists():
+        person_model_path = BASE_DIR / "yolo26n.pt"
+    if not person_model_path.exists():
+        raise RuntimeError(f"YOLO person model missing: {person_model_path}")
+
+    from ultralytics import YOLO
+    YOLO(str(person_model_path))
+
     print("FACE_RECOGNITION_SMOKE_TEST_OK")
+    print("PERSON_DETECTOR_SMOKE_TEST_OK")
 
 
 
