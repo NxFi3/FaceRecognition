@@ -1,0 +1,7 @@
+# Optional person Re-ID experiment. Keep these out of the core app
+# until CPU latency and identity stability are measured.
+torch
+torchvision
+torchreid
+gdown
+

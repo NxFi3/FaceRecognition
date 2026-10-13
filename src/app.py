@@ -11,7 +11,7 @@ import cv2
 import dlib
 import face_recognition_models
 import numpy as np
-from PySide6.QtCore import QDate, QLibraryInfo, QThread, QTranslator, Qt, Signal
+from PySide6.QtCore import QDate, QLibraryInfo, QThread, QTranslator, Qt, Signal, QTimer
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -19,9 +19,11 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -29,6 +31,8 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSpinBox,
     QDateEdit,
     QInputDialog,
     QStackedWidget,
@@ -143,6 +147,15 @@ except ModuleNotFoundError:
         verify_admin_password,
     )
 
+try:
+    from .smart_camera_worker import SmartCameraWorker
+    from .smart_events import AttendancePresenceState
+    from .global_identity import GlobalIdentityManager
+except ImportError:
+    from smart_camera_worker import SmartCameraWorker
+    from smart_events import AttendancePresenceState
+    from global_identity import GlobalIdentityManager
+
 if getattr(sys, "frozen", False):
     BASE_DIR = Path(sys.executable).resolve().parent
 else:
@@ -157,7 +170,7 @@ DEFAULT_CAMERA_TARGET_FPS = 60
 CAMERA_SCAN_LIMIT = 8
 MAX_RECOGNITION_JOBS = 2
 
-YUNET_SCORE_THRESHOLD = 0.60
+YUNET_SCORE_THRESHOLD = 0.52
 YUNET_NMS_THRESHOLD = 0.30
 YUNET_TOP_K = 5000
 
@@ -171,8 +184,8 @@ IMAGE_SIZE = 768
 
 # Recognition is intentionally conservative: a single unusually-close
 # embedding must not be enough to identify a person.
-FACE_DISTANCE_THRESHOLD = 0.46
-FACE_STABILITY_THRESHOLD = 0.49
+FACE_DISTANCE_THRESHOLD = 0.50
+FACE_STABILITY_THRESHOLD = 0.52
 
 RECOGNITION_INTERVAL = 5
 RECOGNITION_CONFIRMATIONS = 3
@@ -181,7 +194,7 @@ REVALIDATION_MIN_INTERVAL = 10
 REVALIDATION_IOU_THRESHOLD = 0.72
 
 # Do not discard usable distant faces too early.
-MIN_FACE_SIZE = 35
+MIN_FACE_SIZE = 28
 
 # Runtime tracking/UI tuning.
 TRACK_IOU_THRESHOLD = 0.20
@@ -194,10 +207,58 @@ ENROLLMENT_MIN_FACE_SIZE = 80
 
 # Face crops are padded before encoding so important facial context is retained.
 FACE_CROP_PADDING = 0.20
-SMALL_FACE_THRESHOLD = 120
-SMALL_FACE_UPSCALE = 2.0
+SMALL_FACE_THRESHOLD = 160
+SMALL_FACE_UPSCALE = 2.5
 
 UI_FRAME_LIMIT = 1.0 / 20.0
+
+
+def _configure_cpu_runtime():
+    """Bound CPU parallelism when multiple camera pipelines share one host."""
+    try:
+        import torch
+    except ImportError:
+        return
+
+    device = str(get_setting("person_device", "") or "").strip().lower()
+    if device.startswith("cuda"):
+        return
+
+    cpu_count = os.cpu_count() or 1
+    dual_camera = all(
+        str(
+            get_setting(
+                f"camera_{slot}_enabled",
+                "1" if slot == 1 else "0",
+            )
+            or "0"
+        ).strip().lower()
+        in {"1", "true", "yes", "on"}
+        for slot in (1, 2)
+    )
+
+    # The CPU is shared by two independent inference streams. Keeping one
+    # inter-op worker and a bounded intra-op pool prevents thread explosion.
+    divisor = 4 if dual_camera else 2
+    intra_threads = max(1, min(8, cpu_count // divisor))
+
+    try:
+        torch.set_num_threads(intra_threads)
+    except RuntimeError:
+        pass
+
+    try:
+        torch.set_num_interop_threads(1)
+    except RuntimeError:
+        pass
+
+    # OpenCV can otherwise create another large native thread pool for
+    # preprocessing/color conversion on every camera worker.
+    try:
+        cv2.setNumThreads(max(1, min(4, cpu_count // divisor)))
+    except Exception:
+        pass
+
 
 def _camera_backends():
     if sys.platform.startswith("win"):
@@ -214,15 +275,9 @@ def _open_camera(camera_id, target_fps=DEFAULT_CAMERA_TARGET_FPS):
             cap.release()
             continue
 
-        if target_fps >= 60:
-            try:
-                cap.set(
-                    cv2.CAP_PROP_FOURCC,
-                    cv2.VideoWriter_fourcc(*"MJPG"),
-                )
-            except Exception:
-                pass
-
+        # The connected ov534 cameras expose raw YUYV/Bayer at 640x480;
+        # requesting MJPEG is unsupported and silently falls back. Avoid the
+        # failed format negotiation and leave the driver on its native format.
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
         cap.set(cv2.CAP_PROP_FPS, target_fps)
@@ -416,14 +471,14 @@ def _get_face_models():
 
 
 def frame_to_qimage(frame):
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    h, w, channels = rgb.shape
+    """Wrap a BGR OpenCV frame without an extra color-conversion pass."""
+    h, w = frame.shape[:2]
     image = QImage(
-        rgb.data,
+        frame.data,
         w,
         h,
-        channels * w,
-        QImage.Format_RGB888,
+        int(frame.strides[0]),
+        QImage.Format_BGR888,
     )
     return image.copy()
 
@@ -721,6 +776,15 @@ class FaceMatcher:
         return self.match_embedding(
             embedding
         )
+
+    def recognize_crop_with_embedding(self, crop, bbox):
+        """Return both the face embedding and its matcher result.
+
+        The smart-camera backlog uses the embedding only in RAM to reject a
+        mixed track before voting across its best face samples.
+        """
+        embedding = _encode_face_crop(crop, bbox)
+        return embedding, self.match_embedding(embedding)
 
     def recognize(self, frame, bbox):
         embedding = face_embedding(
@@ -1248,9 +1312,11 @@ class EnrollmentWorker(QThread):
     capture_done = Signal(object)
     error = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, camera_id=None, target_fps=None, parent=None):
         super().__init__(parent)
         self._running = False
+        self.camera_id = camera_id
+        self.target_fps = target_fps
 
     def stop(self):
         self._running = False
@@ -1275,6 +1341,10 @@ class EnrollmentWorker(QThread):
             )
 
             camera_id, target_fps = get_camera_settings()
+            if self.camera_id is not None:
+                camera_id = int(self.camera_id)
+            if self.target_fps is not None:
+                target_fps = int(self.target_fps)
             cap = _open_camera(camera_id, target_fps)
 
             _get_face_models()
@@ -1419,7 +1489,25 @@ class EnrollmentDialog(QDialog):
             form.addRow("کلاس", self.class_combo)
             root.addLayout(form)
 
-        else:
+        camera_row = QHBoxLayout()
+        camera_label = QLabel("دوربین ثبت چهره")
+        camera_label.setObjectName("fieldLabel")
+        self.camera_combo = QComboBox()
+        self.refresh_camera_button = QPushButton("بازخوانی")
+        self.refresh_camera_button.clicked.connect(self.refresh_enrollment_cameras)
+        camera_row.addWidget(camera_label)
+        camera_row.addWidget(self.camera_combo, 1)
+        camera_row.addWidget(self.refresh_camera_button)
+        root.addLayout(camera_row)
+
+        self.enrollment_camera_status = QLabel()
+        self.enrollment_camera_status.setObjectName("muted")
+        self.enrollment_camera_status.setWordWrap(True)
+        root.addWidget(self.enrollment_camera_status)
+
+        self.refresh_enrollment_cameras()
+
+        if not show_student_fields:
             title = QLabel(
                 "۱۲ نمونه جدید ثبت می‌شود. بین نمونه‌ها کمی حرکت طبیعی داشته باشید."
             )
@@ -1450,7 +1538,48 @@ class EnrollmentDialog(QDialog):
         buttons.addWidget(self.cancel_button)
         root.addLayout(buttons)
 
+    def refresh_enrollment_cameras(self):
+        selected_id = self.camera_combo.currentData() if self.camera_combo.count() else None
+        cameras = _discover_cameras()
+
+        self.camera_combo.blockSignals(True)
+        self.camera_combo.clear()
+
+        for camera in cameras:
+            self.camera_combo.addItem(camera["label"], camera["id"])
+
+        if cameras:
+            preferred_id = (
+                selected_id
+                if selected_id is not None
+                else int(get_setting("camera_1_id", get_setting("camera_id", CAMERA_ID)))
+            )
+            index = self.camera_combo.findData(preferred_id)
+            self.camera_combo.setCurrentIndex(index if index >= 0 else 0)
+            self.camera_combo.setEnabled(True)
+            self.refresh_camera_button.setEnabled(True)
+            self.enrollment_camera_status.setText(
+                f"{len(cameras)} دوربین پیدا شد • دوربین انتخاب‌شده برای همین ثبت استفاده می‌شود."
+            )
+        else:
+            self.camera_combo.addItem("هیچ دوربینی پیدا نشد", None)
+            self.camera_combo.setEnabled(False)
+            self.refresh_camera_button.setEnabled(True)
+            self.enrollment_camera_status.setText(
+                "هیچ دوربینی در دسترس نیست. اتصال دوربین را بررسی کنید و «بازخوانی» را بزنید."
+            )
+
+        self.camera_combo.blockSignals(False)
+
     def start_capture(self):
+        if self.camera_combo.currentData() is None:
+            QMessageBox.warning(
+                self,
+                "دوربین یافت نشد",
+                "ابتدا یک دوربین معتبر برای ثبت چهره انتخاب کنید.",
+            )
+            return
+
         if self.show_student_fields:
             if not self.code_edit.text().strip():
                 QMessageBox.warning(
@@ -1473,7 +1602,18 @@ class EnrollmentDialog(QDialog):
             "دوربین فعال شد؛ روبه‌روی دوربین بایستید و کمی حرکت طبیعی داشته باشید."
         )
 
-        self.worker = EnrollmentWorker()
+        selected_camera_id = int(self.camera_combo.currentData())
+        selected_fps = int(
+            get_setting(
+                "camera_1_target_fps",
+                get_setting("camera_target_fps", DEFAULT_CAMERA_TARGET_FPS),
+            )
+        )
+
+        self.worker = EnrollmentWorker(
+            camera_id=selected_camera_id,
+            target_fps=selected_fps,
+        )
         self.worker.frame_ready.connect(self.update_preview)
         self.worker.progress.connect(self.update_progress)
         self.worker.capture_done.connect(self.capture_finished)
@@ -2806,6 +2946,27 @@ class StatusDonutChart(QWidget):
             legend_y += 28
 
 
+class StableScrollArea(QScrollArea):
+    """Scrollable page that keeps its vertical position across window resizes."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setAlignment(Qt.AlignTop)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+    def resizeEvent(self, event):
+        scroll_bar = self.verticalScrollBar()
+        value = scroll_bar.value()
+        super().resizeEvent(event)
+        QTimer.singleShot(
+            0,
+            lambda: scroll_bar.setValue(min(value, scroll_bar.maximum())),
+        )
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -2815,11 +2976,38 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("سامانه حضور و غیاب مدرسه")
         self.resize(1450, 900)
 
-        self.camera_worker = None
+        self.camera_workers = {}
+        self.camera_worker = None  # Backwards-compatible alias for Camera 1.
+        self._dual_camera_fps_cap = 30
+
+        # Preview frames use a latest-value mailbox rather than queued GUI
+        # events. This prevents a slow GUI from displaying stale camera frames.
+        self._latest_camera_images = {}
+        self._latest_camera_images_lock = threading.Lock()
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setInterval(33)  # ~30 Hz GUI refresh
+        self._preview_timer.timeout.connect(self._render_latest_camera_previews)
+
+        self.presence_state = AttendancePresenceState()
+        # Rebuild today's presence after an application restart so an in-memory
+        # reset cannot turn already-recorded students into unexpected exits.
+        try:
+            for row in get_attendance():
+                if row[5] in {"present", "late", "excused"}:
+                    self.presence_state.present.add(int(row[0]))
+        except Exception:
+            pass
+        self.global_identity_manager = GlobalIdentityManager(
+            presence_state=self.presence_state,
+            setting_callback=get_setting,
+        )
         self.current_page = 0
 
         self.build_ui()
         self.refresh_all()
+
+        # Configure CPU threading before any YOLO/OSNet inference objects start.
+        _configure_cpu_runtime()
         self.start_camera()
 
     def build_ui(self):
@@ -2901,8 +3089,25 @@ class MainWindow(QMainWindow):
         self.build_reports_page()
         self.build_settings_page()
 
+        self._wrap_pages_in_scroll_areas()
+
         main_layout.addWidget(content, 1)
         self.show_page(0)
+
+    def _wrap_pages_in_scroll_areas(self):
+        """Make every content page usable on short/narrow windows."""
+        for index in range(self.stack.count()):
+            page = self.stack.widget(index)
+            if isinstance(page, QScrollArea):
+                continue
+
+            self.stack.removeWidget(page)
+
+            scroll = StableScrollArea()
+            scroll.setObjectName("pageScrollArea")
+            scroll.setWidget(page)
+
+            self.stack.insertWidget(index, scroll)
 
     def show_page(self, index):
         if not self.stack or not (0 <= index < self.stack.count()):
@@ -2967,15 +3172,35 @@ class MainWindow(QMainWindow):
         camera_box = QFrame()
         camera_box.setObjectName("panel")
         camera_layout = QVBoxLayout(camera_box)
-        camera_title = QLabel("نمای زنده دوربین")
+        camera_title = QLabel("نمای زنده دوربین‌ها")
         camera_title.setAlignment(Qt.AlignRight)
         camera_layout.addWidget(camera_title)
 
-        self.camera_preview = QLabel("در انتظار دوربین...")
-        self.camera_preview.setAlignment(Qt.AlignCenter)
-        self.camera_preview.setMinimumSize(860, 500)
-        self.camera_preview.setObjectName("cameraPreview")
-        camera_layout.addWidget(self.camera_preview, 1)
+        preview_row = QHBoxLayout()
+        preview_row.setSpacing(10)
+
+        self.camera_previews = {}
+        for slot in (1, 2):
+            preview_box = QFrame()
+            preview_box.setObjectName("cameraPreviewBox")
+            preview_layout = QVBoxLayout(preview_box)
+            preview_title = QLabel(f"Camera {slot}")
+            preview_title.setObjectName("muted")
+            preview_layout.addWidget(preview_title)
+
+            preview = QLabel(
+                "Camera 2 غیرفعال است." if slot == 2 else "در انتظار دوربین..."
+            )
+            preview.setAlignment(Qt.AlignCenter)
+            preview.setMinimumSize(400, 280)
+            preview.setObjectName("cameraPreview")
+            preview_layout.addWidget(preview, 1)
+
+            self.camera_previews[slot] = preview
+            preview_row.addWidget(preview_box, 1)
+
+        self.camera_preview = self.camera_previews[1]
+        camera_layout.addLayout(preview_row, 1)
         camera_row.addWidget(camera_box, 3)
 
         recent_box = QFrame()
@@ -3360,25 +3585,38 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         layout.setSpacing(14)
 
-        panel = QFrame()
-        panel.setObjectName("panel")
-        panel_layout = QVBoxLayout(panel)
+        camera_panel = QFrame()
+        camera_panel.setObjectName("panel")
+        camera_layout = QVBoxLayout(camera_panel)
 
-        title = QLabel("تنظیمات دوربین")
-        title.setObjectName("sectionTitle")
-        panel_layout.addWidget(title)
+        camera_title = QLabel("تنظیمات دوربین")
+        camera_title.setObjectName("sectionTitle")
+        camera_layout.addWidget(camera_title)
 
-        form = QFormLayout()
+        camera_form = QFormLayout()
 
-        self.settings_camera_combo = QComboBox()
+        self.settings_camera1_enabled = QCheckBox("فعال")
+        self.settings_camera1_enabled.setChecked(True)
+        self.settings_camera1_combo = QComboBox()
+
+        self.settings_camera2_enabled = QCheckBox("فعال")
+        self.settings_camera2_enabled.setChecked(False)
+        self.settings_camera2_combo = QComboBox()
+
+        self.settings_camera_combo = self.settings_camera1_combo
         self.settings_refresh_cameras_button = QPushButton("بازخوانی دوربین‌ها")
         self.settings_refresh_cameras_button.clicked.connect(
             self.refresh_camera_choices
         )
 
-        camera_row = QHBoxLayout()
-        camera_row.addWidget(self.settings_camera_combo, 1)
-        camera_row.addWidget(self.settings_refresh_cameras_button)
+        camera1_row = QHBoxLayout()
+        camera1_row.addWidget(self.settings_camera1_enabled)
+        camera1_row.addWidget(self.settings_camera1_combo, 1)
+        camera1_row.addWidget(self.settings_refresh_cameras_button)
+
+        camera2_row = QHBoxLayout()
+        camera2_row.addWidget(self.settings_camera2_enabled)
+        camera2_row.addWidget(self.settings_camera2_combo, 1)
 
         self.settings_fps_combo = QComboBox()
         self.settings_fps_combo.addItem("30 FPS", 30)
@@ -3387,9 +3625,10 @@ class MainWindow(QMainWindow):
             60,
         )
 
-        form.addRow("دوربین", camera_row)
-        form.addRow("نرخ هدف", self.settings_fps_combo)
-        panel_layout.addLayout(form)
+        camera_form.addRow("دوربین ۱", camera1_row)
+        camera_form.addRow("دوربین ۲", camera2_row)
+        camera_form.addRow("نرخ هدف هر دوربین", self.settings_fps_combo)
+        camera_layout.addLayout(camera_form)
 
         info = QLabel(
             "رزولوشن 1280×720 درخواست می‌شود. نرخ 60 فقط وقتی واقعی است که "
@@ -3397,37 +3636,407 @@ class MainWindow(QMainWindow):
         )
         info.setObjectName("muted")
         info.setWordWrap(True)
-        panel_layout.addWidget(info)
+        camera_layout.addWidget(info)
+        layout.addWidget(camera_panel)
+
+        gate_panel = QFrame()
+        gate_panel.setObjectName("panel")
+        gate_layout = QVBoxLayout(gate_panel)
+
+        gate_title = QLabel("ورودی / خروجی و خط مجازی هر دوربین")
+        gate_title.setObjectName("sectionTitle")
+        gate_layout.addWidget(gate_title)
+
+        def add_camera_gate_controls(slot, title):
+            box = QFrame()
+            box.setObjectName("cameraGateBox")
+            box_layout = QVBoxLayout(box)
+            box_layout.setContentsMargins(16, 14, 16, 14)
+            box_layout.setSpacing(10)
+
+            header = QHBoxLayout()
+            label = QLabel(title)
+            label.setObjectName("cameraGateTitle")
+            header.addWidget(label)
+            header.addStretch(1)
+            box_layout.addLayout(header)
+
+            role = QComboBox()
+            role.addItem("ورودی", "entry")
+            role.addItem("خروجی", "exit")
+            role.addItem("فقط مشاهده", "observe")
+
+            orientation = QComboBox()
+            orientation.addItem("عمودی — چپ / راست", "vertical")
+            orientation.addItem("افقی — بالا / پایین", "horizontal")
+
+            position = QDoubleSpinBox()
+            position.setRange(5.0, 95.0)
+            position.setDecimals(1)
+            position.setSingleStep(1.0)
+            position.setSuffix(" %")
+
+            direction = QComboBox()
+            direction.addItem("مثبت", "positive")
+            direction.addItem("منفی", "negative")
+
+            cooldown = QSpinBox()
+            cooldown.setRange(5, 300)
+            cooldown.setSuffix(" فریم")
+
+            fields = [
+                ("نقش دوربین", role),
+                ("جهت خط", orientation),
+                ("موقعیت خط", position),
+                ("جهت عبور اصلی", direction),
+                ("فاصله ضدتکرار", cooldown),
+            ]
+            grid = QGridLayout()
+            grid.setHorizontalSpacing(12)
+            grid.setVerticalSpacing(7)
+
+            for index, (caption, widget) in enumerate(fields):
+                row = 0 if index < 3 else 2
+                col = index if index < 3 else index - 3
+
+                caption_label = QLabel(caption)
+                caption_label.setObjectName("fieldLabel")
+                grid.addWidget(caption_label, row, col)
+                grid.addWidget(widget, row + 1, col)
+                grid.setColumnStretch(col, 1)
+
+            box_layout.addLayout(grid)
+
+            setattr(self, f"settings_camera{slot}_role", role)
+            setattr(self, f"settings_camera{slot}_line_orientation", orientation)
+            setattr(self, f"settings_camera{slot}_line_position", position)
+            setattr(self, f"settings_camera{slot}_line_direction", direction)
+            setattr(self, f"settings_camera{slot}_line_cooldown", cooldown)
+
+            gate_layout.addWidget(box)
+
+        add_camera_gate_controls(1, "دوربین ۱")
+        add_camera_gate_controls(2, "دوربین ۲")
+
+        gate_info = QLabel(
+            "نقش «ورودی» یا «خروجی» تعیین می‌کند همان جهت اصلی عبور، ورود یا خروج ثبت شود. "
+            "دوربین‌های دوگانه از همین تنظیمات برای اتصال یک Track بین دو دوربین استفاده می‌کنند."
+        )
+        gate_info.setObjectName("muted")
+        gate_info.setWordWrap(True)
+        gate_layout.addWidget(gate_info)
+        layout.addWidget(gate_panel)
+
+        global_panel = QFrame()
+        global_panel.setObjectName("globalIdentityPanel")
+        global_layout = QVBoxLayout(global_panel)
+        global_layout.setContentsMargins(18, 16, 18, 16)
+        global_layout.setSpacing(12)
+
+        global_title = QLabel("Identity Link بین دوربین‌ها")
+        global_title.setObjectName("globalIdentityTitle")
+        global_layout.addWidget(global_title)
+
+        self.settings_global_link_enabled = QCheckBox("فعال بودن اتصال بین دوربین‌ها")
+        self.settings_global_link_enabled.setChecked(True)
+        self.settings_global_link_enabled.setObjectName("globalIdentityCheck")
+
+        self.settings_global_link_window = QDoubleSpinBox()
+        self.settings_global_link_window.setRange(1.0, 120.0)
+        self.settings_global_link_window.setDecimals(1)
+        self.settings_global_link_window.setSingleStep(1.0)
+        self.settings_global_link_window.setSuffix(" ثانیه")
+
+        self.settings_global_link_similarity = QDoubleSpinBox()
+        self.settings_global_link_similarity.setRange(0.70, 0.97)
+        self.settings_global_link_similarity.setDecimals(3)
+        self.settings_global_link_similarity.setSingleStep(0.01)
+
+        global_grid = QGridLayout()
+        global_grid.setHorizontalSpacing(14)
+        global_grid.setVerticalSpacing(6)
+
+        global_grid.addWidget(
+            self.settings_global_link_enabled, 0, 0, 2, 1
+        )
+
+        window_label = QLabel("پنجره Hand-off")
+        window_label.setObjectName("fieldLabel")
+        global_grid.addWidget(window_label, 0, 1)
+        global_grid.addWidget(self.settings_global_link_window, 1, 1)
+
+        similarity_label = QLabel("حداقل شباهت Re-ID")
+        similarity_label.setObjectName("fieldLabel")
+        global_grid.addWidget(similarity_label, 0, 2)
+        global_grid.addWidget(self.settings_global_link_similarity, 1, 2)
+
+        global_grid.setColumnStretch(0, 2)
+        global_grid.setColumnStretch(1, 1)
+        global_grid.setColumnStretch(2, 1)
+        global_layout.addLayout(global_grid)
+
+        global_info = QLabel(
+            "اگر دانش‌آموز قبلاً با چهره شناسایی شده باشد، ظاهر ثبت‌شده‌اش به یک حافظه مشترک "
+            "می‌رود. Track ناشناس دوربین دیگر فقط وقتی به او وصل می‌شود که شباهت کافی باشد "
+            "و یا دانش‌آموز هنوز حاضر باشد یا Hand-off زمانی معقولی وجود داشته باشد."
+        )
+        global_info.setObjectName("muted")
+        global_info.setWordWrap(True)
+        global_layout.addWidget(global_info)
+        layout.addWidget(global_panel)
+
+        attendance_panel = QFrame()
+        attendance_panel.setObjectName("panel")
+        attendance_layout = QVBoxLayout(attendance_panel)
+
+        attendance_title = QLabel("قوانین حضور و غیاب")
+        attendance_title.setObjectName("sectionTitle")
+        attendance_layout.addWidget(attendance_title)
+
+        attendance_form = QFormLayout()
+        self.settings_school_start = QLineEdit()
+        self.settings_school_start.setPlaceholderText("08:00")
+        self.settings_school_end = QLineEdit()
+        self.settings_school_end.setPlaceholderText("15:00")
+        self.settings_late_events = QCheckBox(
+            "ثبت دیرکرد هنگام ورود بعد از زمان شروع"
+        )
+        self.settings_early_events = QCheckBox(
+            "ثبت خروج زودهنگام قبل از زمان پایان"
+        )
+        self.settings_late_events.setChecked(True)
+        self.settings_early_events.setChecked(True)
+
+        attendance_form.addRow("شروع مدرسه", self.settings_school_start)
+        attendance_form.addRow("پایان مدرسه", self.settings_school_end)
+        attendance_form.addRow("دیرکرد", self.settings_late_events)
+        attendance_form.addRow("خروج زودهنگام", self.settings_early_events)
+        attendance_layout.addLayout(attendance_form)
+        layout.addWidget(attendance_panel)
+
+        reid_panel = QFrame()
+        reid_panel.setObjectName("panel")
+        reid_layout = QVBoxLayout(reid_panel)
+
+        reid_title = QLabel("Tracking و Re-ID")
+        reid_title.setObjectName("sectionTitle")
+        reid_layout.addWidget(reid_title)
+
+        reid_form = QFormLayout()
+        self.settings_reid_enabled = QCheckBox("فعال باشد")
+        self.settings_reid_enabled.setChecked(True)
+
+        self.settings_reid_device = QComboBox()
+        self.settings_reid_device.addItem(
+            "خودکار (GPU در صورت وجود)",
+            "",
+        )
+        self.settings_reid_device.addItem("CPU", "cpu")
+        self.settings_reid_device.addItem("CUDA / GPU", "cuda")
+
+        self.settings_reid_interval = QSpinBox()
+        self.settings_reid_interval.setRange(3, 30)
+        self.settings_reid_interval.setSuffix(" فریم")
+        self.settings_reid_interval.setToolTip(
+            "در CPU حداقل فاصله 10 فریم اعمال می‌شود تا سیستم مدرسه سبک‌تر بماند."
+        )
+
+        reid_form.addRow("Re-ID", self.settings_reid_enabled)
+        reid_form.addRow("دستگاه", self.settings_reid_device)
+        reid_form.addRow(
+            "فاصله به‌روزرسانی ظاهر",
+            self.settings_reid_interval,
+        )
+        reid_layout.addLayout(reid_form)
+        layout.addWidget(reid_panel)
 
         self.settings_camera_status = QLabel()
         self.settings_camera_status.setObjectName("muted")
-        panel_layout.addWidget(self.settings_camera_status)
+        layout.addWidget(self.settings_camera_status)
 
         apply_button = QPushButton("ذخیره و راه‌اندازی مجدد دوربین")
         apply_button.clicked.connect(self.apply_camera_settings)
-        panel_layout.addWidget(apply_button)
+        layout.addWidget(apply_button)
 
-        layout.addWidget(panel)
         layout.addStretch(1)
         self.stack.addWidget(page)
+        self.load_smart_settings()
 
-    def refresh_camera_choices(self):
-        if not hasattr(self, "settings_camera_combo"):
+    def load_smart_settings(self):
+        if not hasattr(self, "settings_camera1_role"):
             return
 
         current_id = int(get_setting("camera_id", CAMERA_ID))
+        camera1_id = int(get_setting("camera_1_id", current_id))
+        camera2_id = int(get_setting("camera_2_id", "-1"))
+        camera1_enabled = str(
+            get_setting("camera_1_enabled", "1") or "1"
+        ).lower() in {"1", "true", "yes", "on"}
+        camera2_enabled = str(
+            get_setting("camera_2_enabled", "0") or "0"
+        ).lower() in {"1", "true", "yes", "on"}
         current_fps = int(
+            get_setting("camera_target_fps", DEFAULT_CAMERA_TARGET_FPS)
+        )
+
+        school_start = str(
+            get_setting("school_start_time", "08:00") or "08:00"
+        )
+        school_end = str(
+            get_setting("school_end_time", "15:00") or "15:00"
+        )
+        late_enabled = str(
+            get_setting("enable_late_events", "1") or "1"
+        ).lower() in {"1", "true", "yes", "on"}
+        early_enabled = str(
+            get_setting("enable_early_events", "1") or "1"
+        ).lower() in {"1", "true", "yes", "on"}
+        reid_enabled = str(
+            get_setting("reid_enabled", "1") or "1"
+        ).lower() in {"1", "true", "yes", "on"}
+        reid_device = str(get_setting("person_device", "") or "")
+        reid_interval = int(get_setting("reid_interval", "6"))
+
+        global_enabled = str(
+            get_setting("global_identity_enabled", "1") or "1"
+        ).lower() in {"1", "true", "yes", "on"}
+        global_window = float(
+            get_setting("global_identity_window_sec", "15")
+        )
+        global_similarity = float(
+            get_setting("global_identity_similarity", "0.82")
+        )
+
+        if self.settings_camera1_combo.count() == 0:
+            self.refresh_camera_choices()
+        else:
+            index = self.settings_camera1_combo.findData(camera1_id)
+            if index >= 0:
+                self.settings_camera1_combo.setCurrentIndex(index)
+            index = self.settings_camera2_combo.findData(camera2_id)
+            if index >= 0:
+                self.settings_camera2_combo.setCurrentIndex(index)
+
+        self.settings_camera1_enabled.setChecked(camera1_enabled)
+        self.settings_camera2_enabled.setChecked(camera2_enabled)
+
+        fps_index = self.settings_fps_combo.findData(current_fps)
+        if fps_index >= 0:
+            self.settings_fps_combo.setCurrentIndex(fps_index)
+
+        for slot in (1, 2):
+            role_default = "entry" if slot == 1 else "exit"
+            orientation_default = get_setting(
+                "line_orientation" if slot == 1 else "camera_2_line_orientation",
+                "vertical",
+            )
+            position_default = get_setting(
+                "line_position" if slot == 1 else "camera_2_line_position",
+                "0.50",
+            )
+            direction_default = get_setting(
+                "line_enter_direction" if slot == 1 else "camera_2_line_direction",
+                "positive",
+            )
+            cooldown_default = get_setting(
+                "line_cooldown_frames" if slot == 1 else "camera_2_line_cooldown",
+                "25",
+            )
+
+            role = str(
+                get_setting(f"camera_{slot}_role", role_default)
+                or role_default
+            )
+            orientation = str(
+                get_setting(
+                    f"camera_{slot}_line_orientation",
+                    orientation_default,
+                )
+                or orientation_default
+            )
+            position = float(
+                get_setting(
+                    f"camera_{slot}_line_position",
+                    position_default,
+                )
+            ) * 100.0
+            direction = str(
+                get_setting(
+                    f"camera_{slot}_line_direction",
+                    direction_default,
+                )
+                or direction_default
+            )
+            cooldown = int(
+                get_setting(
+                    f"camera_{slot}_line_cooldown",
+                    cooldown_default,
+                )
+            )
+
+            role_widget = getattr(self, f"settings_camera{slot}_role")
+            orientation_widget = getattr(
+                self, f"settings_camera{slot}_line_orientation"
+            )
+            position_widget = getattr(
+                self, f"settings_camera{slot}_line_position"
+            )
+            direction_widget = getattr(
+                self, f"settings_camera{slot}_line_direction"
+            )
+            cooldown_widget = getattr(
+                self, f"settings_camera{slot}_line_cooldown"
+            )
+
+            index = role_widget.findData(role)
+            if index >= 0:
+                role_widget.setCurrentIndex(index)
+
+            index = orientation_widget.findData(orientation)
+            if index >= 0:
+                orientation_widget.setCurrentIndex(index)
+
+            position_widget.setValue(max(5.0, min(95.0, position)))
+
+            index = direction_widget.findData(direction)
+            if index >= 0:
+                direction_widget.setCurrentIndex(index)
+
+            cooldown_widget.setValue(max(5, min(300, cooldown)))
+
+        self.settings_school_start.setText(school_start)
+        self.settings_school_end.setText(school_end)
+        self.settings_late_events.setChecked(late_enabled)
+        self.settings_early_events.setChecked(early_enabled)
+        self.settings_reid_enabled.setChecked(reid_enabled)
+
+        index = self.settings_reid_device.findData(reid_device)
+        self.settings_reid_device.setCurrentIndex(max(0, index))
+
+        self.settings_reid_interval.setValue(
+            max(3, min(30, reid_interval))
+        )
+        self.settings_global_link_enabled.setChecked(global_enabled)
+        self.settings_global_link_window.setValue(
+            max(1.0, min(120.0, global_window))
+        )
+        self.settings_global_link_similarity.setValue(
+            max(0.70, min(0.97, global_similarity))
+        )
+
+    def refresh_camera_choices(self):
+        if not hasattr(self, "settings_camera1_combo"):
+            return
+
+        camera1_id = int(
             get_setting(
-                "camera_target_fps",
-                DEFAULT_CAMERA_TARGET_FPS,
+                "camera_1_id",
+                get_setting("camera_id", CAMERA_ID),
             )
         )
+        camera2_id = int(get_setting("camera_2_id", "-1"))
 
-        was_running = (
-            self.camera_worker is not None
-            and self.camera_worker.isRunning()
-        )
-
+        was_running = bool(self.camera_workers)
         if was_running:
             self.stop_camera()
 
@@ -3437,61 +4046,186 @@ class MainWindow(QMainWindow):
             if was_running:
                 self.start_camera()
 
-        self.settings_camera_combo.blockSignals(True)
-        self.settings_camera_combo.clear()
+        for combo, selected_id in (
+            (self.settings_camera1_combo, camera1_id),
+            (self.settings_camera2_combo, camera2_id),
+        ):
+            combo.blockSignals(True)
+            combo.clear()
 
-        selected = -1
-        for index, camera in enumerate(cameras):
-            self.settings_camera_combo.addItem(
-                camera["label"],
-                camera["id"],
-            )
-            if camera["id"] == current_id:
-                selected = index
+            for camera in cameras:
+                combo.addItem(camera["label"], camera["id"])
 
-        if not cameras:
-            self.settings_camera_combo.addItem(
-                "هیچ دوربینی پیدا نشد",
-                None,
-            )
-            self.settings_camera_combo.setEnabled(False)
-        else:
-            self.settings_camera_combo.setEnabled(True)
-            if selected >= 0:
-                self.settings_camera_combo.setCurrentIndex(selected)
+            if not cameras:
+                combo.addItem("هیچ دوربینی پیدا نشد", None)
+                combo.setEnabled(False)
+            else:
+                combo.setEnabled(True)
+                index = combo.findData(selected_id)
+                if index >= 0:
+                    combo.setCurrentIndex(index)
 
-        fps_index = self.settings_fps_combo.findData(current_fps)
-        if fps_index >= 0:
-            self.settings_fps_combo.setCurrentIndex(fps_index)
+            combo.blockSignals(False)
 
-        self.settings_camera_combo.blockSignals(False)
         self.settings_camera_status.setText(
-            f"{len(cameras)} دوربین پیدا شد."
+            f"{len(cameras)} دوربین پیدا شد • دوربین ۲ در صورت فعال‌سازی باید Device جدا داشته باشد."
         )
 
     def apply_camera_settings(self):
-        camera_id = self.settings_camera_combo.currentData()
-        if camera_id is None:
+        camera1_id = self.settings_camera1_combo.currentData()
+        camera2_id = self.settings_camera2_combo.currentData()
+
+        if self.settings_camera1_enabled.isChecked() and camera1_id is None:
             QMessageBox.warning(
                 self,
-                "دوربین یافت نشد",
-                "ابتدا یک دوربین معتبر انتخاب کنید.",
+                "دوربین ۱ یافت نشد",
+                "برای فعال بودن دوربین ۱ یک Device معتبر انتخاب کنید.",
+            )
+            return
+
+        if self.settings_camera2_enabled.isChecked() and camera2_id is None:
+            QMessageBox.warning(
+                self,
+                "دوربین ۲ یافت نشد",
+                "برای فعال بودن دوربین ۲ یک Device معتبر انتخاب کنید.",
             )
             return
 
         try:
-            camera_id = int(camera_id)
+            camera1_id = int(camera1_id) if camera1_id is not None else -1
+            camera2_id = int(camera2_id) if camera2_id is not None else -1
             target_fps = int(self.settings_fps_combo.currentData())
+            camera_gate_values = {}
+            for slot in (1, 2):
+                camera_gate_values[slot] = {
+                    "role": getattr(
+                        self, f"settings_camera{slot}_role"
+                    ).currentData(),
+                    "line_orientation": getattr(
+                        self, f"settings_camera{slot}_line_orientation"
+                    ).currentData(),
+                    "line_position": (
+                        float(
+                            getattr(
+                                self,
+                                f"settings_camera{slot}_line_position",
+                            ).value()
+                        )
+                        / 100.0
+                    ),
+                    "line_direction": getattr(
+                        self, f"settings_camera{slot}_line_direction"
+                    ).currentData(),
+                    "line_cooldown": int(
+                        getattr(
+                            self,
+                            f"settings_camera{slot}_line_cooldown",
+                        ).value()
+                    ),
+                }
+
+            reid_interval = int(self.settings_reid_interval.value())
+            global_window = float(self.settings_global_link_window.value())
+            global_similarity = float(
+                self.settings_global_link_similarity.value()
+            )
+            school_start = self.settings_school_start.text().strip()
+            school_end = self.settings_school_end.text().strip()
+            datetime.strptime(school_start, "%H:%M")
+            datetime.strptime(school_end, "%H:%M")
         except (TypeError, ValueError):
             QMessageBox.warning(
                 self,
                 "تنظیمات نامعتبر",
-                "مقدار دوربین یا نرخ فریم معتبر نیست.",
+                "زمان‌ها باید به شکل HH:MM باشند و مقادیر انتخاب‌شده معتبر باشند.",
             )
             return
 
-        set_setting("camera_id", camera_id)
+        if (
+            self.settings_camera1_enabled.isChecked()
+            and self.settings_camera2_enabled.isChecked()
+            and camera1_id == camera2_id
+        ):
+            QMessageBox.warning(
+                self,
+                "دوربین تکراری",
+                "دوربین ۱ و دوربین ۲ نمی‌توانند یک Device یکسان داشته باشند.",
+            )
+            return
+
+        set_setting("camera_id", camera1_id if camera1_id >= 0 else CAMERA_ID)
         set_setting("camera_target_fps", target_fps)
+        set_setting("camera_1_id", camera1_id)
+        set_setting("camera_2_id", camera2_id)
+        set_setting(
+            "camera_1_enabled",
+            int(self.settings_camera1_enabled.isChecked()),
+        )
+        set_setting(
+            "camera_2_enabled",
+            int(self.settings_camera2_enabled.isChecked()),
+        )
+        set_setting("camera_1_target_fps", target_fps)
+        set_setting("camera_2_target_fps", target_fps)
+
+        for slot, values in camera_gate_values.items():
+            set_setting(f"camera_{slot}_role", values["role"])
+            set_setting(
+                f"camera_{slot}_line_orientation",
+                values["line_orientation"],
+            )
+            set_setting(
+                f"camera_{slot}_line_position",
+                f"{values['line_position']:.4f}",
+            )
+            set_setting(
+                f"camera_{slot}_line_direction",
+                values["line_direction"],
+            )
+            set_setting(
+                f"camera_{slot}_line_cooldown",
+                values["line_cooldown"],
+            )
+
+        # Keep the original single-camera keys compatible with older builds.
+        set_setting(
+            "line_orientation",
+            camera_gate_values[1]["line_orientation"],
+        )
+        set_setting(
+            "line_position",
+            f"{camera_gate_values[1]['line_position']:.4f}",
+        )
+        set_setting(
+            "line_enter_direction",
+            camera_gate_values[1]["line_direction"],
+        )
+        set_setting("line_cooldown_frames", camera_gate_values[1]["line_cooldown"])
+        set_setting("school_start_time", school_start)
+        set_setting("school_end_time", school_end)
+        set_setting(
+            "enable_late_events",
+            int(self.settings_late_events.isChecked()),
+        )
+        set_setting(
+            "enable_early_events",
+            int(self.settings_early_events.isChecked()),
+        )
+        set_setting(
+            "reid_enabled",
+            int(self.settings_reid_enabled.isChecked()),
+        )
+        set_setting(
+            "person_device",
+            self.settings_reid_device.currentData() or "",
+        )
+        set_setting("reid_interval", reid_interval)
+        set_setting(
+            "global_identity_enabled",
+            int(self.settings_global_link_enabled.isChecked()),
+        )
+        set_setting("global_identity_window_sec", f"{global_window:.1f}")
+        set_setting("global_identity_similarity", f"{global_similarity:.3f}")
 
         try:
             self.restart_camera()
@@ -3503,45 +4237,211 @@ class MainWindow(QMainWindow):
             )
             return
 
+        enabled_slots = [
+            slot
+            for slot, enabled in (
+                (1, self.settings_camera1_enabled.isChecked()),
+                (2, self.settings_camera2_enabled.isChecked()),
+            )
+            if enabled
+        ]
+        role_labels = {
+            "entry": "ورودی",
+            "exit": "خروجی",
+            "observe": "مشاهده",
+        }
+        role_summary = " / ".join(
+            f"دوربین {slot}: {role_labels.get(camera_gate_values[slot]['role'], camera_gate_values[slot]['role'])}"
+            for slot in enabled_slots
+        ) or "بدون دوربین"
         self.settings_camera_status.setText(
-            f"دوربین {camera_id} با نرخ هدف {target_fps} FPS ذخیره شد."
+            f"تنظیمات ذخیره شد • {len(enabled_slots)} دوربین فعال • "
+            f"{role_summary} • Global Link {'فعال' if self.settings_global_link_enabled.isChecked() else 'خاموش'}"
         )
 
     def start_camera(self):
-        if self.camera_worker is not None and self.camera_worker.isRunning():
+        if self.camera_workers and any(
+            worker.isRunning() for worker in self.camera_workers.values()
+        ):
             return
 
-        self.camera_worker = CameraWorker()
-        self.camera_worker.frame_ready.connect(self.update_camera_preview)
-        self.camera_worker.attendance_added.connect(self.attendance_event)
-        self.camera_worker.status_changed.connect(self.update_camera_status)
-        self.camera_worker.error.connect(self.camera_error)
-        self.camera_worker.start()
+        enabled_slots = []
+        for slot in (1, 2):
+            enabled = str(
+                get_setting(
+                    f"camera_{slot}_enabled",
+                    "1" if slot == 1 else "0",
+                )
+                or "0"
+            ).lower() in {"1", "true", "yes", "on"}
+
+            default_id = (
+                get_setting("camera_id", CAMERA_ID)
+                if slot == 1
+                else -1
+            )
+            camera_id = int(
+                get_setting(f"camera_{slot}_id", default_id)
+            )
+
+            if not enabled or camera_id < 0:
+                continue
+
+            enabled_slots.append(slot)
+
+            target_fps = int(
+                get_setting(
+                    f"camera_{slot}_target_fps",
+                    get_setting(
+                        "camera_target_fps",
+                        DEFAULT_CAMERA_TARGET_FPS,
+                    ),
+                )
+            )
+
+            # With two USB2 cameras active, 30 FPS capture preserves the
+            # full 640x480 spatial quality while avoiding a needless 60 FPS
+            # transfer rate that the CPU analysis pipeline cannot consume.
+            if len(
+                [
+                    s for s in (1, 2)
+                    if str(
+                        get_setting(
+                            f"camera_{s}_enabled",
+                            "1" if s == 1 else "0",
+                        )
+                        or "0"
+                    ).strip().lower()
+                    in {"1", "true", "yes", "on"}
+                ]
+            ) >= 2:
+                target_fps = min(target_fps, self._dual_camera_fps_cap)
+
+            role = str(
+                get_setting(
+                    f"camera_{slot}_role",
+                    "entry" if slot == 1 else "exit",
+                )
+                or ("entry" if slot == 1 else "exit")
+            )
+            line_orientation = str(
+                get_setting(
+                    f"camera_{slot}_line_orientation",
+                    get_setting("line_orientation", "vertical"),
+                )
+                or "vertical"
+            )
+            line_position = float(
+                get_setting(
+                    f"camera_{slot}_line_position",
+                    get_setting("line_position", "0.50"),
+                )
+            )
+            line_direction = str(
+                get_setting(
+                    f"camera_{slot}_line_direction",
+                    get_setting(
+                        "line_enter_direction",
+                        "positive",
+                    ),
+                )
+                or "positive"
+            )
+            line_cooldown = int(
+                get_setting(
+                    f"camera_{slot}_line_cooldown",
+                    get_setting("line_cooldown_frames", "25"),
+                )
+            )
+
+            worker = SmartCameraWorker(
+                camera_slot=slot,
+                camera_config={
+                    "camera_id": camera_id,
+                    "target_fps": target_fps,
+                    "role": role,
+                    "line_orientation": line_orientation,
+                    "line_position": line_position,
+                    "line_direction": line_direction,
+                    "line_cooldown": line_cooldown,
+                    # Both installed ov534 cameras share USB2. Native 8-bit
+                    # Bayer halves the video payload while retaining 640x480.
+                    "raw_bayer": len(enabled_slots) >= 2
+                    and sys.platform.startswith("linux"),
+                },
+                presence_state=self.presence_state,
+                identity_manager=self.global_identity_manager,
+            )
+            worker.frame_ready.connect(
+                self._store_camera_preview,
+                Qt.DirectConnection,
+            )
+            worker.attendance_added.connect(self.attendance_event)
+            worker.status_changed.connect(
+                lambda message, s=slot: self.update_camera_status(
+                    f"Camera {s}: {message}"
+                )
+            )
+            worker.error.connect(
+                lambda message, s=slot: self.camera_error(
+                    f"Camera {s}: {message}"
+                )
+            )
+            worker.start()
+            self.camera_workers[slot] = worker
+
+        self.camera_worker = self.camera_workers.get(1)
+        if not self._preview_timer.isActive():
+            self._preview_timer.start()
+
+        if hasattr(self, "camera_previews") and 2 not in self.camera_workers:
+            self.camera_previews[2].setText("Camera 2 غیرفعال است.")
 
     def stop_camera(self):
-        worker = self.camera_worker
-        if worker is None:
-            return
+        workers = list(self.camera_workers.values())
+        for worker in workers:
+            if worker.isRunning():
+                worker.stop()
+                worker.wait(5000)
 
-        if worker.isRunning():
-            worker.stop()
-            worker.wait(5000)
-
+        self.camera_workers.clear()
         self.camera_worker = None
 
     def restart_camera(self):
         self.stop_camera()
         self.start_camera()
 
-    def update_camera_preview(self, image):
-        pixmap = QPixmap.fromImage(image)
-        self.camera_preview.setPixmap(
-            pixmap.scaled(
-                self.camera_preview.size(),
-                Qt.KeepAspectRatio,
-                Qt.FastTransformation,
+    def _store_camera_preview(self, camera_slot, image):
+        # This slot is deliberately a DirectConnection: it does not touch any
+        # QWidget. It only replaces a single latest-value mailbox while holding
+        # a small Python lock. The GUI thread consumes that mailbox on a timer.
+        with self._latest_camera_images_lock:
+            self._latest_camera_images[int(camera_slot)] = image
+
+    def _render_latest_camera_previews(self):
+        with self._latest_camera_images_lock:
+            latest = dict(self._latest_camera_images)
+
+        previews = getattr(self, "camera_previews", {})
+        fallback = getattr(self, "camera_preview", None)
+
+        for camera_slot, image in latest.items():
+            preview = previews.get(int(camera_slot), fallback)
+            if preview is None or image is None:
+                continue
+
+            pixmap = QPixmap.fromImage(image)
+            preview.setPixmap(
+                pixmap.scaled(
+                    preview.size(),
+                    Qt.KeepAspectRatio,
+                    Qt.FastTransformation,
+                )
             )
-        )
+
+    def update_camera_preview(self, camera_slot, image):
+        # Backwards-compatible entry point for callers outside the new mailbox.
+        self._store_camera_preview(camera_slot, image)
 
     def update_camera_status(self, message):
         self.camera_status.setText(message)
@@ -3697,8 +4597,8 @@ class MainWindow(QMainWindow):
             return None
 
     def add_student_dialog(self):
-        dialog = EnrollmentDialog(show_student_fields=True, parent=self)
         self.stop_camera()
+        dialog = EnrollmentDialog(show_student_fields=True, parent=self)
 
         try:
             if dialog.exec() != QDialog.Accepted:
@@ -3829,12 +4729,12 @@ class MainWindow(QMainWindow):
         ):
             return
 
+        self.stop_camera()
         dialog = EnrollmentDialog(
             show_student_fields=False,
             student_id=student_id,
             parent=self,
         )
-        self.stop_camera()
 
         try:
             if dialog.exec() != QDialog.Accepted:
@@ -4576,6 +5476,7 @@ class MainWindow(QMainWindow):
             start,
             end,
             major_id,
+            class_id,
         )
 
         if not rows:
@@ -5091,6 +5992,54 @@ def main():
             border-radius: 16px;
         }
 
+        #cameraGateBox {
+            background: #f8fafc;
+            border: 1px solid #d4dee9;
+            border-radius: 12px;
+            padding: 1px;
+        }
+
+        #cameraGateTitle {
+            color: #1e5a9f;
+            font-size: 15px;
+            font-weight: 800;
+        }
+
+        #fieldLabel {
+            color: #64748b;
+            font-size: 12px;
+            font-weight: 700;
+            padding-right: 2px;
+            padding-bottom: 2px;
+        }
+
+        #globalIdentityPanel {
+            background: #fbfcfe;
+            border: 2px solid #b8cbe0;
+            border-radius: 16px;
+        }
+
+        #globalIdentityTitle {
+            color: #1e5a9f;
+            font-size: 17px;
+            font-weight: 800;
+            padding-bottom: 2px;
+        }
+
+        #globalIdentityCheck {
+            font-weight: 700;
+            color: #334155;
+        }
+
+        #pageScrollArea {
+            background: transparent;
+            border: none;
+        }
+
+        #pageScrollArea > QWidget > QWidget {
+            background: transparent;
+        }
+
         #statTitle {
             color: #718096;
             font-size: 12px;
@@ -5109,24 +6058,57 @@ def main():
             color: #728197;
         }
 
-        QLineEdit, QDateEdit, QComboBox {
+        QLineEdit, QDateEdit, QComboBox, QSpinBox, QDoubleSpinBox {
             background: #ffffff;
             color: #253244;
             border: 1px solid #cbd6e2;
             border-radius: 9px;
-            padding: 9px 11px;
+            padding: 8px 10px;
+            min-height: 40px;
             selection-background-color: #dbe9f8;
             selection-color: #1e3045;
         }
 
-        QLineEdit:focus, QDateEdit:focus, QComboBox:focus {
+        QLineEdit:focus, QDateEdit:focus, QComboBox:focus,
+        QSpinBox:focus, QDoubleSpinBox:focus {
             border: 1px solid #78a7d5;
             background: #ffffff;
+            color: #172435;
         }
 
-        QLineEdit:disabled, QDateEdit:disabled, QComboBox:disabled {
+        QLineEdit:disabled, QDateEdit:disabled, QComboBox:disabled,
+        QSpinBox:disabled, QDoubleSpinBox:disabled {
             background: #eef2f6;
             color: #9aa7b5;
+        }
+
+        QSpinBox, QDoubleSpinBox {
+            min-height: 42px;
+            padding: 4px 28px 4px 10px;
+            color: #253244;
+            background: #ffffff;
+            border: 1px solid #cbd6e2;
+        }
+
+        QSpinBox QLineEdit, QDoubleSpinBox QLineEdit {
+            background: transparent;
+            color: #253244;
+            selection-background-color: #dbe9f8;
+            selection-color: #1e3045;
+            padding: 2px 0px;
+            min-height: 30px;
+        }
+
+        QSpinBox::up-button, QSpinBox::down-button,
+        QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
+            background: #f7f9fc;
+            border: none;
+            width: 22px;
+        }
+
+        QSpinBox::up-button:hover, QSpinBox::down-button:hover,
+        QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
+            background: #e8eef5;
         }
 
         QLineEdit[readOnly="true"] {
@@ -5228,6 +6210,40 @@ def main():
             color: #ffffff;
             border: 1px solid #3b4b60;
             padding: 5px;
+        }
+
+        QCheckBox {
+            color: #253244;
+            spacing: 7px;
+            min-height: 28px;
+        }
+
+        QCheckBox::indicator {
+            width: 16px;
+            height: 16px;
+            background: #ffffff;
+            border: 2px solid #aebdcb;
+            border-radius: 4px;
+        }
+
+        QCheckBox::indicator:hover {
+            border-color: #78a7d5;
+            background: #f7faff;
+        }
+
+        QCheckBox::indicator:checked {
+            background: #2f78c4;
+            border-color: #2f78c4;
+        }
+
+        QCheckBox::indicator:checked:hover {
+            background: #2468ad;
+            border-color: #2468ad;
+        }
+
+        QCheckBox::indicator:disabled {
+            background: #eef2f6;
+            border-color: #d7dee7;
         }
 
         QMessageBox {

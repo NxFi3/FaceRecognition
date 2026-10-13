@@ -4,7 +4,7 @@ import numpy as np
 import face_recognition
 from ultralytics import YOLO
 
-from database import init_db, add_student, add_embedding
+from database import init_db, add_student, add_embedding, get_setting
 
 YOLO_MODEL = "yolov8n-face.pt"
 CAMERA_ID = 0
@@ -104,15 +104,35 @@ def main():
 
     model = YOLO(YOLO_MODEL)
 
-    cap = cv2.VideoCapture(CAMERA_ID)
+    # Enrollment follows the same Camera 1 device selected in the application.
+    # Fall back to the legacy single-camera setting for older installations.
+    camera_id = int(
+        get_setting(
+            "camera_1_id",
+            get_setting("camera_id", CAMERA_ID),
+        )
+    )
+    target_fps = int(
+        get_setting(
+            "camera_1_target_fps",
+            get_setting("camera_target_fps", 60),
+        )
+    )
 
+    cap = cv2.VideoCapture(camera_id)
     if not cap.isOpened():
-        print("ERROR: Could not open camera.")
+        print(f"ERROR: Could not open Camera 1 (device {camera_id}).")
         return
 
-    # Try to use 640x480
+    if target_fps >= 60:
+        cap.set(
+            cv2.CAP_PROP_FOURCC,
+            cv2.VideoWriter_fourcc(*"MJPG"),
+        )
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+    cap.set(cv2.CAP_PROP_FPS, target_fps)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
     actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -184,8 +204,7 @@ def main():
 
             # Draw face box after embedding so the overlay never contaminates it.
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
-                    print(f"Sample {len(embeddings)}/{NUM_SAMPLES} captured")
+            print(f"Sample {len(embeddings)}/{NUM_SAMPLES} captured")
 
         elif len(faces) == 0:
 
