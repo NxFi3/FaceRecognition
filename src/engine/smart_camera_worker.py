@@ -14,6 +14,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from .camera_capture import LatestFrameCapture
+from .camera_device import open_camera
 
 import cv2
 import dlib
@@ -429,7 +430,6 @@ class SmartCameraWorker(QThread):
                     YUNET_TOP_K,
                     FaceMatcher,
                     _encode_face_crop,
-                    _open_camera,
                     _prepare_face_crop,
                     get_camera_settings,
                     frame_to_qimage,
@@ -444,7 +444,6 @@ class SmartCameraWorker(QThread):
                     YUNET_TOP_K,
                     FaceMatcher,
                     _encode_face_crop,
-                    _open_camera,
                     _prepare_face_crop,
                     get_camera_settings,
                     frame_to_qimage,
@@ -518,7 +517,9 @@ class SmartCameraWorker(QThread):
             capture = LatestFrameCapture(
                 camera_id,
                 target_fps,
-                _open_camera,
+                lambda cid, fps: open_camera(
+                    cid, fps, width=CAMERA_WIDTH, height=CAMERA_HEIGHT
+                ),
                 raw_bayer=use_raw_bayer,
             )
             logger.info("WORKER_CAMERA_START slot=%s camera_id=%s target_fps=%s raw_bayer=%s", self.camera_slot, camera_id, target_fps, use_raw_bayer)

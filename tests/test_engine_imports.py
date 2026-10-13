@@ -4,6 +4,7 @@ import unittest
 class EngineImportTests(unittest.TestCase):
     def test_core_engine_modules_import(self):
         from src.engine import camera_capture
+        from src.engine import camera_device
         from src.engine import global_identity
         from src.engine import reid
         from src.engine import smart_events
@@ -12,6 +13,7 @@ class EngineImportTests(unittest.TestCase):
 
         self.assertTrue(all((
             camera_capture,
+            camera_device,
             global_identity,
             reid,
             smart_events,

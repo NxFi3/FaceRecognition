@@ -303,188 +303,38 @@ def _configure_cpu_runtime():
 
 
 def _camera_backends():
-    if sys.platform.startswith("win"):
-        return [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]
-    if sys.platform.startswith("linux"):
-        return [cv2.CAP_V4L2, cv2.CAP_ANY]
-    return [cv2.CAP_ANY]
+    """Compatibility wrapper; backend policy lives in engine.camera_device."""
+    try:
+        from .engine.camera_device import camera_backends
+    except ImportError:
+        from engine.camera_device import camera_backends
+    return camera_backends()
 
 
 def _open_camera(camera_id, target_fps=DEFAULT_CAMERA_TARGET_FPS):
-    logger.info("CAMERA_OPEN_START id=%s target_fps=%s requested=%sx%s backends=%s", camera_id, target_fps, CAMERA_WIDTH, CAMERA_HEIGHT, _camera_backends())
-    for backend in _camera_backends():
-        logger.info("CAMERA_OPEN_TRY id=%s backend=%s", camera_id, backend)
-        cap = cv2.VideoCapture(camera_id, backend)
-        if not cap.isOpened():
-            logger.warning("CAMERA_OPEN_FAIL id=%s backend=%s isOpened=false", camera_id, backend)
-            cap.release()
-            continue
-
-        # The connected ov534 cameras expose raw YUYV/Bayer at 640x480;
-        # requesting MJPEG is unsupported and silently falls back. Avoid the
-        # failed format negotiation and leave the driver on its native format.
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-        cap.set(cv2.CAP_PROP_FPS, target_fps)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        logger.info("CAMERA_OPEN_OK id=%s backend=%s actual=%sx%s fps=%s fourcc=%s", camera_id, backend, cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT), cap.get(cv2.CAP_PROP_FPS), cap.get(cv2.CAP_PROP_FOURCC))
-        return cap
-
-    logger.error("CAMERA_OPEN_FAILED_ALL id=%s", camera_id)
-    raise RuntimeError("Could not open camera.")
+    """Compatibility wrapper for existing UI preview and enrollment callers."""
+    try:
+        from .engine.camera_device import open_camera
+    except ImportError:
+        from engine.camera_device import open_camera
+    return open_camera(camera_id, target_fps, width=CAMERA_WIDTH, height=CAMERA_HEIGHT)
 
 
 def _discover_cameras():
+    """Compatibility wrapper; device enumeration lives in engine.camera_device."""
     target_fps = int(
-        get_setting(
-            "camera_target_fps",
-            DEFAULT_CAMERA_TARGET_FPS,
-        )
+        get_setting("camera_target_fps", DEFAULT_CAMERA_TARGET_FPS)
     )
-
-    if sys.platform.startswith("linux"):
-        cameras = []
-
-        for path in sorted(
-            Path("/dev").glob("video*"),
-            key=lambda item: item.name,
-        ):
-            suffix = path.name[5:]
-            if not suffix.isdigit():
-                continue
-
-            camera_id = int(suffix)
-            device_name = "Video device"
-
-            name_path = Path(
-                f"/sys/class/video4linux/{path.name}/name"
-            )
-            try:
-                if name_path.exists():
-                    value = name_path.read_text(
-                        encoding="utf-8",
-                        errors="ignore",
-                    ).strip()
-                    if value:
-                        device_name = value
-            except OSError:
-                pass
-
-            # Try to read live capture capabilities when the device is
-            # available. If the backend is temporarily busy, keep the device
-            # in the list anyway so Settings never becomes empty just because
-            # another process has the camera open.
-            width = CAMERA_WIDTH
-            height = CAMERA_HEIGHT
-            fps = 0.0
-            cap = None
-
-            try:
-                for backend in _camera_backends():
-                    candidate = cv2.VideoCapture(camera_id, backend)
-                    if candidate.isOpened():
-                        cap = candidate
-                        break
-                    candidate.release()
-
-                if cap is not None:
-                    if target_fps >= 60:
-                        try:
-                            cap.set(
-                                cv2.CAP_PROP_FOURCC,
-                                cv2.VideoWriter_fourcc(*"MJPG"),
-                            )
-                        except Exception:
-                            pass
-
-                    cap.set(
-                        cv2.CAP_PROP_FRAME_WIDTH,
-                        CAMERA_WIDTH,
-                    )
-                    cap.set(
-                        cv2.CAP_PROP_FRAME_HEIGHT,
-                        CAMERA_HEIGHT,
-                    )
-                    cap.set(cv2.CAP_PROP_FPS, target_fps)
-
-                    width = int(
-                        cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-                    ) or width
-                    height = int(
-                        cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-                    ) or height
-                    fps = float(
-                        cap.get(cv2.CAP_PROP_FPS) or 0.0
-                    )
-            except Exception:
-                pass
-            finally:
-                if cap is not None:
-                    cap.release()
-
-            fps_label = (
-                f"{fps:.0f} FPS"
-                if fps > 0
-                else "FPS auto"
-            )
-
-            cameras.append({
-                "id": camera_id,
-                "label": (
-                    f"Camera {camera_id} — {device_name} — "
-                    f"{width}x{height} — {fps_label}"
-                ),
-            })
-
-        return cameras
-
-    cameras = []
-
-    for camera_id in range(CAMERA_SCAN_LIMIT):
-        cap = None
-
-        try:
-            for backend in _camera_backends():
-                candidate = cv2.VideoCapture(camera_id, backend)
-                if candidate.isOpened():
-                    cap = candidate
-                    break
-                candidate.release()
-
-            if cap is None:
-                continue
-
-            if target_fps >= 60:
-                try:
-                    cap.set(
-                        cv2.CAP_PROP_FOURCC,
-                        cv2.VideoWriter_fourcc(*"MJPG"),
-                    )
-                except Exception:
-                    pass
-
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-            cap.set(cv2.CAP_PROP_FPS, target_fps)
-
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or CAMERA_WIDTH
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or CAMERA_HEIGHT
-            fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
-
-            cameras.append({
-                "id": camera_id,
-                "label": (
-                    f"Camera {camera_id} — "
-                    f"{width}x{height} — {fps:.0f} FPS"
-                ),
-            })
-        except Exception:
-            continue
-        finally:
-            if cap is not None:
-                cap.release()
-
-    return cameras
+    try:
+        from .engine.camera_device import discover_cameras
+    except ImportError:
+        from engine.camera_device import discover_cameras
+    return discover_cameras(
+        target_fps=target_fps,
+        requested_width=CAMERA_WIDTH,
+        requested_height=CAMERA_HEIGHT,
+        scan_limit=CAMERA_SCAN_LIMIT,
+    )
 
 
 _FACE_MODELS_LOCAL = threading.local()
