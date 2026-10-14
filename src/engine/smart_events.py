@@ -119,13 +119,15 @@ class AttendanceEventEngine:
                     payload,
                 )
                 if (
-                    track.last_crossing == "enter"
+                    track.metadata.get("pending_crossing") is None
+                    and track.last_crossing == "enter"
                     and student_id not in self.present
                 ):
                     self._enter(track, camera_id)
                     return True
                 if (
-                    track.last_crossing == "exit"
+                    track.metadata.get("pending_crossing") is None
+                    and track.last_crossing == "exit"
                     and student_id in self.present
                 ):
                     self._exit(track, camera_id)
@@ -164,14 +166,16 @@ class AttendanceEventEngine:
         # Reconcile that already-recorded crossing as soon as the identity is
         # trusted instead of losing the attendance transition.
         if (
-            track.last_crossing == "enter"
+            track.metadata.get("pending_crossing") is None
+            and track.last_crossing == "enter"
             and student_id not in self.present
         ):
             self._enter(track, camera_id)
             return True
 
         if (
-            track.last_crossing == "exit"
+            track.metadata.get("pending_crossing") is None
+            and track.last_crossing == "exit"
             and student_id in self.present
         ):
             self._exit(track, camera_id)

@@ -8,6 +8,7 @@ from typing import Optional
 
 import cv2
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 import numpy as np
@@ -165,6 +166,14 @@ class PersonTrack:
         if crop is None or getattr(crop, "size", 0) == 0:
             return False
 
+        if not self.face_cache:
+            # A completed/cleared cache may be populated again if the track is
+            # still unresolved; allow a fresh finalization cycle for new samples.
+            self.face_cache_finalized = False
+        elif self.face_cache_finalized:
+            # Do not mutate a cache while its immutable snapshot is being voted.
+            return False
+
         sample = {
             "crop": np.ascontiguousarray(crop, dtype=np.uint8).copy(),
             "bbox": tuple(int(v) for v in bbox),
@@ -261,6 +270,8 @@ class SmartPersonTracker:
         self.reid_interval = max(1, int(reid_interval))
         self.tracks: dict[int, PersonTrack] = {}
         self.next_track_id = 1
+        self.last_reid_ms = 0.0
+        self.last_reid_reason = "not_run"
 
     def _batch_embeddings(self, frame, detections):
         if self.reid is None or not detections:
@@ -328,17 +339,32 @@ class SmartPersonTracker:
             if track.misses == 0:
                 track.predict(frame.shape)
 
+        interval_due = frame_no % self.reid_interval == 0
+        no_tracks = not self.tracks
+        # A stale track with no appearance must not force OSNet to run on every
+        # detector call for up to MAX_MISSES frames. Only bootstrap appearance
+        # for tracks that were active on the previous detector update.
+        active_track_needs_appearance = any(
+            track.appearance is None and track.misses == 0
+            for track in self.tracks.values()
+        )
         need_reid = (
             self.reid is not None
-            and (
-                frame_no % self.reid_interval == 0
-                or not self.tracks
-                or any(track.appearance is None for track in self.tracks.values())
-            )
+            and (interval_due or no_tracks or active_track_needs_appearance)
         )
+        self.last_reid_ms = 0.0
         if need_reid:
+            if interval_due:
+                self.last_reid_reason = "interval"
+            elif no_tracks:
+                self.last_reid_reason = "bootstrap"
+            else:
+                self.last_reid_reason = "active_missing_appearance"
+            reid_started = time.perf_counter()
             embeddings = self._batch_embeddings(frame, detections)
+            self.last_reid_ms = (time.perf_counter() - reid_started) * 1000.0
         else:
+            self.last_reid_reason = "throttled"
             embeddings = [None] * len(detections)
 
         assignments, used = self._associate(detections, embeddings)

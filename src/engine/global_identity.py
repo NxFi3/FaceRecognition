@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime
 from threading import RLock
 import time
 
@@ -59,12 +60,41 @@ class GlobalIdentityManager:
         self._track_links: dict[tuple[str, int], int] = {}
         self._track_last_seen: dict[tuple[str, int], float] = {}
         self._camera_roles: dict[str, str] = {}
+        self._current_date = datetime.now().strftime("%Y-%m-%d")
 
         # Settings are read from SQLite. Cache them briefly so the hot
         # per-track path does not open/query the database on every frame.
         self._settings_cache = {}
         self._settings_cache_time = 0.0
         self._settings_cache_ttl = 1.0
+
+    def _ensure_current_day_locked(self):
+        """Keep appearance templates and presence strictly scoped to one day."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        if today == self._current_date:
+            return False
+
+        self._profiles.clear()
+        self._track_links.clear()
+        self._track_last_seen.clear()
+        self._current_date = today
+
+        state = self.presence_state
+        if state is not None:
+            lock = getattr(state, "lock", None)
+            if lock is None:
+                getattr(state, "present", set()).clear()
+                getattr(state, "last_entered", {}).clear()
+                getattr(state, "active_tracks", {}).clear()
+                if hasattr(state, "current_date"):
+                    state.current_date = today
+            else:
+                with lock:
+                    state.present.clear()
+                    state.last_entered.clear()
+                    state.active_tracks.clear()
+                    state.current_date = today
+        return True
 
     def register_camera(self, camera_id, role):
         """Register the semantic role of a camera for safe hand-off gating."""
@@ -217,6 +247,7 @@ class GlobalIdentityManager:
         track_key = (camera_key, int(track.track_id))
 
         with self._lock:
+            self._ensure_current_day_locked()
             profile = self._profile_for(
                 student_id,
                 student_code,
@@ -238,6 +269,7 @@ class GlobalIdentityManager:
         track_key = (camera_key, int(track.track_id))
 
         with self._lock:
+            self._ensure_current_day_locked()
             self._prune_tracks_locked(timestamp)
 
             student_id = getattr(track, "student_id", None)
@@ -247,7 +279,16 @@ class GlobalIdentityManager:
                     getattr(track, "student_code", "") or "",
                     getattr(track, "student_name", "") or "",
                 )
-                self._add_embedding_locked(profile, getattr(track, "appearance", None))
+                # Only a face-confirmed identity may enrich a trusted template.
+                # A provisional Re-ID hand-off can be wrong; feeding its body
+                # embedding back into the profile would reinforce that mistake.
+                metadata = getattr(track, "metadata", {}) or {}
+                identity_source = metadata.get("identity_source")
+                if identity_source in {"face", "face_cache"}:
+                    self._add_embedding_locked(
+                        profile,
+                        getattr(track, "appearance", None),
+                    )
                 profile.last_seen = timestamp
                 profile.last_camera = camera_key
                 profile.last_track_id = int(track.track_id)
@@ -264,6 +305,7 @@ class GlobalIdentityManager:
 
             window_sec = self._window_sec(timestamp)
             min_similarity = self._min_similarity(timestamp)
+            present_student_ids = self._presence_snapshot()
 
             current_role = self._camera_roles.get(camera_key, "observe")
             candidates = []
@@ -286,25 +328,33 @@ class GlobalIdentityManager:
                 )
                 source_camera = str(profile.last_camera or "")
                 source_role = self._camera_roles.get(source_camera, "observe")
+                is_present = profile.student_id in present_student_ids
                 recent_other_camera = (
                     bool(source_camera)
                     and source_camera != camera_key
                     and age <= window_sec
+                    and (
+                        current_role != "exit"
+                        or self.presence_state is None
+                        or is_present
+                    )
                 )
 
-                # Cross-camera identity is a real hand-off, not a global
-                # "who is currently present?" lookup. For the two-camera school
-                # setup, entry -> exit and exit -> entry are the intended paths.
-                # This prevents an arbitrary student who is merely present inside
-                # the school from being assigned to an unrelated unknown track.
+                # Cross-camera identity is a hand-off, not merely a nearest
+                # neighbour lookup. In addition to short hand-offs, retain the
+                # entry-camera appearance template for the whole school day while
+                # that student is still marked present. This supports arrivals
+                # many minutes/hours before departure without matching students
+                # who already exited earlier in the day.
                 complementary_roles = (
                     {source_role, current_role} == {"entry", "exit"}
                 )
+                daily_present_handoff = is_present and complementary_roles
                 observe_handoff = (
                     "observe" in {source_role, current_role}
                     and recent_other_camera
                 )
-                if not recent_other_camera:
+                if not recent_other_camera and not daily_present_handoff:
                     continue
                 if not complementary_roles and not observe_handoff:
                     continue
@@ -314,6 +364,14 @@ class GlobalIdentityManager:
                     for reference in profile.embeddings
                 )
                 if similarity < min_similarity:
+                    continue
+                # Long-delay daily matching has less temporal evidence than an
+                # immediate hand-off, so require the stronger similarity floor.
+                if (
+                    not recent_other_camera
+                    and daily_present_handoff
+                    and similarity < max(min_similarity, DEFAULT_STRONG_SIMILARITY)
+                ):
                     continue
 
                 # A recent complementary-camera hand-off gets a small
@@ -368,9 +426,14 @@ class GlobalIdentityManager:
                 ),
             )
 
-            if best_similarity < strong_similarity:
-                if second_score is not None and best_score - second_score < min_margin:
-                    return None
+            # A high best score is not enough when another student's appearance
+            # is almost equally close. Strong matches may use a slightly smaller
+            # margin, but never bypass ambiguity rejection entirely.
+            required_margin = min_margin * (
+                0.75 if best_similarity >= strong_similarity else 1.0
+            )
+            if second_score is not None and best_score - second_score < required_margin:
+                return None
 
             self._track_links[track_key] = profile.student_id
             self._track_last_seen[track_key] = timestamp
@@ -398,6 +461,7 @@ class GlobalIdentityManager:
             self._profiles.clear()
             self._track_links.clear()
             self._track_last_seen.clear()
+            self._current_date = datetime.now().strftime("%Y-%m-%d")
 
     def _prune_tracks_locked(self, now):
         cutoff = now - MAX_TRACK_AGE_SEC
