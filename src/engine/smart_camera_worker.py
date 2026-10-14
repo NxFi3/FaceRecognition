@@ -497,6 +497,19 @@ class SmartCameraWorker(QThread):
     def _resolve_person_model(self):
         configured = str(get_setting("person_model_path", "") or "").strip()
         if configured and os.path.exists(configured):
+            configured_path = Path(configured)
+            # If a previous version saved a .pt path, transparently use the
+            # side-by-side ONNX export after it is installed. This keeps the
+            # existing setting from forcing a missing PyTorch dependency.
+            if configured_path.suffix.lower() == ".pt":
+                onnx_sibling = configured_path.with_suffix(".onnx")
+                if onnx_sibling.is_file():
+                    logger.info(
+                        "PERSON_MODEL_CONFIG_ONNX_OVERRIDE configured_pt=%s onnx=%s",
+                        configured_path,
+                        onnx_sibling,
+                    )
+                    return str(onnx_sibling)
             return configured
 
         candidates = make_person_model_candidates(
@@ -681,6 +694,12 @@ class SmartCameraWorker(QThread):
                 conf=float(get_setting("person_confidence", "0.20")),
                 imgsz=PERSON_IMAGE_SIZE,
             )
+            # ONNX Runtime currently uses the CPU provider in the standard
+            # requirements, even if an old settings value still says "cuda".
+            # Keep the conservative CPU cadence to avoid overloading laptops.
+            if person_detector.backend == "onnxruntime-cpu":
+                person_detection_interval = PERSON_DETECTION_INTERVAL_CPU
+
             tracker = SmartPersonTracker(
                 reid=reid,
                 reid_interval=reid_interval,
