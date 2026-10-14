@@ -370,7 +370,13 @@ class SmartPersonTracker:
 
 
 class LineCrossing:
-    """Virtual vertical/horizontal gate line with debounced crossings."""
+    """Virtual gate line supporting legacy axis-aligned and drawn segments.
+
+    Custom lines use normalized endpoints (x1, y1, x2, y2). inside_side is
+    the signed side of the directed line chosen by the operator (+1/-1).
+    Crossing from outside to inside always yields "enter"; crossing back yields
+    "exit". With no custom endpoints, legacy settings behave exactly as before.
+    """
 
     def __init__(
         self,
@@ -379,6 +385,8 @@ class LineCrossing:
         enter_direction="positive",
         cooldown_frames=25,
         primary_direction="enter",
+        line_points=None,
+        inside_side=None,
     ):
         self.orientation = orientation
         self.position = float(max(0.05, min(0.95, position)))
@@ -387,14 +395,109 @@ class LineCrossing:
             primary_direction if primary_direction in {"enter", "exit"} else "enter"
         )
         self.cooldown_frames = int(cooldown_frames)
+        self.line_points = None
+        if line_points is not None:
+            try:
+                points = tuple(float(value) for value in line_points)
+                if (
+                    len(points) == 4
+                    and all(0.0 <= value <= 1.0 for value in points)
+                    and (points[0] - points[2]) ** 2
+                    + (points[1] - points[3]) ** 2 > 1e-6
+                ):
+                    self.line_points = points
+            except (TypeError, ValueError):
+                self.line_points = None
+        try:
+            parsed_side = int(inside_side)
+        except (TypeError, ValueError):
+            parsed_side = 0
+        self.inside_side = parsed_side if parsed_side in {-1, 1} else None
 
     def _coordinate(self, point, frame_shape):
-        h, w = frame_shape[:2]
         return point[0] if self.orientation == "vertical" else point[1]
 
     def _line_coordinate(self, frame_shape):
         h, w = frame_shape[:2]
         return (w if self.orientation == "vertical" else h) * self.position
+
+    @staticmethod
+    def _signed_distance(point, a, b):
+        """Signed pixel distance from point to the infinite directed line AB."""
+        dx = b[0] - a[0]
+        dy = b[1] - a[1]
+        length = max(1e-6, (dx * dx + dy * dy) ** 0.5)
+        return (dx * (point[1] - a[1]) - dy * (point[0] - a[0])) / length
+
+    @staticmethod
+    def _intersection_on_segment(previous, current, a, b, d_previous, d_current):
+        """Return whether the movement intersects the finite configured segment."""
+        denominator = d_previous - d_current
+        if abs(denominator) < 1e-8:
+            return False
+        t = d_previous / denominator
+        if t < -1e-4 or t > 1.0001:
+            return False
+        ix = previous[0] + t * (current[0] - previous[0])
+        iy = previous[1] + t * (current[1] - previous[1])
+        sx = b[0] - a[0]
+        sy = b[1] - a[1]
+        length_sq = sx * sx + sy * sy
+        if length_sq < 1e-6:
+            return False
+        u = ((ix - a[0]) * sx + (iy - a[1]) * sy) / length_sq
+        # A small endpoint tolerance helps with pixel-rounding on camera frames.
+        return -0.015 <= u <= 1.015
+
+    def _check_custom_line(self, track, frame_shape, frame_no, previous, current):
+        h, w = frame_shape[:2]
+        x1, y1, x2, y2 = self.line_points
+        a = (x1 * w, y1 * h)
+        b = (x2 * w, y2 * h)
+        dx = b[0] - a[0]
+        dy = b[1] - a[1]
+        if dx * dx + dy * dy < 4.0:
+            return None
+
+        d_previous = self._signed_distance(previous, a, b)
+        d_current = self._signed_distance(current, a, b)
+
+        # Keep a stable side while the foot point touches the line itself. This
+        # avoids losing a crossing when integer coordinates briefly land on 0.
+        saved_side = track.metadata.get("_gate_line_side")
+        if abs(d_previous) > 0.05:
+            previous_side = 1 if d_previous > 0 else -1
+        else:
+            previous_side = saved_side if saved_side in {-1, 1} else None
+
+        if abs(d_current) <= 0.05:
+            if previous_side in {-1, 1}:
+                track.metadata["_gate_line_side"] = previous_side
+            return None
+
+        current_side = 1 if d_current > 0 else -1
+        if previous_side not in {-1, 1}:
+            track.metadata["_gate_line_side"] = current_side
+            return None
+
+        if current_side == previous_side:
+            track.metadata["_gate_line_side"] = current_side
+            return None
+
+        # Update remembered side even if debouncing suppresses this event.
+        track.metadata["_gate_line_side"] = current_side
+        if frame_no - track.last_crossing_frame < self.cooldown_frames:
+            return None
+
+        if not self._intersection_on_segment(
+            previous, current, a, b, d_previous, d_current
+        ):
+            return None
+
+        direction = "enter" if current_side == self.inside_side else "exit"
+        track.last_crossing = direction
+        track.last_crossing_frame = frame_no
+        return direction
 
     def check(self, track: PersonTrack, frame_shape, frame_no):
         # Require a temporally stable track before a physical crossing can
@@ -409,6 +512,14 @@ class LineCrossing:
         if previous is None:
             return None
 
+        if self.line_points is not None and self.inside_side in {-1, 1}:
+            if abs(current[0] - previous[0]) < 1.0 and abs(current[1] - previous[1]) < 1.0:
+                return None
+            return self._check_custom_line(
+                track, frame_shape, frame_no, previous, current
+            )
+
+        # Backward-compatible path for old vertical/horizontal percentage lines.
         previous_value = self._coordinate(previous, frame_shape)
         current_value = self._coordinate(current, frame_shape)
         line = self._line_coordinate(frame_shape)
@@ -440,7 +551,6 @@ class LineCrossing:
         track.last_crossing = direction
         track.last_crossing_frame = frame_no
         return direction
-
 
 def make_person_model_candidates(base_dir: Path):
     # Keep model discovery portable. Never depend on a developer's
