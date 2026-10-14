@@ -553,6 +553,8 @@ class SmartCameraWorker(QThread):
                 primary_direction=(
                     "exit" if camera_role == "exit" else "enter"
                 ),
+                line_points=self.camera_config.get("line_points"),
+                inside_side=self.camera_config.get("inside_side"),
             )
 
             matcher = FaceMatcher()

@@ -11,8 +11,8 @@ import cv2
 import dlib
 import face_recognition_models
 import numpy as np
-from PySide6.QtCore import QDate, QLibraryInfo, QThread, QTranslator, Qt, Signal, QTimer
-from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtCore import QDate, QLibraryInfo, QThread, QTranslator, Qt, Signal, QTimer, QRectF, QPointF
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -2967,6 +2967,324 @@ class StableScrollArea(QScrollArea):
         )
 
 
+
+class GateLineCanvas(QWidget):
+    """Frame editor for drawing a gate segment and selecting its inside side."""
+
+    selection_changed = Signal()
+
+    def __init__(self, frame, frame_provider=None, line_points=None, inside_side=None, parent=None):
+        super().__init__(parent)
+        self.frame = frame
+        self.frame_provider = frame_provider
+        self.line_points = tuple(line_points) if line_points else None
+        self.inside_side = int(inside_side) if inside_side in (-1, 1) else None
+        self.mode = "line"
+        self._dragging = False
+        self._drag_start = None
+        self._drag_end = None
+        self.setMinimumSize(640, 360)
+        self.setMouseTracking(True)
+
+    def set_frame(self, frame):
+        if frame is not None and not frame.isNull():
+            self.frame = frame
+            self.update()
+
+    def set_mode(self, mode):
+        self.mode = mode
+        self.setCursor(Qt.CrossCursor)
+        self.update()
+
+    def clear_line(self):
+        self.line_points = None
+        self.inside_side = None
+        self._dragging = False
+        self._drag_start = None
+        self._drag_end = None
+        self.selection_changed.emit()
+        self.update()
+
+    def selection(self):
+        return self.line_points, self.inside_side
+
+    def _image_rect(self):
+        if self.frame is None or self.frame.isNull():
+            return QRectF()
+        margin = 12.0
+        source_w, source_h = float(self.frame.width()), float(self.frame.height())
+        scale = min(
+            max(1.0, self.width() - 2 * margin) / source_w,
+            max(1.0, self.height() - 2 * margin) / source_h,
+        )
+        draw_w, draw_h = source_w * scale, source_h * scale
+        return QRectF(
+            (self.width() - draw_w) / 2.0,
+            (self.height() - draw_h) / 2.0,
+            draw_w,
+            draw_h,
+        )
+
+    def _widget_to_normalized(self, x, y, clamp=False):
+        rect = self._image_rect()
+        if rect.isNull() or rect.width() <= 0 or rect.height() <= 0:
+            return None
+        if not clamp and not rect.contains(QPointF(float(x), float(y))):
+            return None
+        nx = (float(x) - rect.left()) / rect.width()
+        ny = (float(y) - rect.top()) / rect.height()
+        return max(0.0, min(1.0, nx)), max(0.0, min(1.0, ny))
+
+    @staticmethod
+    def _side_value(point, points):
+        x1, y1, x2, y2 = points
+        return (x2 - x1) * (point[1] - y1) - (y2 - y1) * (point[0] - x1)
+
+    @classmethod
+    def _clip_half_plane(cls, points, side):
+        polygon = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+        output = []
+        previous = polygon[-1]
+        previous_value = side * cls._side_value(previous, points)
+        previous_inside = previous_value >= 0.0
+        for current in polygon:
+            current_value = side * cls._side_value(current, points)
+            current_inside = current_value >= 0.0
+            if current_inside != previous_inside:
+                denominator = previous_value - current_value
+                if abs(denominator) > 1e-10:
+                    ratio = previous_value / denominator
+                    output.append((
+                        previous[0] + ratio * (current[0] - previous[0]),
+                        previous[1] + ratio * (current[1] - previous[1]),
+                    ))
+            if current_inside:
+                output.append(current)
+            previous, previous_value, previous_inside = current, current_value, current_inside
+        return output
+
+    def _draw_side_overlay(self, painter, target, side, color, label):
+        polygon = self._clip_half_plane(self.line_points, side)
+        if len(polygon) < 3:
+            return
+        points = [
+            QPointF(target.left() + x * target.width(), target.top() + y * target.height())
+            for x, y in polygon
+        ]
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(color)
+        painter.drawPolygon(QPolygonF(points))
+        cx = sum(point.x() for point in points) / len(points)
+        cy = sum(point.y() for point in points) / len(points)
+        label_rect = QRectF(cx - 34, cy - 14, 68, 28)
+        painter.setPen(QPen(QColor(255, 255, 255, 230), 1))
+        painter.setBrush(QColor(20, 24, 32, 185))
+        painter.drawRoundedRect(label_rect, 7, 7)
+        painter.drawText(label_rect, Qt.AlignCenter, label)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.fillRect(self.rect(), QColor("#171b22"))
+        if self.frame is None or self.frame.isNull():
+            painter.setPen(QColor("#ffffff"))
+            painter.drawText(self.rect(), Qt.AlignCenter, "تصویر دوربین در دسترس نیست")
+            return
+
+        target = self._image_rect()
+        painter.drawImage(target, self.frame)
+        points = self.line_points
+        if self._dragging and self._drag_start is not None and self._drag_end is not None:
+            points = (*self._drag_start, *self._drag_end)
+
+        if points and self.inside_side in (-1, 1) and not self._dragging:
+            self._draw_side_overlay(painter, target, self.inside_side, QColor(45, 190, 110, 78), "داخل")
+            self._draw_side_overlay(painter, target, -self.inside_side, QColor(239, 145, 65, 48), "خارج")
+
+        if points:
+            x1, y1, x2, y2 = points
+            p1 = QPointF(target.left() + x1 * target.width(), target.top() + y1 * target.height())
+            p2 = QPointF(target.left() + x2 * target.width(), target.top() + y2 * target.height())
+            painter.setPen(QPen(QColor(0, 0, 0, 200), 8, Qt.SolidLine, Qt.RoundCap))
+            painter.drawLine(p1, p2)
+            painter.setPen(QPen(QColor("#43e08a"), 4, Qt.SolidLine, Qt.RoundCap))
+            painter.drawLine(p1, p2)
+            painter.setPen(QPen(QColor("#ffffff"), 2))
+            painter.setBrush(QColor("#43e08a"))
+            painter.drawEllipse(p1, 6, 6)
+            painter.drawEllipse(p2, 6, 6)
+
+        if self.mode == "inside" and points:
+            hint = QRectF(target.left() + 10, target.top() + 10, 200, 28)
+            painter.setPen(QPen(QColor("#ffffff"), 1))
+            painter.setBrush(QColor(25, 30, 38, 205))
+            painter.drawRoundedRect(hint, 5, 5)
+            painter.drawText(hint, Qt.AlignCenter, "روی سمتِ داخل کلیک کن")
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.LeftButton:
+            return
+        point = self._widget_to_normalized(event.position().x(), event.position().y())
+        if point is None:
+            return
+        if self.mode == "inside":
+            if not self.line_points:
+                return
+            dx = self.line_points[2] - self.line_points[0]
+            dy = self.line_points[3] - self.line_points[1]
+            length = max(1e-6, (dx * dx + dy * dy) ** 0.5)
+            value = self._side_value(point, self.line_points)
+            if abs(value) / length < 0.012:
+                return
+            self.inside_side = 1 if value > 0 else -1
+            self.selection_changed.emit()
+            self.update()
+            return
+
+        self._dragging = True
+        self._drag_start = point
+        self._drag_end = point
+        self.line_points = None
+        self.inside_side = None
+        self.update()
+
+    def mouseMoveEvent(self, event):
+        if not self._dragging or self._drag_start is None:
+            return
+        point = self._widget_to_normalized(event.position().x(), event.position().y(), clamp=True)
+        if point is not None:
+            self._drag_end = point
+            self.update()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() != Qt.LeftButton or not self._dragging:
+            return
+        point = self._widget_to_normalized(event.position().x(), event.position().y(), clamp=True)
+        if point is not None:
+            self._drag_end = point
+        start, end = self._drag_start, self._drag_end
+        self._dragging = False
+        self._drag_start = None
+        self._drag_end = None
+        if start is not None and end is not None:
+            dx = (end[0] - start[0]) * max(1, self.frame.width())
+            dy = (end[1] - start[1]) * max(1, self.frame.height())
+            if dx * dx + dy * dy >= 25.0 ** 2:
+                self.line_points = (*start, *end)
+            else:
+                self.line_points = None
+            self.inside_side = None
+        self.selection_changed.emit()
+        self.update()
+
+
+class GateLineEditorDialog(QDialog):
+    """Dialog to draw the crossing segment and mark the school-interior side."""
+
+    def __init__(self, camera_slot, frame, frame_provider=None, line_points=None, inside_side=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"تنظیم تصویری خط تردد — دوربین {camera_slot}")
+        self.resize(1000, 760)
+        self.setMinimumSize(760, 600)
+        root = QVBoxLayout(self)
+
+        title = QLabel("خط را روی تصویر بکش، سپس سمتِ داخل مدرسه را مشخص کن")
+        title.setObjectName("sectionTitle")
+        title.setWordWrap(True)
+        root.addWidget(title)
+
+        help_text = QLabel(
+            "با نگه‌داشتن کلیک چپ، خط را از نقطهٔ اول تا دوم بکش. سپس «انتخاب سمت داخل» "
+            "را بزن و داخل مدرسه را روی تصویر کلیک کن؛ سمت مقابل خودکار «خارج» است. "
+            "خط روی مسیر پای افراد اعمال می‌شود."
+        )
+        help_text.setWordWrap(True)
+        help_text.setObjectName("muted")
+        root.addWidget(help_text)
+
+        tools = QHBoxLayout()
+        self.draw_button = QPushButton("کشیدن خط")
+        self.inside_button = QPushButton("انتخاب سمت داخل")
+        self.clear_button = QPushButton("پاک‌کردن خط")
+        for button in (self.draw_button, self.inside_button, self.clear_button):
+            tools.addWidget(button)
+        tools.addStretch(1)
+        root.addLayout(tools)
+
+        self.canvas = GateLineCanvas(frame, frame_provider, line_points, inside_side, self)
+        root.addWidget(self.canvas, 1)
+        self.instruction = QLabel()
+        self.instruction.setWordWrap(True)
+        self.instruction.setObjectName("muted")
+        root.addWidget(self.instruction)
+
+        footer = QHBoxLayout()
+        footer.addStretch(1)
+        self.cancel_button = QPushButton("انصراف")
+        self.save_button = QPushButton("تأیید خط")
+        footer.addWidget(self.cancel_button)
+        footer.addWidget(self.save_button)
+        root.addLayout(footer)
+
+        self.draw_button.clicked.connect(lambda: self._set_mode("line"))
+        self.inside_button.clicked.connect(lambda: self._set_mode("inside"))
+        self.clear_button.clicked.connect(self.canvas.clear_line)
+        self.cancel_button.clicked.connect(self.reject)
+        self.save_button.clicked.connect(self._accept_if_valid)
+        self.canvas.selection_changed.connect(self._sync_state)
+
+        self._frame_timer = QTimer(self)
+        self._frame_timer.setInterval(250)
+        self._frame_timer.timeout.connect(self._refresh_frame)
+        if frame_provider is not None:
+            self._frame_timer.start()
+        self._set_mode("line")
+        self._sync_state()
+
+    def _refresh_frame(self):
+        if self.canvas.frame_provider is None:
+            return
+        try:
+            frame = self.canvas.frame_provider()
+            if frame is not None and not frame.isNull():
+                self.canvas.set_frame(frame)
+        except Exception:
+            pass
+
+    def _set_mode(self, mode):
+        self.canvas.set_mode(mode)
+        self.instruction.setText(
+            "روی تصویر کلیک کن، ماوس را بکش و رها کن."
+            if mode == "line"
+            else "داخل مدرسه را با یک کلیک روی یکی از دو سمت خط مشخص کن."
+        )
+        self._sync_state()
+
+    def _sync_state(self):
+        points, side = self.canvas.selection()
+        if not points:
+            state = "هنوز خطی رسم نشده است."
+        elif side not in (-1, 1):
+            state = "خط رسم شده؛ حالا «انتخاب سمت داخل» را بزن."
+        else:
+            state = "آمادهٔ تأیید: سبز = داخل، نارنجی = خارج."
+        self.instruction.setText(state)
+        self.save_button.setEnabled(bool(points) and side in (-1, 1))
+
+    def _accept_if_valid(self):
+        points, side = self.canvas.selection()
+        if not points or side not in (-1, 1):
+            QMessageBox.warning(
+                self, "تنظیم خط کامل نیست",
+                "اول یک خط بکش و بعد سمتِ داخل مدرسه را روی تصویر انتخاب کن."
+            )
+            return
+        self.accept()
+
+    def selection(self):
+        return self.canvas.selection()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -3707,6 +4025,28 @@ class MainWindow(QMainWindow):
 
             box_layout.addLayout(grid)
 
+            line_tools = QHBoxLayout()
+            draw_line_button = QPushButton("تنظیم خط روی تصویر…")
+            draw_line_button.clicked.connect(
+                lambda checked=False, camera_slot=slot: self.open_gate_line_editor(camera_slot)
+            )
+            reset_line_button = QPushButton("بازگشت به خط ساده")
+            reset_line_button.clicked.connect(
+                lambda checked=False, camera_slot=slot: self.reset_gate_line(camera_slot)
+            )
+            line_tools.addWidget(draw_line_button)
+            line_tools.addWidget(reset_line_button)
+            line_tools.addStretch(1)
+            box_layout.addLayout(line_tools)
+
+            line_status = QLabel("حالت خط ساده فعال است؛ می‌توانی خط را روی تصویر رسم کنی.")
+            line_status.setObjectName("muted")
+            line_status.setWordWrap(True)
+            box_layout.addWidget(line_status)
+
+            setattr(self, f"settings_camera{slot}_line_points", None)
+            setattr(self, f"settings_camera{slot}_inside_side", None)
+            setattr(self, f"settings_camera{slot}_line_status", line_status)
             setattr(self, f"settings_camera{slot}_role", role)
             setattr(self, f"settings_camera{slot}_line_orientation", orientation)
             setattr(self, f"settings_camera{slot}_line_position", position)
@@ -4004,6 +4344,28 @@ class MainWindow(QMainWindow):
 
             cooldown_widget.setValue(max(5, min(300, cooldown)))
 
+            line_mode = str(get_setting(f"camera_{slot}_line_mode", "legacy") or "legacy")
+            line_points = None
+            inside_side = None
+            if line_mode == "custom":
+                try:
+                    values = tuple(
+                        float(get_setting(f"camera_{slot}_line_{axis}", ""))
+                        for axis in ("x1", "y1", "x2", "y2")
+                    )
+                    saved_side = int(get_setting(f"camera_{slot}_inside_side", "0"))
+                    if (
+                        all(0.0 <= value <= 1.0 for value in values)
+                        and (values[0] - values[2]) ** 2 + (values[1] - values[3]) ** 2 > 1e-6
+                        and saved_side in (-1, 1)
+                    ):
+                        line_points, inside_side = values, saved_side
+                except (TypeError, ValueError):
+                    pass
+            setattr(self, f"settings_camera{slot}_line_points", line_points)
+            setattr(self, f"settings_camera{slot}_inside_side", inside_side)
+            self._update_gate_line_status(slot)
+
         self.settings_school_start.setText(school_start)
         self.settings_school_end.setText(school_end)
         self.settings_late_events.setChecked(late_enabled)
@@ -4071,6 +4433,88 @@ class MainWindow(QMainWindow):
             f"{len(cameras)} دوربین پیدا شد • دوربین ۲ در صورت فعال‌سازی باید Device جدا داشته باشد."
         )
 
+
+    def _latest_camera_image(self, camera_slot):
+        with self._latest_camera_images_lock:
+            return self._latest_camera_images.get(int(camera_slot))
+
+    def _update_gate_line_status(self, camera_slot):
+        label = getattr(self, f"settings_camera{camera_slot}_line_status", None)
+        if label is None:
+            return
+        points = getattr(self, f"settings_camera{camera_slot}_line_points", None)
+        side = getattr(self, f"settings_camera{camera_slot}_inside_side", None)
+        if points is not None and side in (-1, 1):
+            label.setText(
+                "خط تصویری تنظیم شده است؛ سبز = داخل، نارنجی = خارج. "
+                "برای اعمال تغییرات، «ذخیره و راه‌اندازی مجدد دوربین» را بزن."
+            )
+        else:
+            label.setText(
+                "حالت خط ساده فعال است. برای رسم خط دلخواه روی تصویر، "
+                "«تنظیم خط روی تصویر» را بزن."
+            )
+
+    def reset_gate_line(self, camera_slot):
+        setattr(self, f"settings_camera{camera_slot}_line_points", None)
+        setattr(self, f"settings_camera{camera_slot}_inside_side", None)
+        self._update_gate_line_status(camera_slot)
+
+    def open_gate_line_editor(self, camera_slot):
+        frame = self._latest_camera_image(camera_slot)
+        if frame is None or frame.isNull():
+            QMessageBox.information(
+                self,
+                "تصویر دوربین در دسترس نیست",
+                "برای رسم خط، ابتدا دوربین را فعال و راه‌اندازی کن تا یک فریم در پیش‌نمایش دیده شود.",
+            )
+            return
+
+        line_points = getattr(self, f"settings_camera{camera_slot}_line_points", None)
+        inside_side = getattr(self, f"settings_camera{camera_slot}_inside_side", None)
+        if line_points is None:
+            orientation = getattr(
+                self, f"settings_camera{camera_slot}_line_orientation"
+            ).currentData()
+            position = (
+                getattr(self, f"settings_camera{camera_slot}_line_position").value()
+                / 100.0
+            )
+            if orientation == "horizontal":
+                line_points = (0.0, position, 1.0, position)
+                inside_side = 1
+            else:
+                line_points = (position, 0.0, position, 1.0)
+                inside_side = -1
+
+            direction = getattr(
+                self, f"settings_camera{camera_slot}_line_direction"
+            ).currentData()
+            role = getattr(self, f"settings_camera{camera_slot}_role").currentData()
+            if direction == "negative":
+                inside_side *= -1
+            if role == "exit":
+                inside_side *= -1
+
+        def frame_provider(slot=camera_slot, fallback=frame):
+            current = self._latest_camera_image(slot)
+            return current if current is not None and not current.isNull() else fallback
+
+        dialog = GateLineEditorDialog(
+            camera_slot=camera_slot,
+            frame=frame,
+            frame_provider=frame_provider,
+            line_points=line_points,
+            inside_side=inside_side,
+            parent=self,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+        line_points, inside_side = dialog.selection()
+        setattr(self, f"settings_camera{camera_slot}_line_points", tuple(line_points))
+        setattr(self, f"settings_camera{camera_slot}_inside_side", int(inside_side))
+        self._update_gate_line_status(camera_slot)
+
     def apply_camera_settings(self):
         camera1_id = self.settings_camera1_combo.currentData()
         camera2_id = self.settings_camera2_combo.currentData()
@@ -4121,6 +4565,12 @@ class MainWindow(QMainWindow):
                             self,
                             f"settings_camera{slot}_line_cooldown",
                         ).value()
+                    ),
+                    "line_points": getattr(
+                        self, f"settings_camera{slot}_line_points", None
+                    ),
+                    "inside_side": getattr(
+                        self, f"settings_camera{slot}_inside_side", None
                     ),
                 }
 
@@ -4186,6 +4636,18 @@ class MainWindow(QMainWindow):
                 f"camera_{slot}_line_cooldown",
                 values["line_cooldown"],
             )
+            custom_points = values.get("line_points")
+            custom_side = values.get("inside_side")
+            if custom_points is not None and custom_side in (-1, 1):
+                set_setting(f"camera_{slot}_line_mode", "custom")
+                for axis, coordinate in zip(("x1", "y1", "x2", "y2"), custom_points):
+                    set_setting(
+                        f"camera_{slot}_line_{axis}",
+                        f"{float(coordinate):.6f}",
+                    )
+                set_setting(f"camera_{slot}_inside_side", int(custom_side))
+            else:
+                set_setting(f"camera_{slot}_line_mode", "legacy")
 
         # Keep the original single-camera keys compatible with older builds.
         set_setting(
@@ -4354,6 +4816,30 @@ class MainWindow(QMainWindow):
                 )
             )
 
+            line_points = None
+            inside_side = None
+            line_mode = str(
+                get_setting(f"camera_{slot}_line_mode", "legacy") or "legacy"
+            )
+            if line_mode == "custom":
+                try:
+                    candidate_points = tuple(
+                        float(get_setting(f"camera_{slot}_line_{axis}", ""))
+                        for axis in ("x1", "y1", "x2", "y2")
+                    )
+                    candidate_side = int(
+                        get_setting(f"camera_{slot}_inside_side", "0")
+                    )
+                    if (
+                        all(0.0 <= value <= 1.0 for value in candidate_points)
+                        and (candidate_points[0] - candidate_points[2]) ** 2
+                        + (candidate_points[1] - candidate_points[3]) ** 2 > 1e-6
+                        and candidate_side in (-1, 1)
+                    ):
+                        line_points, inside_side = candidate_points, candidate_side
+                except (TypeError, ValueError):
+                    pass
+
             worker = SmartCameraWorker(
                 camera_slot=slot,
                 camera_config={
@@ -4364,6 +4850,8 @@ class MainWindow(QMainWindow):
                     "line_position": line_position,
                     "line_direction": line_direction,
                     "line_cooldown": line_cooldown,
+                    "line_points": line_points,
+                    "inside_side": inside_side,
                     # Both installed ov534 cameras share USB2. Native 8-bit
                     # Bayer halves the video payload while retaining 640x480.
                     "raw_bayer": len(enabled_slots) >= 2
