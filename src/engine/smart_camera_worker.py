@@ -506,8 +506,9 @@ class SmartCameraWorker(QThread):
             return str(candidates[0])
 
         raise FileNotFoundError(
-            "YOLO person model not found. Put yolo26n.pt in the models/ folder "
-            "or set the 'person_model_path' application setting."
+            "YOLO person model not found. Put models/yolo26n.onnx (recommended, "
+            "does not require PyTorch) or models/yolo26n.pt (requires Ultralytics + "
+            "PyTorch), or set the 'person_model_path' application setting."
         )
 
     def _record_event(self, **kwargs):
