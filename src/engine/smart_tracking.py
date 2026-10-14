@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -73,7 +74,7 @@ def crop_bbox(frame, bbox):
 
 
 class PersonDetector:
-    """Ultralytics person detector kept behind a tiny stable API."""
+    """Person detector supporting torch-free ONNX Runtime and optional Ultralytics .pt."""
 
     def __init__(
         self,
@@ -82,20 +83,233 @@ class PersonDetector:
         conf: float = 0.30,
         imgsz: int = 480,
     ):
-        try:
-            from ultralytics import YOLO
-        except ImportError as exc:
-            raise RuntimeError(
-                "Person tracking needs ultralytics in the active Python environment."
-            ) from exc
-
-        self.model = YOLO(str(model_path))
-        self.device = device
+        self.model_path = Path(model_path)
+        self.device = str(device or "cpu")
         self.conf = float(conf)
         self.imgsz = max(320, int(imgsz))
+        self.backend = ""
+        self.model = None
+        self._onnx_session = None
+        self._onnx_input_name = None
+        self._onnx_output_name = None
+        self._onnx_input_height = self.imgsz
+        self._onnx_input_width = self.imgsz
+
+        if self.model_path.suffix.lower() == ".onnx":
+            self._init_onnx()
+        else:
+            self._init_ultralytics()
+
+    def _init_onnx(self):
+        try:
+            import onnxruntime as ort
+        except ImportError as exc:
+            raise RuntimeError(
+                "ONNX person detection requires onnxruntime. Install it with "
+                "'py -3.11 -m pip install onnxruntime'."
+            ) from exc
+
+        # Two camera workers can each own a detector. Keep per-session thread
+        # counts modest to avoid CPU oversubscription on school PCs.
+        try:
+            intra_threads = int(os.environ.get("FR_ONNX_THREADS", "1"))
+        except (TypeError, ValueError):
+            intra_threads = 1
+        intra_threads = max(1, min(8, intra_threads))
+
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = intra_threads
+        options.inter_op_num_threads = 1
+        options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+        try:
+            self._onnx_session = ort.InferenceSession(
+                str(self.model_path),
+                sess_options=options,
+                providers=["CPUExecutionProvider"],
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not load ONNX person model '{self.model_path}': {exc}"
+            ) from exc
+
+        inputs = self._onnx_session.get_inputs()
+        outputs = self._onnx_session.get_outputs()
+        if len(inputs) != 1 or not outputs:
+            raise RuntimeError(
+                "Unsupported ONNX person model: expected one input and at least one output."
+            )
+
+        input_meta = inputs[0]
+        input_shape = input_meta.shape
+        if len(input_shape) != 4 or input_shape[1] not in (3, "3"):
+            raise RuntimeError(
+                f"Unsupported ONNX input shape {input_shape}; expected NCHW with 3 channels."
+            )
+        self._onnx_input_name = input_meta.name
+        self._onnx_output_name = outputs[0].name
+        self._onnx_input_height = (
+            int(input_shape[2])
+            if isinstance(input_shape[2], (int, np.integer)) and input_shape[2] > 0
+            else self.imgsz
+        )
+        self._onnx_input_width = (
+            int(input_shape[3])
+            if isinstance(input_shape[3], (int, np.integer)) and input_shape[3] > 0
+            else self.imgsz
+        )
+        self.backend = "onnxruntime-cpu"
+        logger.info(
+            "PERSON_DETECTOR_READY backend=%s model=%s input=%sx%s threads=%s providers=%s",
+            self.backend,
+            self.model_path,
+            self._onnx_input_width,
+            self._onnx_input_height,
+            intra_threads,
+            self._onnx_session.get_providers(),
+        )
+
+    def _init_ultralytics(self):
+        try:
+            # Keep the .pt backend optional and out of frozen/torch-free runtime
+            # builds. ONNX is the preferred deployment format.
+            import importlib
+
+            YOLO = importlib.import_module("ultralytics").YOLO
+        except ImportError as exc:
+            raise RuntimeError(
+                "The selected person model is a .pt file and requires Ultralytics + "
+                "PyTorch. For a torch-free runtime, put yolo26n.onnx in models/ and "
+                "install onnxruntime."
+            ) from exc
+
+        self.model = YOLO(str(self.model_path))
+        self.backend = "ultralytics"
+        logger.info(
+            "PERSON_DETECTOR_READY backend=%s model=%s device=%s imgsz=%s",
+            self.backend,
+            self.model_path,
+            self.device,
+            self.imgsz,
+        )
+
+    @staticmethod
+    def _letterbox_onnx(frame, target_width, target_height):
+        """Letterbox a BGR frame to the fixed NCHW ONNX input dimensions."""
+        frame_height, frame_width = frame.shape[:2]
+        if frame_height <= 0 or frame_width <= 0:
+            raise ValueError("Person detector received an empty frame.")
+
+        scale = min(
+            target_width / float(frame_width),
+            target_height / float(frame_height),
+        )
+        resized_width = max(1, min(target_width, int(round(frame_width * scale))))
+        resized_height = max(1, min(target_height, int(round(frame_height * scale))))
+        resized = cv2.resize(
+            frame,
+            (resized_width, resized_height),
+            interpolation=cv2.INTER_LINEAR,
+        )
+
+        pad_width = target_width - resized_width
+        pad_height = target_height - resized_height
+        left = int(round(pad_width / 2.0 - 0.1))
+        right = pad_width - left
+        top = int(round(pad_height / 2.0 - 0.1))
+        bottom = pad_height - top
+        canvas = cv2.copyMakeBorder(
+            resized,
+            top,
+            bottom,
+            left,
+            right,
+            cv2.BORDER_CONSTANT,
+            value=(114, 114, 114),
+        )
+        rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+        tensor = np.ascontiguousarray(
+            rgb.transpose(2, 0, 1)[None].astype(np.float32) / 255.0
+        )
+        return tensor, scale, left, top
+
+    def _decode_onnx_output(self, output, frame_shape, scale, pad_left, pad_top):
+        """Decode the YOLO26 one-to-one output [1, N, 6] into app detections."""
+        values = np.asarray(output, dtype=np.float32)
+        if values.ndim == 3:
+            if values.shape[0] != 1:
+                raise RuntimeError(
+                    f"Unsupported ONNX batch output shape {values.shape}; batch size must be 1."
+                )
+            values = values[0]
+        if values.ndim != 2 or values.shape[1] != 6:
+            raise RuntimeError(
+                f"Unsupported YOLO26 ONNX output shape {np.asarray(output).shape}. "
+                "Expected [1, N, 6] with xyxy, confidence, class; re-export using "
+                "tools/export_person_model_onnx.py."
+            )
+
+        frame_height, frame_width = frame_shape[:2]
+        detections = []
+        for row in values:
+            x1, y1, x2, y2, confidence, class_id = (float(v) for v in row)
+            if not np.isfinite(row).all():
+                continue
+            if confidence < self.conf or int(round(class_id)) != 0:
+                continue
+
+            # YOLO26 end-to-end ONNX returns xyxy boxes in letterboxed-input pixels.
+            x1 = int(round((x1 - pad_left) / scale))
+            y1 = int(round((y1 - pad_top) / scale))
+            x2 = int(round((x2 - pad_left) / scale))
+            y2 = int(round((y2 - pad_top) / scale))
+            x1 = max(0, min(x1, frame_width - 1))
+            y1 = max(0, min(y1, frame_height - 1))
+            x2 = max(0, min(x2, frame_width))
+            y2 = max(0, min(y2, frame_height))
+            if x2 - x1 < MIN_PERSON_SIZE or y2 - y1 < MIN_PERSON_SIZE:
+                continue
+            detections.append(
+                {
+                    "bbox": (x1, y1, x2, y2),
+                    "confidence": float(confidence),
+                }
+            )
+            if len(detections) >= 20:
+                break
+        return detections
 
     def detect(self, frame):
-        logger.debug("PERSON_DETECT_START device=%s imgsz=%s", self.device, self.imgsz)
+        if frame is None or getattr(frame, "size", 0) == 0:
+            return []
+
+        if self.backend == "onnxruntime-cpu":
+            logger.debug(
+                "PERSON_DETECT_START backend=%s model=%s",
+                self.backend,
+                self.model_path,
+            )
+            tensor, scale, pad_left, pad_top = self._letterbox_onnx(
+                frame,
+                self._onnx_input_width,
+                self._onnx_input_height,
+            )
+            outputs = self._onnx_session.run(
+                [self._onnx_output_name],
+                {self._onnx_input_name: tensor},
+            )
+            if not outputs:
+                return []
+            return self._decode_onnx_output(
+                outputs[0],
+                frame.shape,
+                scale,
+                pad_left,
+                pad_top,
+            )
+
+        logger.debug("PERSON_DETECT_START backend=%s device=%s imgsz=%s", self.backend, self.device, self.imgsz)
         result = self.model.predict(
             frame,
             imgsz=self.imgsz,
@@ -552,6 +766,9 @@ def make_person_model_candidates(base_dir: Path):
     # Keep model discovery portable. Never depend on a developer's
     # machine-specific Trash/media paths.
     candidates = [
+        # Prefer the torch-free CPU inference backend whenever its export exists.
+        base_dir / "models" / "yolo26n.onnx",
+        base_dir / "yolo26n.onnx",
         base_dir / "models" / "yolo26n.pt",
         base_dir / "models" / "yolov8n.pt",
         base_dir / "yolo26n.pt",  # Backward compatibility with older checkouts.
