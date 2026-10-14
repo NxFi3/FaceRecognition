@@ -10,6 +10,7 @@ venv/
 .env.*
 
 # Local application data
+data/early_exit_review/
 data/*.db
 data/*.db-wal
 data/*.db-shm

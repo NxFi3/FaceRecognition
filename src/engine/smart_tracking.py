@@ -405,7 +405,7 @@ class SmartPersonTracker:
 
 
 class LineCrossing:
-    """Virtual vertical/horizontal gate line with debounced crossings."""
+    """Virtual gate with backwards-compatible simple lines or a drawn segment."""
 
     def __init__(
         self,
@@ -414,6 +414,8 @@ class LineCrossing:
         enter_direction="positive",
         cooldown_frames=25,
         primary_direction="enter",
+        line_points=None,
+        inside_side=None,
     ):
         self.orientation = orientation
         self.position = float(max(0.05, min(0.95, position)))
@@ -422,35 +424,107 @@ class LineCrossing:
             primary_direction if primary_direction in {"enter", "exit"} else "enter"
         )
         self.cooldown_frames = int(cooldown_frames)
+        self.line_points = None
+        if line_points is not None:
+            try:
+                candidate = tuple(float(value) for value in line_points)
+                if (
+                    len(candidate) == 4
+                    and all(0.0 <= value <= 1.0 for value in candidate)
+                    and (candidate[0] - candidate[2]) ** 2 + (candidate[1] - candidate[3]) ** 2 > 1e-6
+                ):
+                    self.line_points = candidate
+            except (TypeError, ValueError):
+                pass
+        try:
+            side = int(inside_side)
+        except (TypeError, ValueError):
+            side = 0
+        self.inside_side = side if side in (-1, 1) else None
 
     def _coordinate(self, point, frame_shape):
-        h, w = frame_shape[:2]
         return point[0] if self.orientation == "vertical" else point[1]
 
     def _line_coordinate(self, frame_shape):
         h, w = frame_shape[:2]
         return (w if self.orientation == "vertical" else h) * self.position
 
-    def check(self, track: PersonTrack, frame_shape, frame_no):
-        # Require a temporally stable track before a physical crossing can
-        # become an attendance/security event. This suppresses one-frame
-        # detector noise around the gate.
-        if track.hits < 3 or track.age < 3 or track.misses != 0:
+    @staticmethod
+    def _signed_distance(point, a, b):
+        # Sign matches the UI's inside-side calculation.
+        return (b[0] - a[0]) * (point[1] - a[1]) - (b[1] - a[1]) * (point[0] - a[0])
+
+    def _check_drawn_line(self, track, frame_shape, frame_no, previous, current):
+        h, w = frame_shape[:2]
+        x1, y1, x2, y2 = self.line_points
+        a, b = (x1 * w, y1 * h), (x2 * w, y2 * h)
+        vx, vy = b[0] - a[0], b[1] - a[1]
+        length_sq = vx * vx + vy * vy
+        if length_sq < 4.0:
             return None
 
+        d0 = self._signed_distance(previous, a, b)
+        d1 = self._signed_distance(current, a, b)
+        old_side = track.metadata.get("_drawn_gate_side")
+        if d0 > 0:
+            previous_side = 1
+        elif d0 < 0:
+            previous_side = -1
+        else:
+            previous_side = old_side if old_side in (-1, 1) else None
+
+        if d1 == 0:
+            if previous_side in (-1, 1):
+                track.metadata["_drawn_gate_side"] = previous_side
+            return None
+        current_side = 1 if d1 > 0 else -1
+        if previous_side not in (-1, 1):
+            track.metadata["_drawn_gate_side"] = current_side
+            return None
+        if current_side == previous_side:
+            track.metadata["_drawn_gate_side"] = current_side
+            return None
+
+        # Require the movement to intersect the finite drawn segment, not its extension.
+        denominator = d0 - d1
+        if abs(denominator) < 1e-8:
+            track.metadata["_drawn_gate_side"] = current_side
+            return None
+        t = d0 / denominator
+        ix = previous[0] + t * (current[0] - previous[0])
+        iy = previous[1] + t * (current[1] - previous[1])
+        u = ((ix - a[0]) * vx + (iy - a[1]) * vy) / length_sq
+        track.metadata["_drawn_gate_side"] = current_side
+        if not (-0.01 <= u <= 1.01):
+            return None
+        if frame_no - track.last_crossing_frame < self.cooldown_frames:
+            return None
+
+        direction = "enter" if current_side == self.inside_side else "exit"
+        track.last_crossing = direction
+        track.last_crossing_frame = frame_no
+        return direction
+
+    def check(self, track: PersonTrack, frame_shape, frame_no):
+        # Require a temporally stable track before a physical crossing can become an event.
+        if track.hits < 3 or track.age < 3 or track.misses != 0:
+            return None
         current = foot_point(track.bbox)
         previous = track.previous_foot
         track.previous_foot = current
         if previous is None:
             return None
+        if self.line_points is not None and self.inside_side in (-1, 1):
+            if abs(current[0] - previous[0]) < 1.0 and abs(current[1] - previous[1]) < 1.0:
+                return None
+            return self._check_drawn_line(track, frame_shape, frame_no, previous, current)
 
+        # Backwards-compatible path for existing vertical/horizontal settings.
         previous_value = self._coordinate(previous, frame_shape)
         current_value = self._coordinate(current, frame_shape)
         line = self._line_coordinate(frame_shape)
-
         if abs(current_value - previous_value) < 1.0:
             return None
-
         crossed = (
             previous_value < line <= current_value
             if self.enter_direction == "positive"
@@ -461,13 +535,10 @@ class LineCrossing:
             if self.enter_direction == "positive"
             else previous_value < line <= current_value
         )
-
         if not crossed and not opposite:
             return None
-
         if frame_no - track.last_crossing_frame < self.cooldown_frames:
             return None
-
         if crossed:
             direction = self.primary_direction
         else:

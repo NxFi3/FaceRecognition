@@ -1,5 +1,6 @@
 import time
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -22,6 +23,34 @@ class FakeMatcher:
 
 
 class FaceRecognitionPipelineTests(unittest.TestCase):
+    def test_unknown_person_track_noise_is_not_persisted(self):
+        worker = SmartCameraWorker()
+        with patch("src.engine.smart_camera_worker.add_event") as add_event:
+            result = worker._record_event(
+                event_type="UNKNOWN_PERSON",
+                student_id=None,
+                track_id=9876,
+                camera_id="camera_0",
+                confidence=0.0,
+                metadata={"direction": "enter"},
+            )
+        self.assertIsNone(result)
+        add_event.assert_not_called()
+
+    def test_meaningful_event_is_still_persisted(self):
+        worker = SmartCameraWorker()
+        with patch("src.engine.smart_camera_worker.add_event", return_value=321) as add_event:
+            result = worker._record_event(
+                event_type="PERSON_EXITED",
+                student_id=12,
+                track_id=7,
+                camera_id="camera_0",
+                confidence=0.91,
+                metadata={},
+            )
+        self.assertEqual(result, 321)
+        add_event.assert_called_once()
+
     def _track(self):
         return PersonTrack(
             track_id=7,

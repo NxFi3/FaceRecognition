@@ -61,6 +61,57 @@ LINE_POSITION = 0.50
 LINE_ORIENTATION = "vertical"
 LINE_ENTER_DIRECTION = "positive"
 
+
+def _camera_role_accepts_crossing(camera_role, direction):
+    """Allow only the event type configured for this camera."""
+    role = str(camera_role or "observe")
+    if role == "entry":
+        return direction == "enter"
+    if role == "exit":
+        return direction == "exit"
+    return False
+
+
+def _draw_gate_overlay(frame, line, camera_role):
+    """Draw the exact active gate on the preview; observe-only has no gate."""
+    if str(camera_role or "observe") == "observe":
+        return frame
+
+    if line.line_points is not None and line.inside_side in (-1, 1):
+        x1, y1, x2, y2 = line.line_points
+        height, width = frame.shape[:2]
+        p1 = (
+            int(round(x1 * max(0, width - 1))),
+            int(round(y1 * max(0, height - 1))),
+        )
+        p2 = (
+            int(round(x2 * max(0, width - 1))),
+            int(round(y2 * max(0, height - 1))),
+        )
+        cv2.line(frame, p1, p2, (255, 200, 0), 3, cv2.LINE_AA)
+    elif line.orientation == "vertical":
+        line_x = int(frame.shape[1] * line.position)
+        cv2.line(frame, (line_x, 0), (line_x, frame.shape[0]), (255, 200, 0), 3)
+    else:
+        line_y = int(frame.shape[0] * line.position)
+        cv2.line(frame, (0, line_y), (frame.shape[1], line_y), (255, 200, 0), 3)
+    return frame
+
+
+def _check_camera_gate(line, track, frame_shape, frame_no, camera_role):
+    """Run crossing detection and enforce this camera's entry/exit-only role."""
+    previous_crossing = track.last_crossing
+    previous_crossing_frame = track.last_crossing_frame
+    direction = line.check(track, frame_shape, frame_no)
+    if direction is not None and not _camera_role_accepts_crossing(camera_role, direction):
+        # Filtered directions must not consume the cooldown; otherwise an
+        # entry-only camera can suppress a following valid entry after a turn.
+        track.last_crossing = previous_crossing
+        track.last_crossing_frame = previous_crossing_frame
+        return None
+    return direction
+
+
 _FACE_EXECUTOR_LOCK = Lock()
 _FACE_EXECUTOR = None
 
@@ -460,6 +511,21 @@ class SmartCameraWorker(QThread):
         )
 
     def _record_event(self, **kwargs):
+        event_type = str(kwargs.get("event_type", ""))
+        if event_type == "UNKNOWN_PERSON":
+            # A short-lived detector/Re-ID track is not an attendance event.
+            # Do not persist or publish one-off anonymous line crossings:
+            # they flood the event table without giving staff a trustworthy
+            # identity to review. Meaningful unknown-exit alerts should be
+            # implemented as a separately validated, debounced feature.
+            logger.debug(
+                "NONPERSISTED_TRACK_NOISE event_type=%s track=%s camera=%s",
+                event_type,
+                kwargs.get("track_id"),
+                kwargs.get("camera_id"),
+            )
+            return None
+
         event_id = add_event(**kwargs)
         event = dict(kwargs)
         event["id"] = event_id
@@ -666,6 +732,8 @@ class SmartCameraWorker(QThread):
                 primary_direction=(
                     "exit" if camera_role == "exit" else "enter"
                 ),
+                line_points=self.camera_config.get("line_points"),
+                inside_side=self.camera_config.get("inside_side"),
             )
 
             matcher = FaceMatcher()
@@ -1113,7 +1181,9 @@ class SmartCameraWorker(QThread):
                         if camera_role == "observe":
                             continue
 
-                        direction = line.check(track, frame.shape, frame_no)
+                        direction = _check_camera_gate(
+                            line, track, frame.shape, frame_no, camera_role
+                        )
                         if direction is not None:
                             track.metadata["face_witnessed_for_crossing"] = (
                                 track.last_face_frame >= 0
@@ -1310,27 +1380,8 @@ class SmartCameraWorker(QThread):
 
                 preview_time = time.perf_counter()
                 if preview_time - last_preview >= 1.0 / PREVIEW_FPS:
-                    # Annotation is only needed for the UI preview. Keeping it
-                    # off the inference path avoids drawing several rectangles
-                    # and text layers on every processing frame.
-                    if line.orientation == "vertical":
-                        line_x = int(frame.shape[1] * line.position)
-                        cv2.line(
-                            frame,
-                            (line_x, 0),
-                            (line_x, frame.shape[0]),
-                            (255, 200, 0),
-                            3,
-                        )
-                    else:
-                        line_y = int(frame.shape[0] * line.position)
-                        cv2.line(
-                            frame,
-                            (0, line_y),
-                            (frame.shape[1], line_y),
-                            (255, 200, 0),
-                            3,
-                        )
+                    # Keep the preview gate identical to the active crossing line.
+                    _draw_gate_overlay(frame, line, camera_role)
 
                     for track in tracker.tracks.values():
                         x1, y1, x2, y2 = track.bbox

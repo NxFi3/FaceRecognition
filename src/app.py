@@ -13,8 +13,8 @@ import cv2
 import dlib
 import face_recognition_models
 import numpy as np
-from PySide6.QtCore import QDate, QLibraryInfo, QThread, QTranslator, Qt, Signal, QTimer
-from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtCore import QDate, QLibraryInfo, QThread, QTranslator, Qt, Signal, QTimer, QPointF, QRectF
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -65,6 +66,7 @@ try:
         get_class_report_summary,
         get_daily_report_summary,
         get_recent_attendance,
+        get_recent_events,
         get_report_rows,
         get_school_weekdays,
         list_school_day_overrides,
@@ -111,6 +113,7 @@ except ModuleNotFoundError:
         get_class_report_summary,
         get_daily_report_summary,
         get_recent_attendance,
+        get_recent_events,
         get_report_rows,
         get_school_weekdays,
         list_school_day_overrides,
@@ -155,11 +158,13 @@ try:
     from .engine.smart_camera_worker import SmartCameraWorker
     from .engine.smart_events import AttendancePresenceState
     from .engine.global_identity import GlobalIdentityManager
+    from .engine.gate_config import load_drawn_gate_line, save_drawn_gate_line
 except ImportError:
     # Direct execution: python src/app.py (src/ is then on sys.path).
     from engine.smart_camera_worker import SmartCameraWorker
     from engine.smart_events import AttendancePresenceState
     from engine.global_identity import GlobalIdentityManager
+    from engine.gate_config import load_drawn_gate_line, save_drawn_gate_line
 
 if getattr(sys, "frozen", False):
     BASE_DIR = Path(sys.executable).resolve().parent
@@ -2871,6 +2876,259 @@ class StableScrollArea(QScrollArea):
         )
 
 
+
+class GateLineCanvas(QWidget):
+    """Minimal editor that draws a gate line and marks one side as inside."""
+
+    selection_changed = Signal()
+
+    def __init__(self, frame, line_points=None, inside_side=None, parent=None):
+        super().__init__(parent)
+        self.frame = frame.copy() if frame is not None else QImage()
+        self.line_points = tuple(line_points) if line_points else None
+        self.inside_side = int(inside_side) if inside_side in (-1, 1) else None
+        self.mode = "line"
+        self.dragging = False
+        self.drag_start = None
+        self.drag_end = None
+        self.setMinimumSize(640, 360)
+        self.setMouseTracking(True)
+
+    def selection(self):
+        return self.line_points, self.inside_side
+
+    def set_mode(self, mode):
+        self.mode = mode
+        self.update()
+
+    def clear_line(self):
+        self.line_points = None
+        self.inside_side = None
+        self.dragging = False
+        self.drag_start = self.drag_end = None
+        self.selection_changed.emit()
+        self.update()
+
+    def image_rect(self):
+        if self.frame.isNull():
+            return QRectF()
+        margin = 10.0
+        scale = min(
+            max(1.0, self.width() - 2 * margin) / self.frame.width(),
+            max(1.0, self.height() - 2 * margin) / self.frame.height(),
+        )
+        width = self.frame.width() * scale
+        height = self.frame.height() * scale
+        return QRectF((self.width() - width) / 2, (self.height() - height) / 2, width, height)
+
+    def to_normalized(self, x, y, clamp=False):
+        rect = self.image_rect()
+        point = QPointF(float(x), float(y))
+        if rect.isNull() or (not clamp and not rect.contains(point)):
+            return None
+        nx = (point.x() - rect.left()) / rect.width()
+        ny = (point.y() - rect.top()) / rect.height()
+        return max(0.0, min(1.0, nx)), max(0.0, min(1.0, ny))
+
+    @staticmethod
+    def side_value(point, line):
+        x1, y1, x2, y2 = line
+        return (x2 - x1) * (point[1] - y1) - (y2 - y1) * (point[0] - x1)
+
+    @classmethod
+    def clip_half_plane(cls, line, side):
+        poly = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+        result = []
+        prev = poly[-1]
+        prev_val = side * cls.side_value(prev, line)
+        prev_in = prev_val >= 0
+        for curr in poly:
+            curr_val = side * cls.side_value(curr, line)
+            curr_in = curr_val >= 0
+            if curr_in != prev_in:
+                den = prev_val - curr_val
+                if abs(den) > 1e-10:
+                    t = prev_val / den
+                    result.append((prev[0] + t * (curr[0] - prev[0]), prev[1] + t * (curr[1] - prev[1])))
+            if curr_in:
+                result.append(curr)
+            prev, prev_val, prev_in = curr, curr_val, curr_in
+        return result
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.fillRect(self.rect(), QColor('#171b22'))
+        if self.frame.isNull():
+            painter.setPen(QColor('white'))
+            painter.drawText(self.rect(), Qt.AlignCenter, 'تصویر دوربین در دسترس نیست')
+            return
+        rect = self.image_rect()
+        painter.drawImage(rect, self.frame)
+        line = self.line_points
+        if self.dragging and self.drag_start is not None and self.drag_end is not None:
+            line = (*self.drag_start, *self.drag_end)
+        if line and self.inside_side in (-1, 1) and not self.dragging:
+            for side, color, label in (
+                (self.inside_side, QColor(40, 190, 105, 68), 'داخل'),
+                (-self.inside_side, QColor(239, 145, 65, 45), 'خارج'),
+            ):
+                poly = self.clip_half_plane(line, side)
+                if len(poly) >= 3:
+                    pts = [QPointF(rect.left() + x * rect.width(), rect.top() + y * rect.height()) for x, y in poly]
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(color)
+                    painter.drawPolygon(QPolygonF(pts))
+                    cx = sum(pt.x() for pt in pts) / len(pts)
+                    cy = sum(pt.y() for pt in pts) / len(pts)
+                    badge = QRectF(cx - 30, cy - 13, 60, 26)
+                    painter.setPen(QPen(QColor('white'), 1))
+                    painter.setBrush(QColor(24, 29, 37, 190))
+                    painter.drawRoundedRect(badge, 6, 6)
+                    painter.drawText(badge, Qt.AlignCenter, label)
+        if line:
+            x1, y1, x2, y2 = line
+            a = QPointF(rect.left() + x1 * rect.width(), rect.top() + y1 * rect.height())
+            b = QPointF(rect.left() + x2 * rect.width(), rect.top() + y2 * rect.height())
+            painter.setPen(QPen(QColor(0, 0, 0, 190), 8, Qt.SolidLine, Qt.RoundCap))
+            painter.drawLine(a, b)
+            painter.setPen(QPen(QColor('#43e08a'), 4, Qt.SolidLine, Qt.RoundCap))
+            painter.drawLine(a, b)
+            painter.setPen(QPen(QColor('white'), 1))
+            painter.setBrush(QColor('#43e08a'))
+            painter.drawEllipse(a, 6, 6)
+            painter.drawEllipse(b, 6, 6)
+        if self.mode == 'inside' and line:
+            badge = QRectF(rect.left() + 8, rect.top() + 8, 185, 26)
+            painter.setPen(QPen(QColor('white'), 1))
+            painter.setBrush(QColor(24, 29, 37, 210))
+            painter.drawRoundedRect(badge, 5, 5)
+            painter.drawText(badge, Qt.AlignCenter, 'روی سمت داخل کلیک کن')
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.LeftButton:
+            return
+        point = self.to_normalized(event.position().x(), event.position().y())
+        if point is None:
+            return
+        if self.mode == 'inside':
+            if self.line_points is None:
+                return
+            dx = self.line_points[2] - self.line_points[0]
+            dy = self.line_points[3] - self.line_points[1]
+            if (dx * dx + dy * dy) <= 1e-8:
+                return
+            value = self.side_value(point, self.line_points)
+            if abs(value) / max(1e-6, (dx * dx + dy * dy) ** 0.5) < 0.012:
+                return
+            self.inside_side = 1 if value > 0 else -1
+            self.selection_changed.emit()
+            self.update()
+            return
+        self.dragging = True
+        self.drag_start = self.drag_end = point
+        self.line_points = None
+        self.inside_side = None
+        self.update()
+
+    def mouseMoveEvent(self, event):
+        if not self.dragging:
+            return
+        self.drag_end = self.to_normalized(event.position().x(), event.position().y(), clamp=True)
+        self.update()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() != Qt.LeftButton or not self.dragging:
+            return
+        end = self.to_normalized(event.position().x(), event.position().y(), clamp=True)
+        if end is not None:
+            self.drag_end = end
+        start, end = self.drag_start, self.drag_end
+        self.dragging = False
+        self.drag_start = self.drag_end = None
+        if start is not None and end is not None:
+            dx = (end[0] - start[0]) * self.frame.width()
+            dy = (end[1] - start[1]) * self.frame.height()
+            if dx * dx + dy * dy >= 25 * 25:
+                self.line_points = (*start, *end)
+                self.inside_side = None
+        self.selection_changed.emit()
+        self.update()
+
+
+class GateLineEditorDialog(QDialog):
+    """Small editor opened from the existing camera Settings card."""
+
+    def __init__(self, slot, frame, line_points=None, inside_side=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f'تنظیم خط دوربین {slot}')
+        self.resize(950, 700)
+        root = QVBoxLayout(self)
+        title = QLabel('۱) خط را روی تصویر بکش.  ۲) سمت داخل مدرسه را انتخاب کن.')
+        title.setObjectName('sectionTitle')
+        title.setWordWrap(True)
+        root.addWidget(title)
+        help_label = QLabel('با ماوس خط را بکش؛ سپس «انتخاب سمت داخل» را بزن و داخل مدرسه را کلیک کن. سمت دیگر خودکار خارج حساب می‌شود.')
+        help_label.setWordWrap(True)
+        help_label.setObjectName('muted')
+        root.addWidget(help_label)
+        row = QHBoxLayout()
+        self.draw_button = QPushButton('کشیدن خط')
+        self.inside_button = QPushButton('انتخاب سمت داخل')
+        self.clear_button = QPushButton('پاک کردن')
+        for button in (self.draw_button, self.inside_button, self.clear_button):
+            row.addWidget(button)
+        row.addStretch(1)
+        root.addLayout(row)
+        self.canvas = GateLineCanvas(frame, line_points, inside_side, self)
+        root.addWidget(self.canvas, 1)
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        self.status.setObjectName('muted')
+        root.addWidget(self.status)
+        footer = QHBoxLayout()
+        footer.addStretch(1)
+        cancel = QPushButton('انصراف')
+        self.accept_button = QPushButton('تأیید خط')
+        footer.addWidget(cancel)
+        footer.addWidget(self.accept_button)
+        root.addLayout(footer)
+        self.draw_button.clicked.connect(lambda: self._mode('line'))
+        self.inside_button.clicked.connect(lambda: self._mode('inside'))
+        self.clear_button.clicked.connect(self.canvas.clear_line)
+        cancel.clicked.connect(self.reject)
+        self.accept_button.clicked.connect(self._accept_if_valid)
+        self.canvas.selection_changed.connect(self._sync)
+        self._mode('line')
+        self._sync()
+
+    def _mode(self, mode):
+        self.canvas.set_mode(mode)
+        self.status.setText('با نگه‌داشتن کلیک چپ، خط را روی تصویر بکش.' if mode == 'line' else 'داخل مدرسه را روی یکی از دو سمت خط کلیک کن.')
+
+    def _sync(self):
+        points, side = self.canvas.selection()
+        if not points:
+            self.accept_button.setEnabled(False)
+            self.status.setText('ابتدا خط را رسم کن.')
+        elif side not in (-1, 1):
+            self.accept_button.setEnabled(False)
+            self.status.setText('خط رسم شد؛ حالا سمت داخل را انتخاب کن.')
+        else:
+            self.accept_button.setEnabled(True)
+            self.status.setText('سبز = داخل مدرسه • نارنجی = خارج • تأیید کن و سپس تنظیمات دوربین را ذخیره کن.')
+
+    def _accept_if_valid(self):
+        points, side = self.canvas.selection()
+        if points is None or side not in (-1, 1):
+            QMessageBox.warning(self, 'تنظیم ناقص', 'خط را رسم کن و سمت داخل را هم مشخص کن.')
+            return
+        self.accept()
+
+    def selection(self):
+        return self.canvas.selection()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -2890,7 +3148,12 @@ class MainWindow(QMainWindow):
         # Preview frames use a latest-value mailbox rather than queued GUI
         # events. This prevents a slow GUI from displaying stale camera frames.
         self._latest_camera_images = {}
+        self._latest_camera_image_times = {}
+        self._latest_camera_image_walltimes = {}
         self._latest_camera_images_lock = threading.Lock()
+        self._ui_started_at = datetime.now()
+        self._snapshot_checked_event_ids = set()
+        self._early_snapshot_first_seen = {}
         self._preview_timer = QTimer(self)
         self._preview_timer.setInterval(33)  # ~30 Hz GUI refresh
         self._preview_timer.timeout.connect(self._render_latest_camera_previews)
@@ -2911,6 +3174,11 @@ class MainWindow(QMainWindow):
 
         self.build_ui()
         self.refresh_all()
+        self.refresh_event_alert()
+        self.event_alert_timer = QTimer(self)
+        self.event_alert_timer.setInterval(500)
+        self.event_alert_timer.timeout.connect(self.refresh_event_alert)
+        self.event_alert_timer.start()
 
         # Configure CPU threading before any YOLO/OSNet inference objects start.
         _configure_cpu_runtime()
@@ -2980,9 +3248,30 @@ class MainWindow(QMainWindow):
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(30, 24, 30, 30)
 
+        page_header = QHBoxLayout()
         self.page_title = QLabel()
         self.page_title.setObjectName("pageTitle")
-        content_layout.addWidget(self.page_title)
+        page_header.addWidget(self.page_title)
+        page_header.addStretch(1)
+        self.page_date_label = QLabel(datetime.now().strftime("%Y/%m/%d"))
+        self.page_date_label.setObjectName("muted")
+        page_header.addWidget(self.page_date_label)
+        content_layout.addLayout(page_header)
+
+        self.global_alert = QFrame()
+        self.global_alert.setObjectName("earlyAlertBanner")
+        alert_layout = QHBoxLayout(self.global_alert)
+        alert_layout.setContentsMargins(16, 10, 16, 10)
+        self.global_alert_label = QLabel()
+        self.global_alert_label.setWordWrap(True)
+        self.global_alert_label.setObjectName("earlyAlertText")
+        alert_layout.addWidget(self.global_alert_label, 1)
+        self.global_alert_hint = QPushButton("مشاهده گزارش‌ها")
+        self.global_alert_hint.setObjectName("earlyAlertHint")
+        self.global_alert_hint.clicked.connect(lambda: self.show_page(5))
+        alert_layout.addWidget(self.global_alert_hint)
+        self.global_alert.hide()
+        content_layout.addWidget(self.global_alert)
 
         self.stack = QStackedWidget()
         content_layout.addWidget(self.stack, 1)
@@ -3333,28 +3622,32 @@ class MainWindow(QMainWindow):
     def build_reports_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setSpacing(14)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
 
         filter_box = QFrame()
         filter_box.setObjectName("panel")
-        filter_layout = QHBoxLayout(filter_box)
-        filter_layout.setContentsMargins(16, 14, 16, 14)
+        filter_layout = QGridLayout(filter_box)
+        filter_layout.setContentsMargins(16, 13, 16, 13)
+        filter_layout.setHorizontalSpacing(10)
+        filter_layout.setVerticalSpacing(8)
 
         self.report_start = QDateEdit()
         self.report_start.setCalendarPopup(True)
         self.report_start.setDisplayFormat("yyyy/MM/dd")
         self.report_start.setDate(QDate.currentDate().addDays(-6))
-
         self.report_end = QDateEdit()
         self.report_end.setCalendarPopup(True)
         self.report_end.setDisplayFormat("yyyy/MM/dd")
         self.report_end.setDate(QDate.currentDate())
-        self.report_start.dateChanged.connect(lambda _: self.refresh_report())
-        self.report_end.dateChanged.connect(lambda _: self.refresh_report())
 
         self.report_major_combo = QComboBox()
         self.report_class_combo = QComboBox()
+        for combo in (self.report_major_combo, self.report_class_combo):
+            combo.setMinimumWidth(130)
 
+        self.report_start.dateChanged.connect(lambda _: self.refresh_report())
+        self.report_end.dateChanged.connect(lambda _: self.refresh_report())
         self.report_major_combo.currentIndexChanged.connect(
             self.on_report_major_changed
         )
@@ -3362,120 +3655,218 @@ class MainWindow(QMainWindow):
             lambda _: self.refresh_report()
         )
 
-        filter_layout.addWidget(QLabel("از"))
-        filter_layout.addWidget(self.report_start)
-        filter_layout.addWidget(QLabel("تا"))
-        filter_layout.addWidget(self.report_end)
-        filter_layout.addWidget(QLabel("رشته"))
-        filter_layout.addWidget(self.report_major_combo, 1)
-        filter_layout.addWidget(QLabel("کلاس"))
-        filter_layout.addWidget(self.report_class_combo, 1)
+        filter_layout.addWidget(QLabel("از تاریخ"), 0, 0)
+        filter_layout.addWidget(self.report_start, 0, 1)
+        filter_layout.addWidget(QLabel("تا تاریخ"), 0, 2)
+        filter_layout.addWidget(self.report_end, 0, 3)
+        filter_layout.addWidget(QLabel("رشته"), 1, 0)
+        filter_layout.addWidget(self.report_major_combo, 1, 1)
+        filter_layout.addWidget(QLabel("کلاس"), 1, 2)
+        filter_layout.addWidget(self.report_class_combo, 1, 3)
 
-        today_button = QPushButton("امروز")
-        today_button.clicked.connect(lambda: self.set_report_range(0))
-        week_button = QPushButton("۷ روز")
-        week_button.clicked.connect(lambda: self.set_report_range(6))
-        month_button = QPushButton("۳۰ روز")
-        month_button.clicked.connect(lambda: self.set_report_range(29))
-        report_button = QPushButton("به‌روزرسانی")
-        report_button.clicked.connect(self.refresh_report)
-
-        csv_button = QPushButton("خروجی CSV")
+        range_actions = QHBoxLayout()
+        for label, days_back in (("امروز", 0), ("۷ روز", 6), ("۳۰ روز", 29)):
+            button = QPushButton(label)
+            button.clicked.connect(
+                lambda checked=False, days=days_back: self.set_report_range(days)
+            )
+            range_actions.addWidget(button)
+        refresh_button = QPushButton("به‌روزرسانی")
+        refresh_button.setObjectName("primaryAction")
+        refresh_button.clicked.connect(self.refresh_report)
+        range_actions.addWidget(refresh_button)
+        range_actions.addStretch(1)
+        csv_button = QPushButton("خروجی دانش‌آموزان CSV")
         csv_button.clicked.connect(lambda: self.export_report("csv"))
-        xlsx_button = QPushButton("خروجی Excel")
+        xlsx_button = QPushButton("خروجی دانش‌آموزان Excel")
         xlsx_button.clicked.connect(lambda: self.export_report("xlsx"))
-
-        for button in (
-            today_button,
-            week_button,
-            month_button,
-            report_button,
-            csv_button,
-            xlsx_button,
-        ):
-            filter_layout.addWidget(button)
-
+        range_actions.addWidget(csv_button)
+        range_actions.addWidget(xlsx_button)
+        filter_layout.addLayout(range_actions, 0, 4, 2, 1)
+        filter_layout.setColumnStretch(1, 1)
+        filter_layout.setColumnStretch(3, 1)
+        filter_layout.setColumnStretch(4, 2)
         layout.addWidget(filter_box)
 
         self.report_summary = QLabel()
         self.report_summary.setObjectName("muted")
+        self.report_summary.setWordWrap(True)
         layout.addWidget(self.report_summary)
 
+        self.report_tabs = QTabWidget()
+        self.report_tabs.setObjectName("reportTabs")
+
+        # Tab 1: overview cards and charts, sized for a normal laptop screen.
+        overview_tab = QWidget()
+        overview_layout = QVBoxLayout(overview_tab)
+        overview_layout.setContentsMargins(8, 10, 8, 8)
+        overview_layout.setSpacing(12)
+
         cards = QHBoxLayout()
-        card, self.report_total_label = self.make_card("دانش‌آموزان")
+        cards.setSpacing(10)
+        card, self.report_total_label = self.make_card("دانش‌آموزان در فیلتر")
         cards.addWidget(card)
         card, self.report_avg_label = self.make_card("میانگین حضور")
         cards.addWidget(card)
-        card, self.report_absent_days_label = self.make_card("کل غیبت")
+        card, self.report_absent_days_label = self.make_card("کل غیبت‌ها")
         cards.addWidget(card)
-        card, self.report_late_days_label = self.make_card("کل دیرکرد")
+        card, self.report_late_days_label = self.make_card("کل دیرکردها")
         cards.addWidget(card)
-        layout.addLayout(cards)
+        for card_index in range(cards.count()):
+            widget = cards.itemAt(card_index).widget()
+            widget.setMinimumHeight(86)
+            widget.setMaximumHeight(108)
+            value = widget.findChild(QLabel, "statValue")
+            if value is not None:
+                value.setStyleSheet("font-size: 25px;")
+        overview_layout.addLayout(cards)
 
         chart_row = QHBoxLayout()
+        chart_row.setSpacing(12)
+
         trend_panel = QFrame()
         trend_panel.setObjectName("panel")
         trend_layout = QVBoxLayout(trend_panel)
+        trend_layout.setContentsMargins(12, 12, 12, 12)
         title = QLabel("روند درصد حضور روزانه")
         title.setObjectName("sectionTitle")
         trend_layout.addWidget(title)
         self.report_trend_chart = AttendanceTrendChart()
+        self.report_trend_chart.setMinimumHeight(190)
+        self.report_trend_chart.setMaximumHeight(220)
         trend_layout.addWidget(self.report_trend_chart)
         chart_row.addWidget(trend_panel, 2)
 
         class_panel = QFrame()
         class_panel.setObjectName("panel")
         class_layout = QVBoxLayout(class_panel)
+        class_layout.setContentsMargins(12, 12, 12, 12)
         title = QLabel("مقایسه کلاس‌ها")
         title.setObjectName("sectionTitle")
         class_layout.addWidget(title)
         self.report_class_chart = ClassAttendanceChart()
+        self.report_class_chart.setMinimumHeight(190)
+        self.report_class_chart.setMaximumHeight(220)
         class_layout.addWidget(self.report_class_chart)
         chart_row.addWidget(class_panel, 2)
 
         status_panel = QFrame()
         status_panel.setObjectName("panel")
         status_layout = QVBoxLayout(status_panel)
+        status_layout.setContentsMargins(12, 12, 12, 12)
         title = QLabel("توزیع وضعیت")
         title.setObjectName("sectionTitle")
         status_layout.addWidget(title)
         self.report_status_chart = StatusDonutChart()
+        self.report_status_chart.setMinimumHeight(190)
+        self.report_status_chart.setMaximumHeight(220)
         status_layout.addWidget(self.report_status_chart)
         chart_row.addWidget(status_panel, 1)
 
-        layout.addLayout(chart_row)
+        overview_layout.addLayout(chart_row)
+        overview_layout.addStretch(1)
+        self.report_tabs.addTab(overview_tab, "نمای کلی")
 
-        details_panel = QFrame()
-        details_panel.setObjectName("panel")
-        details_layout = QVBoxLayout(details_panel)
+        # Tab 2: the event stream plus an explicit human-review action.
+        events_tab = QWidget()
+        events_layout = QVBoxLayout(events_tab)
+        events_layout.setContentsMargins(8, 10, 8, 8)
+        events_layout.setSpacing(10)
 
-        details_title = QLabel("جزئیات دانش‌آموزان")
+        event_toolbar = QHBoxLayout()
+        event_toolbar.addWidget(QLabel("نوع رویداد"))
+        self.report_event_filter = QComboBox()
+        self.report_event_filter.addItem("همه رویدادهای مهم", "all")
+        self.report_event_filter.addItem("خروج زودهنگام", "EARLY_DEPARTURE")
+        self.report_event_filter.addItem("خروج غیرمنتظره", "UNEXPECTED_EXIT")
+        self.report_event_filter.addItem("ورود", "PERSON_ENTERED")
+        self.report_event_filter.addItem("خروج", "PERSON_EXITED")
+        self.report_event_filter.addItem("دیرکرد", "LATE_ARRIVAL")
+        self.report_event_filter.addItem("اختلاف هویت", "IDENTITY_MISMATCH")
+        self.report_event_filter.currentIndexChanged.connect(
+            self.apply_report_event_filter
+        )
+        event_toolbar.addWidget(self.report_event_filter, 1)
+        self.report_events_note = QLabel("رویدادها بر اساس بازه و فیلترهای بالا")
+        self.report_events_note.setObjectName("muted")
+        event_toolbar.addWidget(self.report_events_note, 2)
+        events_layout.addLayout(event_toolbar)
+
+        self.report_events_table = QTableWidget(0, 8)
+        self.report_events_table.setHorizontalHeaderLabels(
+            ["تاریخ و ساعت", "دانش‌آموز", "رویداد", "دوربین", "اطمینان", "جزئیات", "تصویر دوربین", "بازبینی انسانی"]
+        )
+        self.configure_table(self.report_events_table)
+        self.report_events_table.setMinimumHeight(300)
+        event_header = self.report_events_table.horizontalHeader()
+        for column in (0, 2, 3, 4, 5, 6, 7):
+            event_header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
+        event_header.setSectionResizeMode(1, QHeaderView.Stretch)
+        self.report_events_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.report_events_table.setWordWrap(False)
+        self.report_events_table.doubleClicked.connect(
+            lambda _: self.review_selected_event()
+        )
+        events_layout.addWidget(self.report_events_table, 1)
+
+        review_row = QHBoxLayout()
+        self.report_review_button = QPushButton("بازبینی تصویر / نتیجه")
+        self.report_review_button.setObjectName("primaryAction")
+        self.report_review_button.clicked.connect(self.review_selected_event)
+        review_row.addWidget(self.report_review_button)
+        self.report_events_export_button = QPushButton("خروجی رویدادها CSV")
+        self.report_events_export_button.clicked.connect(self.export_report_events)
+        review_row.addWidget(self.report_events_export_button)
+        review_row.addStretch(1)
+        events_layout.addLayout(review_row)
+
+        evidence_note = QLabel(
+            "تصویر فریم کامل و حاشیه‌نویسی‌شده دوربین به‌صورت محلی در پوشه data/early_exit_review ذخیره می‌شود؛ "
+            "ممکن است افراد دیگری هم در کادر باشند. بعد از بررسی می‌توانید تصویر را حذف کنید. "
+            "در صورت خطا، ابتدا حضور/غیاب را جداگانه اصلاح کنید و سپس وضعیت «اصلاح دستی انجام شد» را انتخاب کنید."
+        )
+        evidence_note.setObjectName("muted")
+        evidence_note.setWordWrap(True)
+        events_layout.addWidget(evidence_note)
+        self.report_tabs.addTab(events_tab, "رویدادها و بازبینی")
+
+        # Tab 3: student-level detail table with enough vertical room.
+        details_tab = QWidget()
+        details_layout = QVBoxLayout(details_tab)
+        details_layout.setContentsMargins(8, 10, 8, 8)
+        details_title_row = QHBoxLayout()
+        details_title = QLabel("جزئیات تجمیعی دانش‌آموزان")
         details_title.setObjectName("sectionTitle")
-        details_layout.addWidget(details_title)
+        details_title_row.addWidget(details_title)
+        details_title_row.addStretch(1)
+        details_help = QLabel("تعدادهای حاضر، دیرکرد، غیبت و موجه در بازه انتخابی")
+        details_help.setObjectName("muted")
+        details_title_row.addWidget(details_help)
+        details_layout.addLayout(details_title_row)
 
         self.report_table = QTableWidget(0, 11)
         self.report_table.setHorizontalHeaderLabels(
-            [
-                "شناسه",
-                "کد",
-                "نام",
-                "پایه",
-                "رشته",
-                "کلاس",
-                "حاضر",
-                "دیرکرد",
-                "غیبت",
-                "موجه",
-                "درصد حضور",
-            ]
+            ["شناسه", "کد", "نام", "پایه", "رشته", "کلاس", "حاضر", "دیرکرد", "غیبت", "موجه", "درصد حضور"]
         )
         self.configure_table(self.report_table)
         self.report_table.setColumnHidden(0, True)
+        self.report_table.setMinimumHeight(360)
+        report_header = self.report_table.horizontalHeader()
+        report_header.setSectionResizeMode(QHeaderView.Interactive)
+        for column, width in {
+            1: 105, 2: 150, 3: 75, 4: 105, 5: 125,
+            6: 70, 7: 75, 8: 75, 9: 70, 10: 90,
+        }.items():
+            report_header.resizeSection(column, width)
+        report_header.setStretchLastSection(False)
+        self.report_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.report_table.setWordWrap(False)
         details_layout.addWidget(self.report_table, 1)
+        self.report_tabs.addTab(details_tab, "جزئیات دانش‌آموزان")
 
-        layout.addWidget(details_panel, 2)
-
+        layout.addWidget(self.report_tabs, 1)
         self.stack.addWidget(page)
+
     def configure_table(self, table):
         table.setAlternatingRowColors(True)
         table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -3568,9 +3959,9 @@ class MainWindow(QMainWindow):
             box_layout.addLayout(header)
 
             role = QComboBox()
-            role.addItem("ورودی", "entry")
-            role.addItem("خروجی", "exit")
-            role.addItem("فقط مشاهده", "observe")
+            role.addItem("فقط ثبت ورود", "entry")
+            role.addItem("فقط ثبت خروج", "exit")
+            role.addItem("بدون خط / فقط تصویر", "observe")
 
             orientation = QComboBox()
             orientation.addItem("عمودی — چپ / راست", "vertical")
@@ -3613,6 +4004,32 @@ class MainWindow(QMainWindow):
 
             box_layout.addLayout(grid)
 
+            line_actions = QHBoxLayout()
+            draw_line = QPushButton("رسم خط روی تصویر…")
+            draw_line.clicked.connect(
+                lambda checked=False, camera_slot=slot: self.open_gate_line_editor(camera_slot)
+            )
+            reset_line = QPushButton("استفاده از خط ساده")
+            reset_line.clicked.connect(
+                lambda checked=False, camera_slot=slot: self.reset_gate_line(camera_slot)
+            )
+            line_actions.addWidget(draw_line)
+            line_actions.addWidget(reset_line)
+            line_actions.addStretch(1)
+            box_layout.addLayout(line_actions)
+            setattr(self, f"settings_camera{slot}_draw_line_button", draw_line)
+            setattr(self, f"settings_camera{slot}_reset_line_button", reset_line)
+            role.currentIndexChanged.connect(
+                lambda _index, camera_slot=slot: self._update_gate_line_status(camera_slot)
+            )
+            line_status = QLabel("خط ساده فعال است؛ برای رسم خط دلخواه روی تصویر کلیک کن.")
+            line_status.setObjectName("muted")
+            line_status.setWordWrap(True)
+            box_layout.addWidget(line_status)
+            setattr(self, f"settings_camera{slot}_line_points", None)
+            setattr(self, f"settings_camera{slot}_inside_side", None)
+            setattr(self, f"settings_camera{slot}_line_status", line_status)
+
             setattr(self, f"settings_camera{slot}_role", role)
             setattr(self, f"settings_camera{slot}_line_orientation", orientation)
             setattr(self, f"settings_camera{slot}_line_position", position)
@@ -3625,8 +4042,9 @@ class MainWindow(QMainWindow):
         add_camera_gate_controls(2, "دوربین ۲")
 
         gate_info = QLabel(
-            "نقش «ورودی» یا «خروجی» تعیین می‌کند همان جهت اصلی عبور، ورود یا خروج ثبت شود. "
-            "دوربین‌های دوگانه از همین تنظیمات برای اتصال یک Track بین دو دوربین استفاده می‌کنند."
+            "«فقط ثبت ورود» فقط عبور ورود را ثبت می‌کند؛ «فقط ثبت خروج» فقط عبور خروج را ثبت می‌کند. "
+            "در حالت «بدون خط / فقط تصویر»، هیچ رویداد ورود‌وخروجی از آن دوربین ثبت نمی‌شود. "
+            "نقش دوربین‌ها برای اتصال یک Track بین دو دوربین نیز استفاده می‌شود."
         )
         gate_info.setObjectName("muted")
         gate_info.setWordWrap(True)
@@ -3720,6 +4138,53 @@ class MainWindow(QMainWindow):
         attendance_layout.addLayout(attendance_form)
         layout.addWidget(attendance_panel)
 
+        schedule_panel = QFrame()
+        schedule_panel.setObjectName("panel")
+        schedule_layout = QVBoxLayout(schedule_panel)
+        schedule_layout.setContentsMargins(18, 16, 18, 16)
+        schedule_layout.setSpacing(10)
+
+        weekdays_title = QLabel("برنامه هفتگی مدرسه")
+        weekdays_title.setObjectName("sectionTitle")
+        schedule_layout.addWidget(weekdays_title)
+        weekdays_note = QLabel(
+            "روزهای فعال و تاریخ‌های استثنا در تقویم سال تحصیلی ذخیره می‌شوند. "
+            "ساعت شروع و پایان فعلی مشترک است؛ هشدار خروج زودهنگام در این نسخه "
+            "بر اساس ساعت پایان عمومی است و هنوز تعطیلی هر روز را جداگانه بررسی نمی‌کند."
+        )
+        weekdays_note.setObjectName("muted")
+        weekdays_note.setWordWrap(True)
+        schedule_layout.addWidget(weekdays_note)
+
+        weekday_row = QHBoxLayout()
+        weekday_row.setSpacing(6)
+        self.settings_weekday_checks = {}
+        for weekday, day_name in SchoolCalendarDialog.WEEKDAYS:
+            day_button = QPushButton(day_name)
+            day_button.setCheckable(True)
+            day_button.setMinimumHeight(40)
+            day_button.setMinimumWidth(65)
+            day_button.setCursor(Qt.PointingHandCursor)
+            day_button.setObjectName("weekdayToggle")
+            self.settings_weekday_checks[weekday] = day_button
+            weekday_row.addWidget(day_button)
+        weekday_row.addStretch(1)
+        schedule_layout.addLayout(weekday_row)
+
+        schedule_actions = QHBoxLayout()
+        save_schedule_button = QPushButton("ذخیره برنامه هفتگی")
+        save_schedule_button.setObjectName("primaryAction")
+        save_schedule_button.setMinimumHeight(42)
+        save_schedule_button.clicked.connect(self.save_school_schedule)
+        schedule_actions.addWidget(save_schedule_button)
+        exceptions_button = QPushButton("تعطیلات و روزهای جبرانی…")
+        exceptions_button.setMinimumHeight(42)
+        exceptions_button.clicked.connect(self.open_settings_school_calendar)
+        schedule_actions.addWidget(exceptions_button)
+        schedule_actions.addStretch(1)
+        schedule_layout.addLayout(schedule_actions)
+        layout.addWidget(schedule_panel)
+
         reid_panel = QFrame()
         reid_panel.setObjectName("panel")
         reid_layout = QVBoxLayout(reid_panel)
@@ -3767,6 +4232,88 @@ class MainWindow(QMainWindow):
         layout.addStretch(1)
         self.stack.addWidget(page)
         self.load_smart_settings()
+
+    def open_settings_school_calendar(self):
+        active_year = get_active_academic_year()
+        if not active_year:
+            QMessageBox.information(
+                self,
+                "تقویم مدرسه",
+                "ابتدا از بخش کلاس‌ها یک سال تحصیلی ایجاد و فعال کنید.",
+            )
+            return
+        dialog = SchoolCalendarDialog(
+            selected_year_id=active_year[0],
+            parent=self,
+        )
+        dialog.exec()
+        self.load_smart_settings()
+        self.refresh_all()
+
+    def save_school_schedule(self):
+        start_text = self.settings_school_start.text().strip()
+        end_text = self.settings_school_end.text().strip()
+        try:
+            start_time = datetime.strptime(start_text, "%H:%M").time()
+            end_time = datetime.strptime(end_text, "%H:%M").time()
+        except ValueError:
+            QMessageBox.warning(
+                self,
+                "ساعت نامعتبر",
+                "ساعت شروع و پایان را به‌شکل 08:00 وارد کنید.",
+            )
+            return
+        if start_time >= end_time:
+            QMessageBox.warning(
+                self,
+                "بازه زمانی نامعتبر",
+                "ساعت پایان باید بعد از ساعت شروع باشد.",
+            )
+            return
+
+        active_year = get_active_academic_year()
+        if not active_year:
+            QMessageBox.information(
+                self,
+                "سال تحصیلی",
+                "برای ذخیره روزهای هفته، ابتدا یک سال تحصیلی را فعال کنید.",
+            )
+            return
+
+        weekdays = [
+            day for day, check in self.settings_weekday_checks.items()
+            if check.isChecked()
+        ]
+        if not weekdays:
+            QMessageBox.warning(
+                self,
+                "روزهای مدرسه",
+                "حداقل یک روز مدرسه را انتخاب کنید.",
+            )
+            return
+
+        try:
+            set_school_weekdays(active_year[0], weekdays)
+            set_setting("school_start_time", start_text)
+            set_setting("school_end_time", end_text)
+            set_setting("enable_late_events", int(self.settings_late_events.isChecked()))
+            set_setting("enable_early_events", int(self.settings_early_events.isChecked()))
+            self.settings_camera_status.setText(
+                f"برنامه هفتگی ذخیره شد • {len(weekdays)} روز فعال • "
+                f"{start_text} تا {end_text}"
+            )
+            self.refresh_event_alert()
+            QMessageBox.information(
+                self,
+                "برنامه مدرسه",
+                "روزهای فعال، ساعت مدرسه و قوانین دیرکرد/خروج زودهنگام ذخیره شدند.",
+            )
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "ذخیره برنامه ناموفق بود",
+                str(exc),
+            )
 
     def load_smart_settings(self):
         if not hasattr(self, "settings_camera1_role"):
@@ -3910,8 +4457,19 @@ class MainWindow(QMainWindow):
 
             cooldown_widget.setValue(max(5, min(300, cooldown)))
 
+            points, inside_side = load_drawn_gate_line(slot, get_setting)
+            setattr(self, f"settings_camera{slot}_line_points", points)
+            setattr(self, f"settings_camera{slot}_inside_side", inside_side)
+            self._update_gate_line_status(slot)
+
         self.settings_school_start.setText(school_start)
         self.settings_school_end.setText(school_end)
+        active_year = get_active_academic_year()
+        selected_weekdays = (
+            get_school_weekdays(active_year[0]) if active_year else set()
+        )
+        for weekday, check in self.settings_weekday_checks.items():
+            check.setChecked(weekday in selected_weekdays)
         self.settings_late_events.setChecked(late_enabled)
         self.settings_early_events.setChecked(early_enabled)
         self.settings_reid_enabled.setChecked(reid_enabled)
@@ -3977,6 +4535,80 @@ class MainWindow(QMainWindow):
             f"{len(cameras)} دوربین پیدا شد • دوربین ۲ در صورت فعال‌سازی باید Device جدا داشته باشد."
         )
 
+    def _latest_camera_image_copy(self, camera_slot):
+        with self._latest_camera_images_lock:
+            image = self._latest_camera_images.get(int(camera_slot))
+            return image.copy() if image is not None and not image.isNull() else None
+
+    def _update_gate_line_status(self, camera_slot):
+        label = getattr(self, f"settings_camera{camera_slot}_line_status", None)
+        if label is None:
+            return
+        points = getattr(self, f"settings_camera{camera_slot}_line_points", None)
+        side = getattr(self, f"settings_camera{camera_slot}_inside_side", None)
+        custom_active = points is not None and side in (-1, 1)
+        role_widget = getattr(self, f"settings_camera{camera_slot}_role", None)
+        observe_only = role_widget is not None and role_widget.currentData() == "observe"
+
+        # An observation-only camera must not tempt the user to configure a
+        # gate that the worker will ignore. Preserve the saved gate in case
+        # the camera is later switched back to entry/exit.
+        for suffix in ("line_orientation", "line_position", "line_direction"):
+            widget = getattr(self, f"settings_camera{camera_slot}_{suffix}", None)
+            if widget is not None:
+                widget.setEnabled(not observe_only and not custom_active)
+        cooldown_widget = getattr(
+            self, f"settings_camera{camera_slot}_line_cooldown", None
+        )
+        if cooldown_widget is not None:
+            cooldown_widget.setEnabled(not observe_only)
+        for suffix in ("draw_line_button", "reset_line_button"):
+            widget = getattr(self, f"settings_camera{camera_slot}_{suffix}", None)
+            if widget is not None:
+                widget.setEnabled(not observe_only)
+
+        if observe_only:
+            label.setText("خط و ثبت ورود‌وخروج برای این دوربین غیرفعال است؛ فقط تصویر و رهگیری نمایش داده می‌شود.")
+        elif custom_active:
+            label.setText("خط تصویری تنظیم شده است؛ سبز = داخل و نارنجی = خارج. برای اعمال، تنظیمات دوربین را ذخیره کن.")
+        else:
+            label.setText("خط ساده فعال است؛ برای رسم خط دلخواه روی تصویر کلیک کن.")
+
+    def reset_gate_line(self, camera_slot):
+        setattr(self, f"settings_camera{camera_slot}_line_points", None)
+        setattr(self, f"settings_camera{camera_slot}_inside_side", None)
+        self._update_gate_line_status(camera_slot)
+
+    def open_gate_line_editor(self, camera_slot):
+        frame = self._latest_camera_image_copy(camera_slot)
+        if frame is None:
+            QMessageBox.information(
+                self,
+                "تصویر دوربین موجود نیست",
+                "ابتدا دوربین را فعال کن و صبر کن تصویر زنده در برنامه نمایش داده شود؛ سپس خط را رسم کن.",
+            )
+            return
+        points = getattr(self, f"settings_camera{camera_slot}_line_points", None)
+        side = getattr(self, f"settings_camera{camera_slot}_inside_side", None)
+        if points is None:
+            orientation = getattr(self, f"settings_camera{camera_slot}_line_orientation").currentData()
+            position = getattr(self, f"settings_camera{camera_slot}_line_position").value() / 100.0
+            if orientation == "horizontal":
+                points, side = (0.0, position, 1.0, position), 1
+            else:
+                points, side = (position, 0.0, position, 1.0), -1
+            if getattr(self, f"settings_camera{camera_slot}_line_direction").currentData() == "negative":
+                side *= -1
+            if getattr(self, f"settings_camera{camera_slot}_role").currentData() == "exit":
+                side *= -1
+        dialog = GateLineEditorDialog(camera_slot, frame, points, side, self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        points, side = dialog.selection()
+        setattr(self, f"settings_camera{camera_slot}_line_points", tuple(points))
+        setattr(self, f"settings_camera{camera_slot}_inside_side", int(side))
+        self._update_gate_line_status(camera_slot)
+
     def apply_camera_settings(self):
         camera1_id = self.settings_camera1_combo.currentData()
         camera2_id = self.settings_camera2_combo.currentData()
@@ -4028,6 +4660,8 @@ class MainWindow(QMainWindow):
                             f"settings_camera{slot}_line_cooldown",
                         ).value()
                     ),
+                    "line_points": getattr(self, f"settings_camera{slot}_line_points", None),
+                    "inside_side": getattr(self, f"settings_camera{slot}_inside_side", None),
                 }
 
             reid_interval = int(self.settings_reid_interval.value())
@@ -4092,6 +4726,46 @@ class MainWindow(QMainWindow):
                 f"camera_{slot}_line_cooldown",
                 values["line_cooldown"],
             )
+            points, side = save_drawn_gate_line(
+                slot,
+                values.get("line_points"),
+                values.get("inside_side"),
+                set_setting,
+            )
+            # Read back what the worker will load. Fail loudly instead of
+            # silently telling the user that a line was applied when it was not.
+            saved_points, saved_side = load_drawn_gate_line(slot, get_setting)
+            points_match = (
+                points is None
+                or (
+                    saved_points is not None
+                    and len(saved_points) == len(points)
+                    and all(
+                        abs(float(saved) - float(requested)) <= 0.0000011
+                        for saved, requested in zip(saved_points, points)
+                    )
+                    and saved_side == side
+                )
+            )
+            if not points_match:
+                logger.error(
+                    "CAMERA_GATE_SAVE_VERIFY_FAILED slot=%s requested=%s/%s saved=%s/%s",
+                    slot, points, side, saved_points, saved_side,
+                )
+                QMessageBox.critical(
+                    self,
+                    "ذخیره خط ناموفق بود",
+                    f"خط دوربین {slot} درست از پایگاه داده بازخوانی نشد؛ دوربین راه‌اندازی مجدد نشد.",
+                )
+                return
+            logger.info(
+                "CAMERA_GATE_SAVED slot=%s role=%s mode=%s points=%s inside_side=%s",
+                slot,
+                values["role"],
+                "custom" if saved_points is not None else "legacy",
+                saved_points,
+                saved_side,
+            )
 
         # Keep the original single-camera keys compatible with older builds.
         set_setting(
@@ -4152,9 +4826,9 @@ class MainWindow(QMainWindow):
             if enabled
         ]
         role_labels = {
-            "entry": "ورودی",
-            "exit": "خروجی",
-            "observe": "مشاهده",
+            "entry": "فقط ورود",
+            "exit": "فقط خروج",
+            "observe": "بدون خط / فقط تصویر",
         }
         role_summary = " / ".join(
             f"دوربین {slot}: {role_labels.get(camera_gate_values[slot]['role'], camera_gate_values[slot]['role'])}"
@@ -4262,6 +4936,17 @@ class MainWindow(QMainWindow):
                 )
             )
 
+            line_points, inside_side = load_drawn_gate_line(slot, get_setting)
+
+            logger.info(
+                "CAMERA_GATE_ACTIVE slot=%s role=%s mode=%s points=%s inside_side=%s",
+                slot,
+                role,
+                "none" if role == "observe" else ("custom" if line_points is not None else "legacy"),
+                line_points,
+                inside_side,
+            )
+
             worker = SmartCameraWorker(
                 camera_slot=slot,
                 camera_config={
@@ -4272,6 +4957,8 @@ class MainWindow(QMainWindow):
                     "line_position": line_position,
                     "line_direction": line_direction,
                     "line_cooldown": line_cooldown,
+                    "line_points": line_points,
+                    "inside_side": inside_side,
                     # Both installed ov534 cameras share USB2. Native 8-bit
                     # Bayer halves the video payload while retaining 640x480.
                     "raw_bayer": len(enabled_slots) >= 2
@@ -4361,7 +5048,10 @@ class MainWindow(QMainWindow):
         # QWidget. It only replaces a single latest-value mailbox while holding
         # a small Python lock. The GUI thread consumes that mailbox on a timer.
         with self._latest_camera_images_lock:
-            self._latest_camera_images[int(camera_slot)] = image
+            slot = int(camera_slot)
+            self._latest_camera_images[slot] = image
+            self._latest_camera_image_times[slot] = time.monotonic()
+            self._latest_camera_image_walltimes[slot] = datetime.now()
 
     def _render_latest_camera_previews(self):
         with self._latest_camera_images_lock:
@@ -4396,12 +5086,279 @@ class MainWindow(QMainWindow):
 
     def attendance_event(self, event):
         self.refresh_dashboard()
+        self.refresh_event_alert()
         if self.current_page == 4:
             self.refresh_attendance()
 
         self.camera_status.setText(
             f"ثبت شد: {event['name']} • {event['time']}"
         )
+
+    def _early_event_snapshot_path(self, event_id):
+        return BASE_DIR / "data" / "early_exit_review" / f"event_{int(event_id)}.jpg"
+
+    def _camera_slot_for_event(self, camera_id):
+        camera_text = str(camera_id or "").strip().lower()
+        # Prefer matching the physical device ID used by the worker's event stream.
+        for slot in (1, 2):
+            try:
+                default_id = get_setting("camera_id", CAMERA_ID) if slot == 1 else -1
+                camera_device_id = int(
+                    get_setting(f"camera_{slot}_id", default_id)
+                )
+            except (TypeError, ValueError):
+                continue
+            if camera_text in {f"camera_{camera_device_id}", str(camera_device_id)}:
+                return slot
+
+        # The configured exit-role camera is the safest fallback for departure events.
+        for slot in (1, 2):
+            role = str(get_setting(f"camera_{slot}_role", "entry" if slot == 1 else "exit") or "")
+            if role.lower() == "exit":
+                return slot
+        return None
+
+    def _save_early_event_snapshot(self, event):
+        event_id, _, _, code, name, _, camera_id, timestamp, _, metadata = event
+        event_time = None
+        try:
+            event_time = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError):
+            pass
+
+        # Never create evidence for old events during startup from an unrelated live frame.
+        if event_time is None or event_time < self._ui_started_at.replace(microsecond=0):
+            return False
+
+        slot = self._camera_slot_for_event(camera_id)
+        if slot is None:
+            return False
+        with self._latest_camera_images_lock:
+            image = self._latest_camera_images.get(slot)
+            captured_at = self._latest_camera_image_times.get(slot)
+            captured_walltime = self._latest_camera_image_walltimes.get(slot)
+
+        # Avoid presenting a stale frame as evidence for a fresh exit event.
+        if image is None or captured_at is None or captured_walltime is None:
+            return False
+        if time.monotonic() - captured_at > 3.0:
+            return False
+        if abs((captured_walltime - event_time).total_seconds()) > 3.0:
+            return False
+
+        path = self._early_event_snapshot_path(event_id)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not image.save(str(path), "JPG", 90):
+                logger.warning("Could not save exit-event snapshot id=%s slot=%s", event_id, slot)
+                return False
+            logger.info(
+                "EARLY_EXIT_EVIDENCE_SAVED event_id=%s slot=%s path=%s name=%s code=%s",
+                event_id, slot, path, name, code
+            )
+            return True
+        except Exception:
+            logger.exception("Failed to save early-exit snapshot id=%s", event_id)
+            return False
+
+    def review_selected_event(self):
+        row = self.report_events_table.currentRow()
+        if row < 0:
+            QMessageBox.information(
+                self,
+                "انتخاب رویداد",
+                "ابتدا یک رویداد را از جدول انتخاب کنید.",
+            )
+            return
+        item = self.report_events_table.item(row, 0)
+        event_id = item.data(Qt.UserRole) if item else None
+        if event_id is None:
+            QMessageBox.warning(self, "رویداد نامعتبر", "شناسه‌ی این رویداد در دسترس نیست.")
+            return
+
+        matching_event = next(
+            (event for event in getattr(self, "_report_event_records", [])
+             if int(event[0]) == int(event_id)),
+            None,
+        )
+        if matching_event is None or matching_event[1] != "EARLY_DEPARTURE":
+            QMessageBox.information(
+                self,
+                "بازبینی تصویر",
+                "تصویر و بازبینی انسانی در این نسخه فقط برای رویداد خروج زودهنگام تعریف شده است.",
+            )
+            return
+
+        path = self._early_event_snapshot_path(event_id)
+        dialog = QDialog(self)
+        dialog.setWindowTitle("بازبینی انسانی رویداد")
+        dialog.resize(1000, 760)
+        root = QVBoxLayout(dialog)
+        root.setContentsMargins(18, 18, 18, 18)
+        root.setSpacing(12)
+
+        event_name = self.report_events_table.item(row, 1).text()
+        event_label = self.report_events_table.item(row, 2).text()
+        event_time = self.report_events_table.item(row, 0).text()
+        heading = QLabel(f"{event_label} • {event_name} • {event_time}")
+        heading.setObjectName("sectionTitle")
+        heading.setWordWrap(True)
+        root.addWidget(heading)
+
+        image_label = QLabel()
+        image_label.setAlignment(Qt.AlignCenter)
+        image_label.setMinimumSize(640, 380)
+        image_label.setObjectName("eventEvidenceImage")
+        if path.exists():
+            pixmap = QPixmap(str(path))
+            if not pixmap.isNull():
+                image_label.setPixmap(
+                    pixmap.scaled(950, 560, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                )
+            else:
+                image_label.setText("فایل تصویر قابل‌خواندن نیست.")
+        else:
+            image_label.setText(
+                "برای این رویداد تصویری ذخیره نشده است.\n"
+                "تصویر فقط برای رویدادهای جدیدی که بعد از بازشدن برنامه ثبت شوند "
+                "و فریم تازه‌ی دوربین در دسترس باشد ذخیره می‌شود."
+            )
+        root.addWidget(image_label, 1)
+
+        disclaimer = QLabel(
+            "این تصویر فریم کامل دوربین در حوالی زمان رویداد است و ممکن است چند نفر را نشان دهد؛ "
+            "به‌تنهایی اثبات هویت نیست. نتیجه را بر اساس تصویر و اطلاعات مدرسه با احتیاط انتخاب کنید."
+        )
+        disclaimer.setWordWrap(True)
+        disclaimer.setObjectName("muted")
+        root.addWidget(disclaimer)
+
+        status_row = QHBoxLayout()
+        status_row.addWidget(QLabel("نتیجه بازبینی"))
+        review_combo = QComboBox()
+        review_combo.addItem("در انتظار بررسی", "pending")
+        review_combo.addItem("هویت درست تأیید شد", "confirmed")
+        review_combo.addItem("تشخیص/انتساب اشتباه بود", "false_match")
+        review_combo.addItem("اشتباه بود؛ اصلاح دستی انجام شد", "corrected")
+        review_combo.addItem("از تصویر قابل‌تشخیص نیست", "inconclusive")
+        setting_key = f"event_review_{int(event_id)}"
+        current_review = str(get_setting(setting_key, "pending") or "pending")
+        found = review_combo.findData(current_review)
+        review_combo.setCurrentIndex(found if found >= 0 else 0)
+        status_row.addWidget(review_combo, 1)
+        root.addLayout(status_row)
+
+        buttons = QHBoxLayout()
+        save_button = QPushButton("ذخیره نتیجه بازبینی")
+        save_button.setObjectName("primaryAction")
+        delete_image_button = QPushButton("حذف تصویر")
+        delete_image_button.setToolTip("تصویر محلی این رویداد را پس از بررسی حذف می‌کند.")
+        cancel_button = QPushButton("بستن")
+        save_button.clicked.connect(dialog.accept)
+        cancel_button.clicked.connect(dialog.reject)
+
+        def delete_review_image():
+            if not path.exists():
+                QMessageBox.information(dialog, "تصویر", "برای این رویداد تصویری ذخیره نشده است.")
+                return
+            answer = QMessageBox.question(
+                dialog,
+                "حذف تصویر",
+                "تصویر محلی این رویداد حذف شود؟ این کار قابل بازگشت نیست.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
+            try:
+                path.unlink(missing_ok=True)
+                image_label.setPixmap(QPixmap())
+                image_label.setText("تصویر این رویداد حذف شد.")
+                self.apply_report_event_filter()
+            except Exception as exc:
+                QMessageBox.critical(dialog, "حذف تصویر ناموفق بود", str(exc))
+
+        delete_image_button.clicked.connect(delete_review_image)
+        buttons.addWidget(save_button)
+        buttons.addWidget(delete_image_button)
+        buttons.addWidget(cancel_button)
+        buttons.addStretch(1)
+        root.addLayout(buttons)
+
+        if dialog.exec() == QDialog.Accepted:
+            try:
+                set_setting(setting_key, review_combo.currentData())
+                self.refresh_report_events()
+                QMessageBox.information(
+                    self,
+                    "بازبینی ذخیره شد",
+                    "نتیجه‌ی بازبینی ذخیره شد. این کار به‌تنهایی هیچ رکورد حضور و غیابی را تغییر نمی‌دهد.",
+                )
+            except Exception as exc:
+                QMessageBox.critical(self, "ذخیره بازبینی ناموفق بود", str(exc))
+
+    def refresh_event_alert(self):
+        if not hasattr(self, "global_alert"):
+            return
+        today = datetime.now().strftime("%Y-%m-%d")
+        try:
+            early_events = [
+                event for event in get_recent_events(200, today)
+                if event[1] == "EARLY_DEPARTURE" and (event[4] or event[3])
+            ]
+        except Exception:
+            logger.exception("Failed to refresh early-departure alert")
+            return
+
+        now_monotonic = time.monotonic()
+        for event in early_events:
+            event_id = int(event[0])
+            if event_id in self._snapshot_checked_event_ids:
+                continue
+            self._early_snapshot_first_seen.setdefault(event_id, now_monotonic)
+            try:
+                event_time = datetime.strptime(event[7], "%Y-%m-%d %H:%M:%S")
+            except (TypeError, ValueError):
+                self._snapshot_checked_event_ids.add(event_id)
+                continue
+            if event_time < self._ui_started_at.replace(microsecond=0):
+                # Historical events from before this process started must not get a misleading live frame.
+                self._snapshot_checked_event_ids.add(event_id)
+                continue
+            if self._save_early_event_snapshot(event):
+                self._snapshot_checked_event_ids.add(event_id)
+            elif now_monotonic - self._early_snapshot_first_seen[event_id] > 5.0:
+                # Stop retrying if no appropriately-timed fresh frame was available.
+                self._snapshot_checked_event_ids.add(event_id)
+
+        unresolved = [
+            event for event in early_events
+            if str(get_setting(f"event_review_{int(event[0])}", "pending") or "pending")
+            not in {"confirmed", "corrected"}
+        ]
+        if not unresolved:
+            self.global_alert.hide()
+            return
+
+        latest = unresolved[0]
+        _, _, _, code, name, _, camera_id, timestamp, _, metadata = latest
+        display_name = name or code or "دانش‌آموز شناسایی‌شده"
+        event_time = timestamp.split(" ")[-1] if timestamp else "زمان نامشخص"
+        expected_end = (metadata or {}).get("school_end_time")
+        score = latest[8]
+        review_state = str(get_setting(f"event_review_{int(latest[0])}", "pending") or "pending")
+        if review_state == "false_match":
+            message = f"نیازمند اصلاح دستی: انتساب هویت {display_name} اشتباه گزارش شده است • {event_time}"
+        elif score is not None and float(score) < 0.5:
+            message = f"خروج زودهنگام احتمالی — امتیاز تطبیق پایین؛ تصویر را بررسی کنید: {display_name} • {event_time}"
+        else:
+            message = f"خروج زودهنگام ثبت‌شده — نیازمند بازبینی: {display_name} • ساعت {event_time}"
+        if expected_end:
+            message += f" (پایان برنامه مدرسه: {expected_end})"
+        if len(unresolved) > 1:
+            message += f" • {len(unresolved)} مورد بررسی‌نشده امروز"
+        self.global_alert_label.setText(message)
+        self.global_alert.show()
 
     def refresh_all(self):
         self.refresh_dashboard()
@@ -5388,7 +6345,208 @@ class MainWindow(QMainWindow):
             f"غیبت: {total_absent} • "
             f"موجه: {total_excused}"
         )
+        self.refresh_report_events()
 
+    def export_report_events(self):
+        if not hasattr(self, "report_events_table"):
+            return
+        start = self.report_start.date().toString("yyyy-MM-dd")
+        end = self.report_end.date().toString("yyyy-MM-dd")
+        default_path = BASE_DIR / "exports" / f"رویدادها_{start}_{end}.csv"
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "ذخیره رویدادهای دوربین",
+            str(default_path),
+            "CSV (*.csv)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".csv"):
+            path += ".csv"
+        try:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "w", newline="", encoding="utf-8-sig") as output:
+                writer = csv.writer(output)
+                writer.writerow(["شناسه رویداد", "تاریخ و ساعت", "دانش‌آموز", "رویداد", "دوربین", "اطمینان", "جزئیات", "تصویر دوربین", "بازبینی انسانی"])
+                for row in range(self.report_events_table.rowCount()):
+                    first = self.report_events_table.item(row, 0)
+                    event_id = first.data(Qt.UserRole) if first else ""
+                    writer.writerow([
+                        event_id,
+                        *[
+                            self.report_events_table.item(row, column).text()
+                            if self.report_events_table.item(row, column) else ""
+                            for column in range(self.report_events_table.columnCount())
+                        ],
+                    ])
+            QMessageBox.information(
+                self,
+                "خروجی آماده شد",
+                f"{self.report_events_table.rowCount()} رویداد در فایل ذخیره شد.\\n{path}",
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "ذخیره خروجی ناموفق بود", str(exc))
+
+    def refresh_report_events(self):
+        if not hasattr(self, "report_events_table"):
+            return
+
+        start_date = self.report_start.date()
+        end_date = self.report_end.date()
+        date_span = start_date.daysTo(end_date) + 1
+        truncated = date_span > 90
+        if truncated:
+            start_date = end_date.addDays(-89)
+
+        important_types = {
+            "EARLY_DEPARTURE", "LATE_ARRIVAL", "PERSON_ENTERED",
+            "PERSON_EXITED", "UNEXPECTED_EXIT", "IDENTITY_MISMATCH",
+        }
+        events = []
+        cursor = start_date
+        while cursor <= end_date:
+            date_string = cursor.toString("yyyy-MM-dd")
+            try:
+                events.extend(
+                    event for event in get_recent_events(500, date_string)
+                    if event[1] in important_types
+                )
+            except Exception:
+                logger.exception("Failed to load report event rows for %s", date_string)
+            cursor = cursor.addDays(1)
+
+        events.sort(key=lambda item: (item[7] or "", item[0]), reverse=True)
+        self._report_event_records = events[:250]
+        self._report_events_truncated = truncated
+        self.apply_report_event_filter()
+
+    def apply_report_event_filter(self):
+        if not hasattr(self, "report_events_table"):
+            return
+
+        records = list(getattr(self, "_report_event_records", []))
+        selected_type = (
+            self.report_event_filter.currentData()
+            if hasattr(self, "report_event_filter") else "all"
+        )
+        if selected_type and selected_type != "all":
+            records = [event for event in records if event[1] == selected_type]
+
+        selected_class = self.report_class_combo.currentData()
+        selected_major_text = self.report_major_combo.currentText()
+        major_filter_active = self.report_major_combo.currentData() is not None
+        if selected_class or major_filter_active:
+            filtered = []
+            class_cache = {}
+            for event in records:
+                student_id = event[2]
+                if student_id is None:
+                    continue
+                if student_id not in class_cache:
+                    try:
+                        class_cache[student_id] = get_student_class(student_id)
+                    except Exception:
+                        class_cache[student_id] = None
+                enrollment = class_cache[student_id]
+                if enrollment is None:
+                    continue
+                if selected_class and enrollment[0] != selected_class:
+                    continue
+                if major_filter_active and enrollment[3] != selected_major_text:
+                    continue
+                filtered.append(event)
+            records = filtered
+
+        labels = {
+            "EARLY_DEPARTURE": "⚠ خروج زودهنگام",
+            "LATE_ARRIVAL": "دیرکرد",
+            "PERSON_ENTERED": "ورود",
+            "PERSON_EXITED": "خروج",
+            "UNEXPECTED_EXIT": "خروج غیرمنتظره",
+            "IDENTITY_MISMATCH": "اختلاف هویت",
+        }
+        review_labels = {
+            "pending": "در انتظار بررسی",
+            "confirmed": "تأیید شد",
+            "false_match": "اشتباه — نیازمند اصلاح",
+            "corrected": "اصلاح شد",
+            "inconclusive": "نامشخص",
+        }
+
+        self.report_events_table.setRowCount(len(records))
+        for row, event in enumerate(records):
+            event_id, event_type, student_id, code, name, track_id, camera_id, timestamp, confidence, metadata = event
+            metadata = metadata or {}
+            detail = metadata.get("school_end_time") if event_type == "EARLY_DEPARTURE" else ""
+            if event_type == "LATE_ARRIVAL":
+                detail = metadata.get("school_start_time", "")
+            if not detail:
+                detail = f"Track {track_id}" if track_id is not None else "—"
+
+            image_path = self._early_event_snapshot_path(event_id)
+            has_image = event_type == "EARLY_DEPARTURE" and image_path.exists()
+            review = str(get_setting(f"event_review_{int(event_id)}", "pending") or "pending")
+            detail = metadata.get("school_end_time") if event_type == "EARLY_DEPARTURE" else ""
+            if event_type == "LATE_ARRIVAL":
+                detail = metadata.get("school_start_time", "")
+            if not detail:
+                detail = f"Track {track_id}" if track_id is not None else "—"
+            score_low = confidence is not None and float(confidence) < 0.5
+            confidence_label = (
+                f"{float(confidence):.2f} • پایین"
+                if score_low else
+                (f"{float(confidence):.2f}" if confidence is not None else "—")
+            )
+            review_label = review_labels.get(review, "در انتظار بررسی")
+            if event_type == "EARLY_DEPARTURE" and score_low and review == "pending":
+                review_label = "⚠ بازبینی لازم"
+            display_identity = name or code or "ناشناس"
+            if event_type == "EARLY_DEPARTURE" and score_low and (name or code):
+                display_identity = f"⚠ {display_identity} — هویت نامطمئن"
+            values = [
+                timestamp or "—",
+                display_identity,
+                labels.get(event_type, event_type),
+                str(camera_id or "—"),
+                confidence_label,
+                str(detail),
+                "تصویر موجود" if has_image else ("بدون تصویر" if event_type == "EARLY_DEPARTURE" else "—"),
+                review_label if event_type == "EARLY_DEPARTURE" else "—",
+            ]
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                if col == 0:
+                    item.setData(Qt.UserRole, int(event_id))
+                if event_type == "EARLY_DEPARTURE":
+                    item.setForeground(QColor("#b45309"))
+                if event_type == "EARLY_DEPARTURE" and col == 4 and score_low:
+                    item.setForeground(QColor("#b42318"))
+                    item.setToolTip(
+                        "امتیاز تطبیق پایین است و احتمال انتساب اشتباه وجود دارد. "
+                        "این عدد احتمال آماریِ کالیبره‌شده نیست؛ تصویر را بازبینی کنید."
+                    )
+                if event_type == "EARLY_DEPARTURE" and col == 6 and has_image:
+                    item.setForeground(QColor("#18794e"))
+                if event_type == "EARLY_DEPARTURE" and col == 7:
+                    if review in {"confirmed", "corrected"}:
+                        item.setForeground(QColor("#18794e"))
+                    elif review == "false_match":
+                        item.setForeground(QColor("#b42318"))
+                self.report_events_table.setItem(row, col, item)
+
+        note = (
+            "فقط ۹۰ روز پایانی نمایش داده می‌شود • "
+            if getattr(self, "_report_events_truncated", False) else ""
+        )
+        scope = []
+        if self.report_class_combo.currentData():
+            scope.append(f"کلاس: {self.report_class_combo.currentText()}")
+        if self.report_major_combo.currentData() is not None:
+            scope.append(f"رشته: {self.report_major_combo.currentText()}")
+        scope_text = (" • " + "، ".join(scope)) if scope else " • همه کلاس‌ها و رشته‌ها"
+        self.report_events_note.setText(
+            f"{note}{len(records)} رویداد{scope_text}"
+        )
 
     def export_report(self, fmt):
         start = self.report_start.date().toString("yyyy-MM-dd")
@@ -5845,6 +7003,10 @@ def run_smoke_test():
 
 
 def main():
+    # Optional navigation flag for opening directly into the event-review screen.
+    open_reports_on_start = "--open-reports" in sys.argv
+    qt_argv = [arg for arg in sys.argv if arg != "--open-reports"]
+
     if "--smoke-test" in sys.argv:
         try:
             run_smoke_test()
@@ -5853,7 +7015,7 @@ def main():
             print(f"FACE_RECOGNITION_SMOKE_TEST_FAILED: {exc}")
             raise SystemExit(1)
 
-    app = QApplication(sys.argv)
+    app = QApplication(qt_argv)
     app.setLayoutDirection(Qt.RightToLeft)
     app.setStyle("Fusion")
 
@@ -5874,7 +7036,7 @@ def main():
         }
 
         QMainWindow, QWidget#content {
-            background: #f5f7fa;
+            background: #f3f6fb;
         }
 
         QDialog {
@@ -5888,42 +7050,47 @@ def main():
         }
 
         #sidebar {
-            background: #ffffff;
-            border-left: 1px solid #d9e1eb;
+            background: #142338;
+            border-left: 1px solid #253a55;
         }
 
         #brand {
-            font-size: 21px;
+            font-size: 22px;
             font-weight: 800;
-            color: #172435;
+            color: #f8fafc;
         }
 
         #brandSub {
-            color: #718096;
+            color: #a9b9cc;
             font-size: 12px;
         }
 
         #sidebar QPushButton {
             text-align: right;
             padding: 12px 14px;
-            border: none;
+            border: 1px solid transparent;
             border-radius: 10px;
-            color: #526174;
+            color: #c0cede;
             background: transparent;
         }
 
         #sidebar QPushButton:hover {
-            background: #eef3f8;
-            color: #1f2d3d;
+            background: #203650;
+            color: #ffffff;
         }
 
         #sidebar QPushButton:checked {
-            background: #e4edf9;
-            color: #1e5a9f;
+            background: #244e78;
+            color: #ffffff;
+            border: 1px solid #37658f;
             font-weight: 700;
         }
 
-        #sidebarStatus, #muted {
+        #sidebarStatus {
+            color: #b2c0d1;
+        }
+
+        #muted {
             color: #718096;
         }
 
@@ -5933,16 +7100,105 @@ def main():
         }
 
         #pageTitle {
-            font-size: 29px;
+            font-size: 28px;
             font-weight: 800;
-            color: #172435;
+            color: #172b45;
             padding-bottom: 4px;
+        }
+
+        #earlyAlertBanner {
+            background: #fff4df;
+            border: 1px solid #edc27b;
+            border-radius: 12px;
+        }
+
+        #earlyAlertText {
+            color: #8a4b08;
+            font-weight: 800;
+            font-size: 13px;
+        }
+
+        QPushButton#earlyAlertHint {
+            background: transparent;
+            color: #9a5b0b;
+            border: 1px solid #e8c27f;
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-weight: 700;
+        }
+
+        QPushButton#earlyAlertHint:hover {
+            background: #ffebc2;
+        }
+
+        QPushButton#primaryAction {
+            background: #2468a8;
+            color: #ffffff;
+            border: 1px solid #2468a8;
+            font-weight: 700;
+        }
+
+        QPushButton#primaryAction:hover {
+            background: #1d568e;
+            border-color: #1d568e;
+        }
+
+        QPushButton#weekdayToggle {
+            background: #f7f9fc;
+            color: #596b80;
+            border: 1px solid #d3dce7;
+            border-radius: 9px;
+            font-weight: 600;
+        }
+
+        QPushButton#weekdayToggle:checked {
+            background: #dcecfb;
+            color: #174f83;
+            border: 1px solid #7caeda;
+            font-weight: 800;
+        }
+
+        QPushButton#weekdayToggle:hover {
+            border-color: #86a7c7;
         }
 
         #sectionTitle {
             font-size: 16px;
             font-weight: 700;
             color: #26384d;
+        }
+
+        QTabWidget#reportTabs::pane {
+            border: 1px solid #d9e2ec;
+            border-radius: 12px;
+            background: #f7f9fc;
+            top: -1px;
+        }
+
+        QTabWidget#reportTabs QTabBar::tab {
+            background: #eaf0f7;
+            color: #56677d;
+            border: 1px solid #d4dee9;
+            border-bottom: none;
+            padding: 10px 18px;
+            margin-left: 4px;
+            border-top-left-radius: 9px;
+            border-top-right-radius: 9px;
+            min-width: 110px;
+            font-weight: 700;
+        }
+
+        QTabWidget#reportTabs QTabBar::tab:selected {
+            background: #ffffff;
+            color: #1e5a9f;
+            border-color: #b9cbe0;
+        }
+
+        #eventEvidenceImage {
+            background: #edf2f7;
+            color: #65758b;
+            border: 1px dashed #bdcbd9;
+            border-radius: 12px;
         }
 
         #statCard, #panel {
@@ -6246,6 +7502,9 @@ def main():
 
     window = MainWindow()
     window.show()
+    if open_reports_on_start:
+        window.show_page(5)
+        window.report_tabs.setCurrentIndex(1)
 
     sys.exit(app.exec())
 
