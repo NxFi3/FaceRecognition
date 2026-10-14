@@ -1,0 +1,70 @@
+name: Export and test YOLO26 ONNX
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/onnx-person-detector
+    paths:
+      - ".github/workflows/export-yolo-onnx.yml"
+      - "src/engine/smart_tracking.py"
+      - "requirements-export.txt"
+      - "tools/**"
+      - "tests/test_onnx_person_detector.py"
+      - "models/yolo26n.pt"
+
+permissions:
+  contents: read
+
+jobs:
+  export-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install export and CPU runtime dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r requirements-export.txt
+
+      - name: Test preprocessing and output decoding
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p test_onnx_person_detector.py -v
+          python -m compileall -q src/engine/smart_tracking.py tools tests/test_onnx_person_detector.py
+
+      - name: Export YOLO26n to fixed-shape ONNX
+        shell: pwsh
+        run: |
+          python tools/export_person_model_onnx.py --model models/yolo26n.pt --output models/yolo26n.onnx --imgsz 512
+
+      - name: Download deterministic person-detection smoke image
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://ultralytics.com/images/bus.jpg" -OutFile "$env:RUNNER_TEMP\bus.jpg"
+          if ((Get-Item "$env:RUNNER_TEMP\bus.jpg").Length -lt 10000) {
+            throw "Smoke-test image download looks invalid."
+          }
+
+      - name: Run ONNX Runtime CPU smoke test and latency benchmark
+        shell: pwsh
+        run: |
+          python tools/smoke_test_person_onnx.py --model models/yolo26n.onnx --image "$env:RUNNER_TEMP\bus.jpg" --imgsz 512 --conf 0.20 --warmup 3 --runs 12 --report onnx-smoke-report.json
+
+      - name: Upload ONNX model and benchmark report
+        uses: actions/upload-artifact@v4
+        with:
+          name: yolo26n-onnx-cpu
+          path: |
+            models/yolo26n.onnx
+            onnx-smoke-report.json
+          if-no-files-found: error
+          retention-days: 30
