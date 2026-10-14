@@ -66,14 +66,16 @@ class OnnxPersonDetectorTests(unittest.TestCase):
             models = root / "models"
             models.mkdir()
             onnx_path = models / "yolo26n.onnx"
+            root_onnx_path = root / "yolo26n.onnx"
             pt_path = models / "yolo26n.pt"
             onnx_path.touch()
+            root_onnx_path.touch()
             pt_path.touch()
 
             candidates = make_person_model_candidates(root)
 
             self.assertEqual(candidates[0], onnx_path)
-            self.assertEqual(candidates[1], root / "yolo26n.onnx")
+            self.assertEqual(candidates[1], root_onnx_path)
             self.assertEqual(candidates[2], pt_path)
 
     def test_pt_fallback_remains_available_when_onnx_is_absent(self):
