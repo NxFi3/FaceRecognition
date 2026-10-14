@@ -27,6 +27,18 @@ jobs:
             throw "YuNet model download looks invalid."
           }
 
+      - name: Export and smoke-test YOLO26 ONNX in an isolated environment
+        shell: pwsh
+        run: |
+          # Export-only dependencies stay out of the PyInstaller runtime environment.
+          python -m venv .export-venv
+          .\.export-venv\Scripts\python.exe -m pip install --upgrade pip setuptools wheel
+          .\.export-venv\Scripts\python.exe -m pip install -r requirements-export.txt
+          .\.export-venv\Scripts\python.exe tools\export_person_model_onnx.py --model models\yolo26n.pt --output models\yolo26n.onnx --imgsz 512
+          Invoke-WebRequest -Uri "https://ultralytics.com/images/bus.jpg" -OutFile "$env:RUNNER_TEMP\bus.jpg"
+          .\.export-venv\Scripts\python.exe tools\smoke_test_person_onnx.py --model models\yolo26n.onnx --image "$env:RUNNER_TEMP\bus.jpg" --imgsz 512 --conf 0.20 --report "$env:RUNNER_TEMP\onnx-smoke-report.json"
+          Copy-Item "$env:RUNNER_TEMP\onnx-smoke-report.json" "onnx-smoke-report.json"
+
       - name: Install dependencies
         shell: pwsh
         run: |
@@ -52,7 +64,7 @@ jobs:
       - name: Build Windows application
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name FaceRecognition --add-data 'models/face_detection_yunet_2023mar.onnx;models' --add-data 'models/yolo26n.pt;models' --hidden-import face_recognition_models --collect-all face_recognition --collect-all face_recognition_models --collect-all ultralytics --collect-binaries dlib src/app.py
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name FaceRecognition --add-data 'models/face_detection_yunet_2023mar.onnx;models' --add-data 'models/yolo26n.onnx;models' --hidden-import face_recognition_models --hidden-import onnxruntime --collect-all face_recognition --collect-all face_recognition_models --collect-all onnxruntime --collect-binaries dlib src/app.py
 
       - name: Verify packaged files
         shell: pwsh
@@ -74,19 +86,19 @@ jobs:
             Copy-Item -LiteralPath $model.FullName -Destination $target -Force
           }
 
-          $personModel = Get-ChildItem -Path $package -Filter 'yolo26n.pt' -File -Recurse | Select-Object -First 1
+          $personModel = Get-ChildItem -Path $package -Filter 'yolo26n.onnx' -File -Recurse | Select-Object -First 1
           if (-not $personModel) {
-            throw 'YOLO person model was not found in the PyInstaller package.'
+            throw 'YOLO26 ONNX person model was not found in the PyInstaller package.'
           }
-          $personTarget = Join-Path $targetDirectory 'yolo26n.pt'
+          $personTarget = Join-Path $targetDirectory 'yolo26n.onnx'
           if ($personModel.FullName -ne $personTarget) {
             Copy-Item -LiteralPath $personModel.FullName -Destination $personTarget -Force
           }
 
           Write-Host "Packaged YuNet model: $target"
           Write-Host "YuNet size: $((Get-Item $target).Length) bytes"
-          Write-Host "Packaged YOLO model: $personTarget"
-          Write-Host "YOLO size: $((Get-Item $personTarget).Length) bytes"
+          Write-Host "Packaged YOLO ONNX model: $personTarget"
+          Write-Host "YOLO ONNX size: $((Get-Item $personTarget).Length) bytes"
 
       - name: Smoke test packaged executable
         shell: pwsh
