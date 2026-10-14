@@ -8,7 +8,11 @@ on:
     paths:
       - ".github/workflows/export-yolo-onnx.yml"
       - "src/engine/smart_tracking.py"
+      - "src/engine/smart_camera_worker.py"
+      - "requirements.txt"
       - "requirements-export.txt"
+      - ".github/workflows/build-windows.yml"
+      - "models/README.md"
       - "tools/**"
       - "tests/test_onnx_person_detector.py"
       - "models/yolo26n.pt"
