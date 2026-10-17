@@ -1440,9 +1440,27 @@ class EnrollmentDialog(QDialog):
         self.setWindowTitle(
             "افزودن دانش‌آموز" if show_student_fields else "ثبت دوباره چهره"
         )
-        self.resize(960, 720)
+        # Fit the dialog to the usable screen area. The old fixed size and
+        # 860x500 preview could push action buttons below the screen edge,
+        # especially on 768p displays or Windows scaling above 100%.
+        screen = QApplication.primaryScreen()
+        available = screen.availableGeometry() if screen is not None else None
+        if available is not None:
+            dialog_width = max(520, min(960, available.width() - 40))
+            dialog_height = max(420, min(720, available.height() - 60))
+        else:
+            dialog_width, dialog_height = 900, 650
+        self.resize(dialog_width, dialog_height)
+        if available is not None:
+            self.setMaximumSize(available.width(), available.height())
+            self.move(
+                available.x() + max(0, (available.width() - dialog_width) // 2),
+                available.y() + max(0, (available.height() - dialog_height) // 2),
+            )
 
         root = QVBoxLayout(self)
+        root.setContentsMargins(14, 10, 14, 10)
+        root.setSpacing(8)
 
         if show_student_fields:
             form = QFormLayout()
@@ -1504,7 +1522,9 @@ class EnrollmentDialog(QDialog):
 
         self.preview = QLabel("پیش‌نمایش دوربین")
         self.preview.setAlignment(Qt.AlignCenter)
-        self.preview.setMinimumSize(860, 500)
+        # Keep the preview flexible so the action buttons stay visible on
+        # smaller screens; the live image is scaled to fit this label.
+        self.preview.setMinimumSize(480, 240)
         self.preview.setObjectName("cameraPreview")
         root.addWidget(self.preview, 1)
 
