@@ -53,6 +53,7 @@ try:
         add_major,
         add_student,
         add_student_with_embeddings,
+        replace_student_embeddings,
         assign_student_class,
         delete_class,
         delete_embeddings,
@@ -5813,9 +5814,7 @@ class MainWindow(QMainWindow):
             if dialog.exec() != QDialog.Accepted:
                 return
 
-            delete_embeddings(student_id)
-            for embedding in dialog.embeddings:
-                add_embedding(student_id, embedding)
+            replace_student_embeddings(student_id, dialog.embeddings)
 
             QMessageBox.information(
                 self,
