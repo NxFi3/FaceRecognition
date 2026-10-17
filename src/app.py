@@ -1347,8 +1347,9 @@ class EnrollmentWorker(QThread):
                 target_fps = int(self.target_fps)
             cap = _open_camera(camera_id, target_fps)
 
-            _get_face_models()
-
+            # Do not load dlib's landmark/recognition models before the first
+            # camera frame. The preview must become visible even when model
+            # initialization is slow or no usable face is present yet.
             actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             detector.setInputSize((actual_width, actual_height))
@@ -1360,6 +1361,11 @@ class EnrollmentWorker(QThread):
                 ret, frame = cap.read()
                 if not ret:
                     raise RuntimeError("دریافت تصویر از دوربین ناموفق بود.")
+
+                # Publish the raw frame before face detection/embedding. This
+                # keeps the UI responsive and guarantees a visible preview even
+                # if detection or lazy model loading takes noticeably longer.
+                self.frame_ready.emit(frame_to_qimage(frame))
 
                 _, detections = detector.detect(frame)
                 faces = []
