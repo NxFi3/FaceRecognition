@@ -102,6 +102,7 @@ except ModuleNotFoundError:
         add_major,
         add_student,
         add_student_with_embeddings,
+        replace_student_embeddings,
         assign_student_class,
         delete_class,
         delete_embeddings,
