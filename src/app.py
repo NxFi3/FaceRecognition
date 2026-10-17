@@ -1255,8 +1255,8 @@ class EnrollmentWorker(QThread):
                 target_fps = int(self.target_fps)
             cap = _open_camera(camera_id, target_fps)
 
-            _get_face_models()
-
+            # Keep the preview responsive: face models are initialized lazily
+            # by face_embedding() only when a usable face is sampled.
             actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             detector.setInputSize((actual_width, actual_height))
@@ -1269,6 +1269,8 @@ class EnrollmentWorker(QThread):
                 if not ret:
                     raise RuntimeError("دریافت تصویر از دوربین ناموفق بود.")
 
+                # Show the camera frame before potentially slow face detection.
+                self.frame_ready.emit(frame_to_qimage(frame))
                 _, detections = detector.detect(frame)
                 faces = []
 
