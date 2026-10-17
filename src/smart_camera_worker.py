@@ -8,6 +8,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Lock
+import math
 
 from .camera_capture import LatestFrameCapture
 
@@ -34,6 +35,11 @@ FACE_DETECTION_INTERVAL = 2
 MAX_FACE_RECOGNITION_JOBS = 2
 FACE_RECOGNITION_INTERVAL = 5
 FACE_CONFIRMATIONS = 3
+FACE_CACHE_MAX_SAMPLES = 12
+FACE_CACHE_MAX_SIDE = 160
+FACE_CACHE_MIN_VOTE_RATIO = 0.50
+FACE_CACHE_CLUSTER_DISTANCE = 0.58
+FACE_CACHE_DISTANCE_MARGIN = 0.035
 PREVIEW_FPS = 15.0
 PERSON_IMAGE_SIZE = 480
 LINE_POSITION = 0.50
@@ -164,6 +170,163 @@ class SmartCameraWorker(QThread):
         return track_id, matcher.recognize_crop(crop, bbox)
 
     @staticmethod
+    def _face_quality_score(detection, crop):
+        if crop is None or crop.size == 0:
+            return 0.0
+        height, width = crop.shape[:2]
+        face_size = min(width, height)
+        size_score = max(0.0, min(1.0, (face_size - 28.0) / 132.0))
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+        sharp_score = max(0.0, min(1.0, math.log1p(sharpness) / math.log1p(500.0)))
+
+        frontal_score = 0.5
+        values = np.asarray(detection, dtype=np.float32).reshape(-1)
+        if values.size >= 14:
+            points = values[4:14].reshape(5, 2)
+            right_eye, left_eye, nose, right_mouth, left_mouth = points
+            eye_center = (right_eye + left_eye) * 0.5
+            eye_span = max(float(np.linalg.norm(right_eye - left_eye)), 1.0)
+            yaw_error = float(np.linalg.norm(nose - eye_center)) / eye_span
+            eye_roll = abs(float(right_eye[1] - left_eye[1])) / eye_span
+            mouth_center = (right_mouth + left_mouth) * 0.5
+            mouth_error = float(np.linalg.norm(nose - mouth_center)) / eye_span
+            frontal_score = (
+                0.55 * max(0.0, min(1.0, 1.0 - yaw_error / 0.65))
+                + 0.25 * max(0.0, min(1.0, 1.0 - eye_roll / 0.35))
+                + 0.20 * max(0.0, min(1.0, 1.0 - mouth_error / 1.8))
+            )
+        return 0.50 * size_score + 0.30 * sharp_score + 0.20 * frontal_score
+
+    @staticmethod
+    def _compact_face_sample(crop, bbox, max_side=FACE_CACHE_MAX_SIDE):
+        if crop is None or crop.size == 0:
+            return None
+        h, w = crop.shape[:2]
+        scale = min(1.0, float(max_side) / max(h, w))
+        if scale < 1.0:
+            nw = max(1, int(round(w * scale)))
+            nh = max(1, int(round(h * scale)))
+            crop = cv2.resize(crop, (nw, nh), interpolation=cv2.INTER_AREA)
+        else:
+            nw, nh = w, h
+        x1, y1, x2, y2 = bbox
+        sx, sy = nw / max(float(w), 1.0), nh / max(float(h), 1.0)
+        compact_bbox = (
+            int(round(x1 * sx)), int(round(y1 * sy)),
+            int(round(x2 * sx)), int(round(y2 * sy)),
+        )
+        return np.ascontiguousarray(crop, dtype=np.uint8), compact_bbox
+
+    @staticmethod
+    def _finalize_face_cache_task(matcher, samples):
+        if not samples:
+            return None
+        clusters = []
+        for sample in samples:
+            try:
+                embedding, result = matcher.recognize_crop_with_embedding(
+                    sample["crop"], sample["bbox"]
+                )
+            except Exception:
+                continue
+            student_index, distance, stability = result
+            if student_index is None or embedding is None:
+                continue
+            embedding = np.asarray(embedding, dtype=np.float32).reshape(-1)
+            if embedding.size == 0:
+                continue
+            embedding /= max(float(np.linalg.norm(embedding)), 1e-8)
+
+            selected = None
+            best_cluster_distance = float("inf")
+            for cluster in clusters:
+                distance_to_centroid = float(
+                    np.linalg.norm(embedding - cluster["centroid"])
+                )
+                if distance_to_centroid < best_cluster_distance:
+                    best_cluster_distance = distance_to_centroid
+                    selected = cluster
+            if selected is None or best_cluster_distance > FACE_CACHE_CLUSTER_DISTANCE:
+                selected = {"centroid": embedding.copy(), "samples": []}
+                clusters.append(selected)
+
+            selected["samples"].append({
+                "student_index": int(student_index),
+                "distance": float(distance),
+                "stability": float(stability),
+                "quality": float(sample["quality"]),
+                "embedding": embedding,
+            })
+            embeddings = np.vstack([item["embedding"] for item in selected["samples"]])
+            centroid = embeddings.mean(axis=0)
+            selected["centroid"] = centroid / max(float(np.linalg.norm(centroid)), 1e-8)
+
+        if not clusters:
+            return None
+
+        cluster = max(
+            clusters,
+            key=lambda item: (
+                len(item["samples"]),
+                sum(s["quality"] for s in item["samples"]),
+            ),
+        )
+        votes = {}
+        for sample in cluster["samples"]:
+            distance_score = max(0.0, min(1.0, 1.0 - sample["distance"] / 0.50))
+            stability_score = max(0.0, min(1.0, 1.0 - sample["stability"] / 0.52))
+            weight = max(0.01, sample["quality"]) * max(
+                0.05, 0.7 * distance_score + 0.3 * stability_score
+            )
+            bucket = votes.setdefault(
+                sample["student_index"],
+                {"count": 0, "weight": 0.0, "distances": [], "stabilities": [],
+                },
+            )
+            bucket["count"] += 1
+            bucket["weight"] += weight
+            bucket["distances"].append(sample["distance"])
+            bucket["stabilities"].append(sample["stability"])
+
+        ranked = sorted(
+            votes.items(),
+            key=lambda item: (item[1]["weight"], item[1]["count"]),
+            reverse=True,
+        )
+        if not ranked:
+            return None
+
+        best_index, best_vote = ranked[0]
+        second_weight = ranked[1][1]["weight"] if len(ranked) > 1 else 0.0
+        cluster_size = len(cluster["samples"])
+        minimum_votes = max(2, int(math.ceil(cluster_size * FACE_CACHE_MIN_VOTE_RATIO)))
+        if (
+            best_vote["count"] < minimum_votes
+            or best_vote["weight"] <= second_weight * 1.15
+        ):
+            return None
+
+        best_distance = float(np.mean(best_vote["distances"]))
+        best_stability = float(np.mean(best_vote["stabilities"]))
+        if len(ranked) > 1:
+            second_distance = float(np.mean(ranked[1][1]["distances"]))
+            second_stability = float(np.mean(ranked[1][1]["stabilities"]))
+            if (
+                second_distance - best_distance < FACE_CACHE_DISTANCE_MARGIN
+                and second_stability - best_stability < 0.025
+            ):
+                return None
+
+        return {
+            "student_index": int(best_index),
+            "distance": best_distance,
+            "stability": best_stability,
+            "votes": int(best_vote["count"]),
+            "cluster_size": int(cluster_size),
+        }
+
+    @staticmethod
     def _find_track_for_face(face_bbox, tracks):
         fx1, fy1, fx2, fy2 = face_bbox
         center = ((fx1 + fx2) * 0.5, (fy1 + fy2) * 0.5)
@@ -229,6 +392,7 @@ class SmartCameraWorker(QThread):
         self._running = True
         capture = None
         futures = set()
+        cache_futures = set()
 
         try:
             # Importing app at runtime avoids a module-level circular import.
@@ -431,6 +595,41 @@ class SmartCameraWorker(QThread):
                 last_capture_sequence = sequence
                 frame_no += 1
 
+                for future in tuple(cache_futures):
+                    if not future.done():
+                        continue
+                    cache_futures.remove(future)
+                    try:
+                        track, result, camera_id = future.result()
+                    except Exception as exc:
+                        self.error.emit(f"Face cache worker failed: {exc}")
+                        continue
+
+                    pending = track.metadata.pop("pending_crossing", None)
+                    if result is not None:
+                        student = matcher.students[result["student_index"]]
+                        confidence = self._confidence(result["distance"], result["stability"])
+                        if track.student_id != student["id"]:
+                            event_engine.on_face_identity(
+                                track,
+                                student["id"],
+                                student["student_code"],
+                                student["name"],
+                                confidence,
+                                camera_id,
+                            )
+                        track.metadata["cache_identity_votes"] = result["votes"]
+                        track.metadata["cache_cluster_size"] = result["cluster_size"]
+                        track.metadata["identity_source"] = "face_cache"
+
+                    if pending is not None:
+                        event_engine.on_crossing(
+                            track,
+                            pending["direction"],
+                            camera_id,
+                        )
+                    track.clear_face_cache()
+
                 for future in tuple(futures):
                     if not future.done():
                         continue
@@ -524,6 +723,18 @@ class SmartCameraWorker(QThread):
                                 lost_track,
                                 camera_id,
                             )
+                            if (
+                                lost_track.face_cache
+                                and not lost_track.face_cache_finalized
+                                and lost_track.metadata.get("pending_crossing")
+                            ):
+                                cache_futures.add(
+                                    executor.submit(
+                                        self._finalize_face_cache_task,
+                                        matcher,
+                                        lost_track.snapshot_face_cache(),
+                                    )
+                                )
 
                     for track in active_tracks:
                         if track.last_seen_frame != frame_no:
@@ -539,37 +750,19 @@ class SmartCameraWorker(QThread):
                                 camera_id,
                             )
                             if identity_match is not None:
-                                confidence = max(
-                                    0.0,
-                                    min(1.0, identity_match.similarity),
-                                )
-                                event_engine.on_reid_identity(
-                                    track,
-                                    identity_match.student_id,
-                                    identity_match.student_code,
-                                    identity_match.student_name,
-                                    confidence,
-                                    camera_id,
-                                    {
-                                        "similarity": round(
-                                            identity_match.similarity,
-                                            4,
-                                        ),
-                                        "score": round(
-                                            identity_match.score,
-                                            4,
-                                        ),
-                                        "source_camera": identity_match.source_camera,
-                                        "source_track_id": identity_match.source_track_id,
-                                        "reason": identity_match.reason,
-                                    },
-                                )
-                                track.metadata["global_identity"] = {
+                                # Re-ID is a tracking/linking signal, not an
+                                # attendance-grade identity proof. Keep the
+                                # candidate pending until face recognition
+                                # confirms the student.
+                                track.metadata["pending_global_identity"] = {
+                                    "student_id": identity_match.student_id,
+                                    "student_code": identity_match.student_code,
+                                    "student_name": identity_match.student_name,
                                     "similarity": identity_match.similarity,
                                     "source_camera": identity_match.source_camera,
                                     "source_track_id": identity_match.source_track_id,
+                                    "reason": identity_match.reason,
                                 }
-                                track.metadata["identity_source"] = "global_reid"
 
                         event_engine.on_track_seen(track, camera_id)
 
@@ -578,11 +771,29 @@ class SmartCameraWorker(QThread):
 
                         direction = line.check(track, frame.shape, frame_no)
                         if direction is not None:
-                            event_engine.on_crossing(
-                                track,
-                                direction,
-                                camera_id,
-                            )
+                            if (
+                                track.metadata.get("pending_crossing") is None
+                                and track.face_cache
+                            ):
+                                track.metadata["pending_crossing"] = {
+                                    "direction": direction,
+                                    "camera_id": camera_id,
+                                    "frame_no": frame_no,
+                                }
+                                track.face_cache_finalized = True
+                                cache_futures.add(
+                                    executor.submit(
+                                        self._finalize_face_cache_task,
+                                        matcher,
+                                        track.snapshot_face_cache(),
+                                    )
+                                )
+                            else:
+                                event_engine.on_crossing(
+                                    track,
+                                    direction,
+                                    camera_id,
+                                )
                 else:
                     for track in tracker.tracks.values():
                         if track.misses == 0:
@@ -607,7 +818,7 @@ class SmartCameraWorker(QThread):
                                 bbox[2] - bbox[0] >= 28
                                 and bbox[3] - bbox[1] >= 28
                             ):
-                                last_face_detections.append(bbox)
+                                last_face_detections.append((bbox, detection))
 
                 submitted_tracks = set()
                 if (
@@ -618,7 +829,7 @@ class SmartCameraWorker(QThread):
                 else:
                     last_face_detections_for_recognition = last_face_detections
 
-                for face_bbox in last_face_detections_for_recognition:
+                for face_bbox, face_detection in last_face_detections_for_recognition:
                     track = self._find_track_for_face(
                         face_bbox,
                         list(tracker.tracks.values()),
@@ -637,6 +848,23 @@ class SmartCameraWorker(QThread):
                         continue
 
                     face_crop, local_bbox = prepared
+                    compact = self._compact_face_sample(
+                        face_crop,
+                        local_bbox,
+                    )
+                    if compact is not None:
+                        compact_crop, compact_bbox = compact
+                        quality = self._face_quality_score(
+                            face_detection,
+                            face_crop,
+                        )
+                        track.cache_face_sample(
+                            compact_crop,
+                            compact_bbox,
+                            quality,
+                            frame_no,
+                            FACE_CACHE_MAX_SAMPLES,
+                        )
                     track.last_face_frame = frame_no
                     futures.add(
                         executor.submit(
@@ -767,6 +995,8 @@ class SmartCameraWorker(QThread):
             self.status_changed.emit("Smart camera stopped")
         finally:
             for future in futures:
+                future.cancel()
+            for future in cache_futures:
                 future.cancel()
             if capture is not None:
                 capture.stop()

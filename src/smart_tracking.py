@@ -18,6 +18,7 @@ ASSOCIATION_REID_GATE = 0.70
 ASSOCIATION_REID_STRONG = 0.84
 APPEARANCE_EMA_ALPHA = 0.18
 IDENTITY_CONFIRMATIONS = 2
+FACE_CACHE_MAX_SAMPLES = 12
 
 
 def iou(a, b):
@@ -141,6 +142,52 @@ class PersonTrack:
     last_crossing: Optional[str] = None
     last_crossing_frame: int = -10_000
     metadata: dict = field(default_factory=dict)
+    # Small, RAM-only recognition backlog. Samples are quality-ranked and
+    # discarded with the track; they never touch disk.
+    face_cache: list[dict] = field(default_factory=list, repr=False)
+    face_cache_finalized: bool = False
+
+    def cache_face_sample(
+        self,
+        crop,
+        bbox,
+        quality,
+        frame_no,
+        max_samples=FACE_CACHE_MAX_SAMPLES,
+    ):
+        if crop is None or getattr(crop, "size", 0) == 0:
+            return False
+
+        sample = {
+            "crop": np.ascontiguousarray(crop, dtype=np.uint8).copy(),
+            "bbox": tuple(int(v) for v in bbox),
+            "quality": float(quality),
+            "frame_no": int(frame_no),
+        }
+
+        self.face_cache.append(sample)
+        self.face_cache.sort(key=lambda item: item["quality"], reverse=True)
+        if len(self.face_cache) > int(max_samples):
+            del self.face_cache[int(max_samples):]
+        return True
+
+    def snapshot_face_cache(self):
+        # The worker owns the track, while a finalizer may process a snapshot
+        # asynchronously. Copying here prevents later mutations from leaking
+        # into the final decision.
+        return [
+            {
+                "crop": sample["crop"].copy(),
+                "bbox": tuple(sample["bbox"]),
+                "quality": float(sample["quality"]),
+                "frame_no": int(sample["frame_no"]),
+            }
+            for sample in self.face_cache
+        ]
+
+    def clear_face_cache(self):
+        self.face_cache.clear()
+        self.face_cache_finalized = True
 
     def predict(self, frame_shape):
         x1, y1, x2, y2 = self.bbox
@@ -396,10 +443,12 @@ class LineCrossing:
 
 
 def make_person_model_candidates(base_dir: Path):
+    # Keep model discovery portable. Never depend on a developer's
+    # machine-specific Trash/media paths.
     candidates = [
         base_dir / "yolo26n.pt",
+        base_dir / "yolov8n.pt",
         base_dir / "models" / "yolo26n.pt",
-        Path.home() / ".local/share/Trash/files/FaceRecognition/yolo26n.pt",
-        Path("/media/itsnxfi3/AAE2C7A6E2C7755B/.Trash-1000/files/yolo26n.pt"),
+        base_dir / "models" / "yolov8n.pt",
     ]
     return [path for path in candidates if path.exists()]
