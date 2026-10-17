@@ -100,6 +100,7 @@ except ModuleNotFoundError:
         add_embedding,
         add_major,
         add_student,
+        add_student_with_embeddings,
         assign_student_class,
         delete_class,
         delete_embeddings,
