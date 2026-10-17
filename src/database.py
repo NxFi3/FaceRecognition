@@ -1102,6 +1102,62 @@ def delete_embeddings(student_id):
         conn.close()
 
 
+def add_student_with_embeddings(student_code, name, class_id=None, embeddings=None):
+    """Create a student and all face samples in one SQLite transaction."""
+    student_code = str(student_code or "").strip()
+    name = str(name or "").strip()
+    if not student_code:
+        raise ValueError("کد دانش‌آموزی الزامی است.")
+    if not name:
+        raise ValueError("نام دانش‌آموز الزامی است.")
+
+    vectors = []
+    for embedding in (embeddings or []):
+        vector = np.asarray(embedding, dtype=np.float32).reshape(-1)
+        if vector.shape != (128,) or not np.isfinite(vector).all():
+            raise ValueError("نمونه چهره نامعتبر است؛ ثبت را دوباره انجام دهید.")
+        vectors.append(vector)
+
+    if not vectors:
+        raise ValueError("هیچ نمونه چهره‌ای برای ثبت وجود ندارد.")
+
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "INSERT INTO students (student_code, name) VALUES (?, ?)",
+            (student_code, name),
+        )
+        student_id = cursor.lastrowid
+
+        if class_id:
+            row = conn.execute(
+                "SELECT academic_year_id FROM school_classes WHERE id = ?",
+                (class_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("کلاس انتخاب‌شده پیدا نشد.")
+            conn.execute(
+                """
+                INSERT INTO student_enrollments
+                    (student_id, class_id, academic_year_id)
+                VALUES (?, ?, ?)
+                """,
+                (student_id, class_id, row[0]),
+            )
+
+        conn.executemany(
+            "INSERT INTO face_embeddings (student_id, embedding) VALUES (?, ?)",
+            [(student_id, vector.tobytes()) for vector in vectors],
+        )
+        conn.commit()
+        return student_id
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def add_embedding(student_id, embedding):
     embedding = np.asarray(embedding, dtype=np.float32)
     conn = get_connection()
