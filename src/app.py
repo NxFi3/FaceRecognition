@@ -1217,6 +1217,7 @@ class CameraWorker(QThread):
 class EnrollmentWorker(QThread):
     frame_ready = Signal(QImage)
     progress = Signal(int, int)
+    status = Signal(str)
     capture_done = Signal(object)
     error = Signal(str)
 
@@ -1263,6 +1264,16 @@ class EnrollmentWorker(QThread):
 
             embeddings = []
             last_sample = 0.0
+            last_status = None
+
+            def report_status(message):
+                nonlocal last_status
+                if message != last_status:
+                    last_status = message
+                    self.status.emit(message)
+                    logger.info("ENROLLMENT_STATUS %s", message)
+
+            report_status("دوربین آماده است؛ روبه‌روی دوربین قرار بگیرید.")
 
             while self._running and len(embeddings) < ENROLLMENT_SAMPLES:
                 ret, frame = cap.read()
@@ -1273,8 +1284,10 @@ class EnrollmentWorker(QThread):
                 self.frame_ready.emit(frame_to_qimage(frame))
                 _, detections = detector.detect(frame)
                 faces = []
+                detected_face_count = 0
 
                 if detections is not None:
+                    detected_face_count = len(detections)
                     for detection in detections:
                         x, y, w, h = detection[:4]
                         bbox = (
@@ -1291,15 +1304,26 @@ class EnrollmentWorker(QThread):
 
                 if len(faces) == 1:
                     bbox = faces[0]
+                    report_status(
+                        f"چهره پیدا شد؛ نمونه‌های ثبت‌شده: {len(embeddings)} از {ENROLLMENT_SAMPLES}"
+                    )
                     now = time.time()
                     if now - last_sample >= ENROLLMENT_SAMPLE_INTERVAL:
-                        embedding = face_embedding(frame, bbox)
+                        report_status("چهره پیدا شد؛ در حال استخراج ویژگی و ثبت نمونه...")
+                        try:
+                            embedding = face_embedding(frame, bbox)
+                        except Exception:
+                            logger.exception("ENROLLMENT_EMBEDDING_FAILED")
+                            raise
                         if embedding is not None:
                             embeddings.append(embedding)
                             last_sample = now
                             self.progress.emit(
                                 len(embeddings),
                                 ENROLLMENT_SAMPLES,
+                            )
+                            report_status(
+                                f"نمونه ثبت شد: {len(embeddings)} از {ENROLLMENT_SAMPLES}؛ کمی سرتان را حرکت دهید."
                             )
 
                     x1, y1, x2, y2 = bbox
@@ -1311,6 +1335,14 @@ class EnrollmentWorker(QThread):
                         2,
                     )
                 elif len(faces) == 0:
+                    if detected_face_count:
+                        report_status(
+                            "صورت پیدا شده اما خیلی کوچک است؛ نزدیک‌تر به دوربین بنشینید."
+                        )
+                    else:
+                        report_status(
+                            "چهره پیدا نشد؛ نور را بهتر کنید و صورت را روبه‌روی دوربین بگیرید."
+                        )
                     draw_text(
                         frame,
                         "No face detected",
@@ -1320,6 +1352,7 @@ class EnrollmentWorker(QThread):
                         2,
                     )
                 else:
+                    report_status("بیش از یک چهره دیده شد؛ فقط یک نفر جلوی دوربین بماند.")
                     draw_text(
                         frame,
                         "Only one person should be in front of the camera",
@@ -1342,8 +1375,8 @@ class EnrollmentWorker(QThread):
             )
 
         except Exception as exc:
+            logger.exception("ENROLLMENT_CAPTURE_FAILED")
             self.error.emit(str(exc))
-            self.capture_done.emit(None)
         finally:
             if cap is not None:
                 cap.release()
@@ -1625,6 +1658,7 @@ class EnrollmentDialog(QDialog):
         )
         self.worker.frame_ready.connect(self.update_preview)
         self.worker.progress.connect(self.update_progress)
+        self.worker.status.connect(self.progress_label.setText)
         self.worker.capture_done.connect(self.capture_finished)
         self.worker.error.connect(self.capture_error)
         self.worker.start()
@@ -1645,8 +1679,9 @@ class EnrollmentDialog(QDialog):
         )
 
     def capture_error(self, message):
-        QMessageBox.critical(self, "خطای ثبت", message)
         self.start_button.setEnabled(True)
+        self.progress_label.setText(f"ثبت انجام نشد: {message}")
+        QMessageBox.critical(self, "خطای ثبت", message)
         QTimer.singleShot(0, self.start_preview)
 
     def capture_finished(self, embeddings):
