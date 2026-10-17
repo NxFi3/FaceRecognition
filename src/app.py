@@ -1360,14 +1360,15 @@ class EnrollmentPreviewWorker(QThread):
         super().__init__(parent)
         self.camera_id = int(camera_id)
         self.target_fps = int(target_fps)
-        self._running = False
+        # Set before QThread.start() so an immediate stop cannot be overwritten
+        # by the worker thread's startup.
+        self._running = True
 
     def stop(self):
         self._running = False
 
     def run(self):
         cap = None
-        self._running = True
         try:
             self.status.emit("در حال اتصال به دوربین ثبت...")
             cap = _open_camera(self.camera_id, self.target_fps)
