@@ -1482,6 +1482,7 @@ class EnrollmentDialog(QDialog):
         self.camera_combo.blockSignals(False)
 
     def start_capture(self):
+        logger.info("ENROLLMENT_START_CLICKED camera_data=%r show_student_fields=%s", self.camera_combo.currentData(), self.show_student_fields)
         if self.camera_combo.currentData() is None:
             QMessageBox.warning(
                 self,
