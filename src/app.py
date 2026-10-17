@@ -1227,7 +1227,8 @@ class EnrollmentWorker(QThread):
 
     def __init__(self, camera_id=None, target_fps=None, parent=None):
         super().__init__(parent)
-        self._running = False
+        # Set before start() so stop() cannot be overwritten by run() startup.
+        self._running = True
         self.camera_id = camera_id
         self.target_fps = target_fps
 
@@ -1235,10 +1236,11 @@ class EnrollmentWorker(QThread):
         self._running = False
 
     def run(self):
-        self._running = True
         cap = None
 
         try:
+            if not self._running:
+                return
             if not YUNET_MODEL_PATH.exists():
                 raise FileNotFoundError(
                     f"مدل YuNet پیدا نشد: {YUNET_MODEL_PATH}"
