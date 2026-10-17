@@ -1158,6 +1158,37 @@ def add_student_with_embeddings(student_code, name, class_id=None, embeddings=No
         conn.close()
 
 
+def replace_student_embeddings(student_id, embeddings):
+    """Replace all face samples only if every new sample can be saved."""
+    vectors = []
+    for embedding in (embeddings or []):
+        vector = np.asarray(embedding, dtype=np.float32).reshape(-1)
+        if vector.shape != (128,) or not np.isfinite(vector).all():
+            raise ValueError("نمونه چهره نامعتبر است؛ ثبت را دوباره انجام دهید.")
+        vectors.append(vector)
+    if not vectors:
+        raise ValueError("هیچ نمونه چهره‌ای برای ثبت وجود ندارد.")
+
+    conn = get_connection()
+    try:
+        exists = conn.execute(
+            "SELECT 1 FROM students WHERE id = ?", (student_id,)
+        ).fetchone()
+        if exists is None:
+            raise ValueError("دانش‌آموز موردنظر پیدا نشد.")
+        conn.execute("DELETE FROM face_embeddings WHERE student_id = ?", (student_id,))
+        conn.executemany(
+            "INSERT INTO face_embeddings (student_id, embedding) VALUES (?, ?)",
+            [(student_id, vector.tobytes()) for vector in vectors],
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def add_embedding(student_id, embedding):
     embedding = np.asarray(embedding, dtype=np.float32)
     conn = get_connection()
