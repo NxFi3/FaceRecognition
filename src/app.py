@@ -1349,6 +1349,49 @@ class EnrollmentWorker(QThread):
                 cap.release()
             self._running = False
 
+class EnrollmentPreviewWorker(QThread):
+    """Lightweight live preview used before face enrollment starts."""
+
+    frame_ready = Signal(QImage)
+    status = Signal(str)
+    error = Signal(str)
+
+    def __init__(self, camera_id, target_fps, parent=None):
+        super().__init__(parent)
+        self.camera_id = int(camera_id)
+        self.target_fps = int(target_fps)
+        self._running = False
+
+    def stop(self):
+        self._running = False
+
+    def run(self):
+        cap = None
+        self._running = True
+        try:
+            self.status.emit("در حال اتصال به دوربین ثبت...")
+            cap = _open_camera(self.camera_id, self.target_fps)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            self.status.emit(
+                f"پیش‌نمایش زنده فعال است • {width}×{height} • برای ثبت آماده‌اید."
+            )
+
+            while self._running:
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    raise RuntimeError("دریافت تصویر از دوربین ثبت ناموفق بود.")
+                self.frame_ready.emit(frame_to_qimage(frame))
+                self.msleep(20)
+        except Exception as exc:
+            logger.exception("ENROLLMENT_PREVIEW_FAILED camera_id=%s", self.camera_id)
+            self.error.emit(str(exc))
+        finally:
+            if cap is not None:
+                cap.release()
+            self._running = False
+
+
 class EnrollmentDialog(QDialog):
     def __init__(self, show_student_fields=True, student_id=None, parent=None):
         super().__init__(parent)
@@ -1357,6 +1400,7 @@ class EnrollmentDialog(QDialog):
         self.student_id = student_id
         self.embeddings = None
         self.worker = None
+        self.preview_worker = None
 
         self.setModal(True)
         self.setWindowTitle(
@@ -1448,6 +1492,51 @@ class EnrollmentDialog(QDialog):
         buttons.addWidget(self.cancel_button)
         root.addLayout(buttons)
 
+        # Start a lightweight live preview as soon as the dialog enters the event loop.
+        QTimer.singleShot(0, self.start_preview)
+
+    def start_preview(self):
+        if self.preview_worker is not None and self.preview_worker.isRunning():
+            return
+
+        camera_id = self.camera_combo.currentData()
+        if camera_id is None:
+            self.enrollment_camera_status.setText(
+                "دوربین معتبری برای پیش‌نمایش پیدا نشد؛ «بازخوانی» را بزنید."
+            )
+            return
+
+        target_fps = int(
+            get_setting(
+                "camera_1_target_fps",
+                get_setting("camera_target_fps", DEFAULT_CAMERA_TARGET_FPS),
+            )
+        )
+        self.preview_worker = EnrollmentPreviewWorker(
+            camera_id=int(camera_id),
+            target_fps=target_fps,
+        )
+        self.preview_worker.frame_ready.connect(self.update_preview)
+        self.preview_worker.status.connect(self.enrollment_camera_status.setText)
+        self.preview_worker.error.connect(self.preview_error)
+        self.preview_worker.start()
+
+    def stop_preview(self, timeout_ms=4000):
+        worker = self.preview_worker
+        if worker is None or not worker.isRunning():
+            return True
+        worker.stop()
+        worker.wait(timeout_ms)
+        if worker.isRunning():
+            logger.error("ENROLLMENT_PREVIEW_STOP_TIMEOUT")
+            return False
+        return True
+
+    def preview_error(self, message):
+        self.enrollment_camera_status.setText(
+            f"پیش‌نمایش دوربین فعال نشد: {message}"
+        )
+
     def refresh_enrollment_cameras(self):
         selected_id = self.camera_combo.currentData() if self.camera_combo.count() else None
         cameras = _discover_cameras()
@@ -1508,6 +1597,14 @@ class EnrollmentDialog(QDialog):
                 )
                 return
 
+        # Release the preview camera before the enrollment worker opens it.
+        self.progress_label.setText("در حال آماده‌سازی دوربین برای ثبت...")
+        if not self.stop_preview():
+            self.progress_label.setText(
+                "دوربین هنوز در حال آزادشدن است؛ چند ثانیه صبر کنید و دوباره بزنید."
+            )
+            return
+
         self.start_button.setEnabled(False)
         self.progress_label.setText(
             "دوربین فعال شد؛ روبه‌روی دوربین بایستید و کمی حرکت طبیعی داشته باشید."
@@ -1549,11 +1646,13 @@ class EnrollmentDialog(QDialog):
     def capture_error(self, message):
         QMessageBox.critical(self, "خطای ثبت", message)
         self.start_button.setEnabled(True)
+        QTimer.singleShot(0, self.start_preview)
 
     def capture_finished(self, embeddings):
         if embeddings is None:
             self.progress_label.setText("ثبت لغو شد یا کامل نشد.")
             self.start_button.setEnabled(True)
+            QTimer.singleShot(0, self.start_preview)
             return
 
         self.embeddings = embeddings
@@ -1564,10 +1663,11 @@ class EnrollmentDialog(QDialog):
         self.accept()
 
     def closeEvent(self, event):
-        logger.info("APP_CLOSE_EVENT")
+        logger.info("ENROLLMENT_DIALOG_CLOSE")
+        self.stop_preview()
         if self.worker is not None and self.worker.isRunning():
             self.worker.stop()
-            self.worker.wait(3000)
+            self.worker.wait(4000)
         event.accept()
 
 
