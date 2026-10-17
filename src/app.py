@@ -216,7 +216,7 @@ TRACK_MAX_MISSES = 3
 # Enrollment should cover natural variation rather than five near-identical frames.
 ENROLLMENT_SAMPLES = 12
 ENROLLMENT_SAMPLE_INTERVAL = 1.0
-ENROLLMENT_MIN_FACE_SIZE = 80
+ENROLLMENT_MIN_FACE_SIZE = 60
 
 # Face crops are padded before encoding so important facial context is retained.
 FACE_CROP_PADDING = 0.20
