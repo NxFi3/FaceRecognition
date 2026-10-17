@@ -52,6 +52,7 @@ try:
         add_embedding,
         add_major,
         add_student,
+        add_student_with_embeddings,
         assign_student_class,
         delete_class,
         delete_embeddings,
@@ -1649,6 +1650,17 @@ class EnrollmentDialog(QDialog):
                     "اطلاعات ناقص",
                     "نام دانش‌آموز الزامی است.",
                 )
+                return
+
+            # Catch duplicate codes before spending time capturing 12 samples.
+            existing_student = find_student_by_code(self.code_edit.text().strip())
+            if existing_student is not None:
+                QMessageBox.warning(
+                    self,
+                    "کد تکراری",
+                    "این کد دانش‌آموزی قبلاً ثبت شده است. کد دیگری وارد کنید.",
+                )
+                self.code_edit.setFocus()
                 return
 
         # Release the preview camera before the enrollment worker opens it.
@@ -5666,13 +5678,12 @@ class MainWindow(QMainWindow):
                 return
 
             try:
-                student_id = add_student(
+                student_id = add_student_with_embeddings(
                     dialog.code_edit.text().strip(),
                     dialog.name_edit.text().strip(),
                     dialog.class_combo.currentData(),
+                    dialog.embeddings,
                 )
-                for embedding in dialog.embeddings:
-                    add_embedding(student_id, embedding)
             except Exception as exc:
                 QMessageBox.critical(
                     self,
