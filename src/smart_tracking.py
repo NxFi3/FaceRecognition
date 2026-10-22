@@ -163,6 +163,8 @@ class PersonTrack:
         quality,
         frame_no,
         max_samples=FACE_CACHE_MAX_SAMPLES,
+        recognition_future=None,
+        matcher=None,
     ):
         if crop is None or getattr(crop, "size", 0) == 0:
             return False
@@ -172,6 +174,8 @@ class PersonTrack:
             "bbox": tuple(int(v) for v in bbox),
             "quality": float(quality),
             "frame_no": int(frame_no),
+            "recognition_future": recognition_future,
+            "matcher": matcher,
         }
 
         self.face_cache.append(sample)
@@ -190,6 +194,8 @@ class PersonTrack:
                 "bbox": tuple(sample["bbox"]),
                 "quality": float(sample["quality"]),
                 "frame_no": int(sample["frame_no"]),
+                "recognition_future": sample.get("recognition_future"),
+                "matcher": sample.get("matcher"),
             }
             for sample in self.face_cache
         ]
@@ -251,6 +257,7 @@ class PersonTrack:
             self.appearance = updated / max(float(np.linalg.norm(updated)), 1e-8)
 
         self.last_reid_frame = frame_no
+        self.metadata["appearance_samples"] = self.metadata.get("appearance_samples", 0) + 1
 
 
 class SmartPersonTracker:
@@ -323,17 +330,26 @@ class SmartPersonTracker:
 
         return assignments, used_detections
 
-    def update(self, detections, frame, frame_no):
+    def update(self, detections, frame, frame_no, reid_priority=False):
         for track in self.tracks.values():
             if track.misses == 0:
                 track.predict(frame.shape)
 
-        need_reid = (
-            self.reid is not None
-            and (
-                frame_no % self.reid_interval == 0
-                or not self.tracks
-                or any(track.appearance is None for track in self.tracks.values())
+        # Schedule from the last actual observation, never a modulo tick that
+        # a detector cadence can skip. Association below remains unchanged.
+        active = [track for track in self.tracks.values() if track.misses == 0]
+        need_reid = self.reid is not None and bool(detections) and (
+            not self.tracks
+            or len(detections) > len(active)
+            or any(
+                track.appearance is None
+                or frame_no - track.last_reid_frame >= (
+                    min(3, self.reid_interval)
+                    if track.metadata.get("appearance_samples", 0) < 2 or reid_priority
+                    else max(self.reid_interval, 12) if track.student_id is not None
+                    else self.reid_interval
+                )
+                for track in active
             )
         )
         if need_reid:
@@ -371,9 +387,11 @@ class SmartPersonTracker:
                 continue
             track.misses += 1
             track.age += 1
-            # A one/two-observation detector blip should not retain crops and
-            # clutter the worker for the full mature-track occlusion window.
-            max_misses = MAX_MISSES if track.hits >= 3 else MAX_TENTATIVE_MISSES
+            # Retain repeat detections and real face opportunities through
+            # occlusion; only a single, face-free blip gets the short lifetime.
+            has_evidence = (track.hits >= 2 or bool(track.face_cache)
+                            or track.metadata.get("face_submitted_frame") is not None)
+            max_misses = MAX_MISSES if has_evidence else MAX_TENTATIVE_MISSES
             if track.misses <= max_misses:
                 next_tracks[track_id] = track
 

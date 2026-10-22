@@ -105,3 +105,29 @@ class DetectionSchedule:
         if due:
             self.last_detection = now
         return due
+
+
+def face_observation_due(track, frame_no, quality, *, unknown_interval=2, stable_interval=30):
+    """Admission cadence only; never decide who a track represents.
+
+    Cadence is measured from submission, not completion. Unknown tracks use each
+    face-detection tick. Identified tracks retain periodic/improving observations.
+    """
+    if track.misses:
+        return False
+    last = track.metadata.get('face_submitted_frame')
+    if last is None:
+        return True
+    elapsed = frame_no - last
+    if track.student_id is None:
+        return elapsed >= unknown_interval
+    improved = quality >= track.metadata.get('face_submitted_quality', 0.0) + 0.10
+    return elapsed >= stable_interval or (improved and elapsed >= 5)
+
+
+def face_priority(track, near_crossing, quality):
+    # Oldest opportunity first within unknown/known groups prevents a large,
+    # photogenic face from starving another track indefinitely.
+    return (track.student_id is not None,
+            track.metadata.get('face_submitted_frame', -1),
+            not near_crossing, -quality)

@@ -29,12 +29,12 @@ in the production path: YuNet uses OpenCV, person detection and OSNet use torch.
 |---|---|---|
 | One-frame mailbox, monotonic read timestamp, sequence gaps, reject frames older than 250 ms before processing | No processing backlog or duplicate consumption; avoids stale work after stalls | capture age p95, dropped/stale counts, total p95 |
 | Interruptible reconnect with 0.25–5 s backoff, validation of empty/invalid frames, startup retry | Prevents hot failure loops and persistent disconnected state | failed reads, opens/reconnects, CPU while unplugged |
-| Explicit raw Bayer setting per camera; default off | Removes hardware-specific automatic second-camera format assumption | successful startup on ordinary webcams |
+| Known ov534 dual-camera auto-selection, with explicit per-camera overrides | Keeps native low-bandwidth capture on PS3 Eye devices without forcing unrelated webcams into Bayer | capture mode/size gauges, startup and image quality |
 | One shared downstream executor with a hard running-plus-queued limit | Bounds retained crops, native concurrency, and pending work | downstream depth, RSS, queue-delay p95 |
-| One regular in-flight job per track; optional jobs expire after 500 ms waiting; leave an admission slot for crossings | Avoids redundant observations and outdated expensive work | downstream calls, expired/deferred/rejected counts, CPU |
+| One regular in-flight job per track; stable-track jobs expire after 500 ms; unknown jobs get priority within the hard bound | Protects unknown observations while limiting redundant/background work | downstream calls, opportunity counts, expired/deferred/rejected counts, CPU |
 | Cache futures retain their track/camera context outside the opaque result | Fixes the original completion handler's invalid tuple unpacking, which discarded pending crossings | crossing regression test and real event trace |
 | Empty, quiet scene detector backoff with motion wake-up and periodic full checks | Avoids person detection when nothing changes; occupied scenes retain existing cadence | detector call rate and CPU when empty; first-person acquisition delay |
-| Tentative tracks expire after three missed detector updates, mature tracks retain 18 | Reclaims one/two-observation noise tracks and crops sooner | stale-track count and RSS in noisy footage |
+| Single-detection tracks without face evidence expire after three misses; repeat detections/face evidence keep main’s 18-miss window | Removes obvious noise without prematurely losing useful evidence | stale tracks, short-pass recognition, RSS |
 | Conservative native threads, including Ultralytics' lazy reset | Prevents two cameras multiplying host-sized thread pools | native thread count, CPU, detector p95 |
 | Preview rates of 5/10/15 FPS, skip preview when frame processing exceeds 250 ms, consume GUI mailbox once | Reduces annotation, QImage, scaling and repeated GUI work during overload | preview/QImage/render time, GUI responsiveness |
 | GUI timer polls camera shutdown; live workers are retained until finished | Prevents GUI waits, duplicate camera starts, and destruction of running QThreads | repeated start/stop and unplugged shutdown behavior |
@@ -116,9 +116,9 @@ Select a preset with `FACE_RUNTIME_PROFILE`. Overrides are
 OpenCV defaults to one thread; torch inter-op is one. OMP/MKL/OpenBLAS/NumExpr
 default to one **only if not already explicitly configured in the environment**.
 Check inherited settings on deployment. Restart the application after changing
-profiles: the shared executor is created once. Raw Bayer is explicitly selected
-through DB settings `camera_1_raw_bayer` / `camera_2_raw_bayer`, only for cameras
-that support the requested GRBG format.
+profiles: the shared executor is created once. Known ov534 cameras use raw Bayer automatically in dual-camera mode; DB settings
+`camera_1_raw_bayer` / `camera_2_raw_bayer` override that choice. Raw mode is only
+appropriate for cameras that support the requested GRBG format.
 
 ## Local evidence
 
@@ -176,3 +176,148 @@ python -m pytest -q
 - Enrollment and legacy `CameraWorker` are not converted to this scheduling path.
   The repository's existing Windows workflow is malformed/duplicated; packaging
   repair and Windows smoke validation remain separate from runtime verification.
+
+## Quality recovery follow-up (deployment feedback)
+
+The operator reported approximately 20.74 / 20.57 processed FPS, 108% process
+CPU, 1.81 GB RAM and near-zero downstream queue depth on the real two-camera
+system, but worse recognition and apparent hand-off failure. Those are
+operator-provided measurements, not measurements reproduced in this workspace.
+This follow-up preserves the four deployment fixes already pushed to this branch.
+
+### Comparison against main and demonstrated failure mechanisms
+
+- **Introduced by the first performance pass:** tentative tracks with one *or
+  two* detections expired after three misses, versus 19 on main. This can discard
+  accumulated face evidence and continuity during a brief occlusion. Only a
+  single-detection track with no admitted face observation now uses that short
+  lifetime. Repeat detections or face evidence retain main's occlusion window.
+- **Introduced tightening:** per-track in-flight suppression, a reserved queue
+  slot, and 500 ms expiry reduced available opportunities. They can compound
+  main's existing five-frame wait measured again from completion. In-flight
+  suppression is retained, but unknown admission is now every face-detection tick
+  (two processed frames), measured from submission. Unknown evidence uses all
+  available bounded capacity and does not expire while waiting. With near-zero
+  measured queues, expiry is a possible overload failure mechanism, **not evidence
+  that it caused this particular deployment run's quality drop**.
+- **Pre-existing on main:** face detection every two frames, recognition interval
+  five, CPU Re-ID interval floor 12, and 160-pixel cache thumbnails. None of those
+  constants was introduced by the first pass. Re-ID's modulo-only refresh could
+  also miss opportunities when detector ticks did not align. Scheduling now uses
+  elapsed processed frames since an actual embedding, requests the first two
+  observations early, and removes the unconditional CPU floor for unknown tracks.
+- **Pre-existing missing callback, exposed by repaired cache completion:** cache
+  identities never called `register_face_identity`. An active track might publish
+  later via `observe_track`, but a departed source never did. Both regular and
+  cache confirmation now register immediately; a late confirmation preserves its
+  appearance profile while removing the obsolete active track link.
+- **Pre-existing visibility mismatch:** worker hand-offs are stored as
+  `pending_global_identity`, while the preview checked `global_identity`. The
+  preview now explicitly shows `RE-ID CANDIDATE`. Existing face-proof policy is
+  preserved: an appearance candidate is not silently promoted to verified
+  attendance identity. The actual global similarity/margin/role/time-window
+  decisions and local association scores remain byte-for-byte unchanged.
+- **Event ordering:** identity reconciliation could process a deferred exit, then
+  the cache callback processed it again and emitted `UNEXPECTED_EXIT`. A pending
+  crossing now owns event delivery until its finalizer/fallback flushes it once.
+
+These are code-demonstrated mechanisms, not a claim to have isolated every cause
+of the observed recognition decline without the original footage and database.
+
+### Observation and cache behavior now
+
+Unknown tracks take priority over identified tracks. Within that group, the oldest
+opportunity goes first, followed by crossing proximity and existing quality score.
+Poor-quality faces are not newly rejected: a profile/blur filter must not eliminate
+an unknown person's only opportunity. Same-track duplicate in-flight work remains
+suppressed. Identified tracks get a periodic observation every 30 processed frames,
+or an improving-quality observation after at least five frames. No acceptance or
+confirmation thresholds change; the three-confirmation regular path remains.
+
+OSNet receives an initial opportunity for new/missing-appearance tracks and an
+additional early refresh (minimum three-frame spacing for the first two samples).
+Unknown tracks then use the configured interval (default six), identified tracks
+at least 12 frames. Entering the crossing band requests an earlier refresh; staying
+in that band does not continually force the early cadence. Each inference still
+uses the original OSNet preprocessing and existing local/global association logic.
+
+Each admitted face observation now retains its completed future alongside its
+compact sample. Finalization reuses the original-resolution descriptor and matcher
+result from **that observation and that matcher instance**. It no longer encodes a
+lossy thumbnail of the same observation again. The cache still holds at most 12
+compact images and small descriptor results; no extra full-frame cache is added.
+The existing clustering, vote weighting, vote ratios and margins are unchanged.
+The descriptor input to final voting is deliberately the already-used full-quality
+recognition crop, not numerically identical to the former thumbnail descriptor.
+Legacy samples or failed/expired jobs still use the thumbnail fallback. Synthetic
+same-input tests verify unchanged voting results and no mutation of reused vectors.
+
+Cache work waits for admitted face jobs **outside** the executor, so a single-worker
+pool cannot deadlock on its own queued jobs. A visible track with one sample gets
+up to one second to collect the second sample required by existing voting policy.
+Pending plus submitted finalizations are bounded per camera by the profile's
+capacity; the shared executor's original hard limit still applies. Admission has
+an explicit two-second deadline with the existing visible fallback/error behavior.
+This bounds memory even if downstream work stalls. Ordinary ready caches incur no
+extra fixed wait.
+
+### Camera and crop checks
+
+The remote branch had already restored ov534 auto-selection. The first camera was
+still evaluated before the second enabled slot was counted. Both known PS3 Eye
+cameras now receive the same dual-camera decision; explicit per-camera settings
+still win, and generic webcams are not automatically forced into raw mode.
+
+Synthetic GRBG input was checked through actual capture/demosaicing: red, green
+and blue land in the expected BGR channels. Crop padding (20%), small-face upscale
+(2.5x), local rectangle scaling, original-image ownership and preview isolation are
+covered by tests. Capture now reports negotiated width/height and raw-mode gauges.
+This cannot validate a physical camera's firmware, exposure or white balance.
+
+GUI enrollment and live matching both use the existing BGR descriptor helper.
+The separate CLI `enroll.py` converts to RGB. This older mismatch was not introduced
+by the optimization and is **not silently changed** for an existing embedding DB.
+If enrollment used that CLI, deployment validation must establish the stored-input
+convention before changing descriptor inputs or re-enrolling. No global channel
+swap, landmark/model replacement or biometric threshold adjustment is made here.
+
+### Focused validation and deployment check
+
+All **30 tests pass**, including the 17 prior cases (one worker fake accepts the new scheduling
+argument and runs long enough to exercise actual deferred completion). New tests
+cover delayed short-pass face opportunities, unknown priority, evidence-preserving
+retirement, early/modulo-independent Re-ID, late source confirmation after loss,
+exactly-once synthetic hand-off candidates, one deferred exit, encoder-result reuse,
+matcher isolation, pixel ownership, GRBG color order and ov534 override behavior.
+
+In the delayed-job worker test the three face submissions occur at processed
+frames 2, 6 and 10 with only one job in flight, and the unchanged confirmation rule
+identifies the synthetic track. This is an orchestration result, **not measured
+walking speed or recognition accuracy**. Three admitted sample encodings followed
+by two finalizations call the opaque encoder exactly three times; the finalizations
+make zero additional encoding calls. No target-PC speedup is inferred from mocks.
+
+Run the same short real-camera profile command with a fresh filename, e.g.:
+
+```sh
+python -m tools.profile_runtime --profile balanced --seconds 120 --output quality-followup.jsonl
+```
+
+In addition to the existing stages, compare:
+
+- `camera.*.face.unknown_opportunities` / `stable_opportunities`
+- `camera.*.face.time_to_identity`: first admitted face job to accepted identity;
+  tracks never recognized have opportunity counts but no successful latency sample
+- `camera.*.reid.observations`, `global.registered`, `global.appearance_anchors`,
+  `global.registered_without_appearance`, and `global.candidates`
+- `face_cache.reused_encodings` versus `fallback_encodings`
+- `camera.*.downstream.cache_pending`, `cache_deadline`, `cache_admission` waiting
+  time, and original executor queue delay
+- `capture.*.width`, `height`, `raw_bayer`
+
+Use the previously enrolled person entering, crossing, briefly occluding and moving
+to the second camera, then an empty/identified steady scene. Unknown/bootstrap
+inference should consume more CPU briefly; stable-track backoff and removal of
+redundant cache encodings should offset some cost. Actual accuracy, time to identity,
+cache p95 and aggregate CPU still require this real run. No model replacements,
+thread-count increases, large local benchmarks or accuracy percentages are claimed.

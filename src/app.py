@@ -4278,7 +4278,11 @@ class MainWindow(QMainWindow):
         ):
             return
 
-        enabled_slots = []
+        enabled_camera_count = sum(
+            str(get_setting(f"camera_{slot}_enabled", "1" if slot == 1 else "0") or "0")
+            .strip().lower() in {"1", "true", "yes", "on"}
+            for slot in (1, 2)
+        )
         for slot in (1, 2):
             enabled = str(
                 get_setting(
@@ -4300,8 +4304,6 @@ class MainWindow(QMainWindow):
             if not enabled or camera_id < 0:
                 continue
 
-            enabled_slots.append(slot)
-
             target_fps = int(
                 get_setting(
                     f"camera_{slot}_target_fps",
@@ -4315,19 +4317,7 @@ class MainWindow(QMainWindow):
             # With two USB2 cameras active, 30 FPS capture preserves the
             # full 640x480 spatial quality while avoiding a needless 60 FPS
             # transfer rate that the CPU analysis pipeline cannot consume.
-            if len(
-                [
-                    s for s in (1, 2)
-                    if str(
-                        get_setting(
-                            f"camera_{s}_enabled",
-                            "1" if s == 1 else "0",
-                        )
-                        or "0"
-                    ).strip().lower()
-                    in {"1", "true", "yes", "on"}
-                ]
-            ) >= 2:
+            if enabled_camera_count >= 2:
                 target_fps = min(target_fps, self._dual_camera_fps_cap)
 
             role = str(
@@ -4382,7 +4372,7 @@ class MainWindow(QMainWindow):
                     "raw_bayer": _camera_raw_bayer_setting(
                         slot,
                         camera_id,
-                        len(enabled_slots) >= 2,
+                        enabled_camera_count >= 2,
                     ),
                 },
                 presence_state=self.presence_state,

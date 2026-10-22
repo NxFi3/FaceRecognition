@@ -40,6 +40,9 @@ class LatestFrameCapture:
             self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
             self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
             self.fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+            metrics.gauge(self._prefix + ".width", self.width)
+            metrics.gauge(self._prefix + ".height", self.height)
+            metrics.gauge(self._prefix + ".raw_bayer", self._raw_bayer)
             return cap
         except Exception:
             self._release(cap)

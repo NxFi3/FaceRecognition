@@ -121,6 +121,7 @@ class AttendanceEventEngine:
         # trusted instead of losing the attendance transition.
         if (
             track.last_crossing == "enter"
+            and not track.metadata.get("pending_crossing")
             and student_id not in self.present
         ):
             self._enter(track, camera_id)
@@ -128,6 +129,7 @@ class AttendanceEventEngine:
 
         if (
             track.last_crossing == "exit"
+            and not track.metadata.get("pending_crossing")
             and student_id in self.present
         ):
             self._exit(track, camera_id)
