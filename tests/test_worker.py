@@ -54,8 +54,13 @@ def test_cache_completion_keeps_track_context_and_camera(monkeypatch):
         def detect(self, frame): return None, None
     class Line:
         orientation, position = 'vertical', .5
-        def __init__(self, **kwargs): pass
-        def check(self, *args): return 'enter'
+        def __init__(self, **kwargs):
+            self._crossed = False
+        def check(self, *args):
+            if self._crossed:
+                return None
+            self._crossed = True
+            return 'enter'
     class Executor:
         pending = 0
         def submit(self, fn, *args):
