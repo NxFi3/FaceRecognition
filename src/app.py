@@ -1,4 +1,20 @@
+# Support both `python -m src.app` and the existing script entry point.
+if not __package__:
+    import sys as _sys
+    from pathlib import Path as _Path
+    _sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
+    __package__ = "src"
+
+try:
+    from .runtime import configure_native_environment, profile, thread_count
+    from .profiling import metrics
+except ImportError:
+    from src.runtime import configure_native_environment, profile, thread_count
+    from src.profiling import metrics
+configure_native_environment()
+
 import csv
+import logging
 import os
 import sys
 import time
@@ -215,48 +231,16 @@ UI_FRAME_LIMIT = 1.0 / 20.0
 
 def _configure_cpu_runtime():
     """Bound CPU parallelism when multiple camera pipelines share one host."""
+    cv2.setNumThreads(thread_count("FACE_OPENCV_THREADS", 1))
     try:
         import torch
     except ImportError:
         return
-
-    device = str(get_setting("person_device", "") or "").strip().lower()
-    if device.startswith("cuda"):
-        return
-
-    cpu_count = os.cpu_count() or 1
-    dual_camera = all(
-        str(
-            get_setting(
-                f"camera_{slot}_enabled",
-                "1" if slot == 1 else "0",
-            )
-            or "0"
-        ).strip().lower()
-        in {"1", "true", "yes", "on"}
-        for slot in (1, 2)
-    )
-
-    # The CPU is shared by two independent inference streams. Keeping one
-    # inter-op worker and a bounded intra-op pool prevents thread explosion.
-    divisor = 4 if dual_camera else 2
-    intra_threads = max(1, min(8, cpu_count // divisor))
-
-    try:
-        torch.set_num_threads(intra_threads)
-    except RuntimeError:
-        pass
-
+    torch.set_num_threads(thread_count("FACE_TORCH_THREADS", profile().torch_threads))
     try:
         torch.set_num_interop_threads(1)
     except RuntimeError:
-        pass
-
-    # OpenCV can otherwise create another large native thread pool for
-    # preprocessing/color conversion on every camera worker.
-    try:
-        cv2.setNumThreads(max(1, min(4, cpu_count // divisor)))
-    except Exception:
+        # PyTorch only permits setting inter-op parallelism before first use.
         pass
 
 
@@ -266,6 +250,31 @@ def _camera_backends():
     if sys.platform.startswith("linux"):
         return [cv2.CAP_V4L2, cv2.CAP_ANY]
     return [cv2.CAP_ANY]
+
+
+def _camera_prefers_raw_bayer(camera_id):
+    """Auto-enable the proven low-bandwidth path only for known ov534 cameras.
+
+    The two PS3 Eye/ov534 cameras used by this deployment previously relied on
+    raw Bayer when both were active. PR #5 accidentally changed that behavior
+    to opt-in via a new DB setting that existing installations do not have.
+    Ordinary webcams remain on their normal RGB/YUYV path.
+    """
+    if not sys.platform.startswith("linux"):
+        return False
+    try:
+        name_path = Path(f"/sys/class/video4linux/video{int(camera_id)}/name")
+        name = name_path.read_text(encoding="utf-8", errors="ignore").strip().lower()
+    except (OSError, ValueError):
+        return False
+    return "ov534" in name or "playstation" in name or "ps3 eye" in name
+
+
+def _camera_raw_bayer_setting(slot, camera_id, dual_camera):
+    configured = get_setting(f"camera_{slot}_raw_bayer", None)
+    if configured is not None and str(configured).strip() != "":
+        return str(configured).strip().lower() in {"1", "true", "yes", "on"}
+    return bool(dual_camera and _camera_prefers_raw_bayer(camera_id))
 
 
 def _open_camera(camera_id, target_fps=DEFAULT_CAMERA_TARGET_FPS):
@@ -2979,6 +2988,10 @@ class MainWindow(QMainWindow):
         self.camera_workers = {}
         self.camera_worker = None  # Backwards-compatible alias for Camera 1.
         self._dual_camera_fps_cap = 30
+        self._attendance_refresh_pending = False
+        self._stop_poll_scheduled = False
+        self._restart_requested = False
+        self._close_pending = False
 
         # Preview frames use a latest-value mailbox rather than queued GUI
         # events. This prevents a slow GUI from displaying stale camera frames.
@@ -4265,7 +4278,11 @@ class MainWindow(QMainWindow):
         ):
             return
 
-        enabled_slots = []
+        enabled_camera_count = sum(
+            str(get_setting(f"camera_{slot}_enabled", "1" if slot == 1 else "0") or "0")
+            .strip().lower() in {"1", "true", "yes", "on"}
+            for slot in (1, 2)
+        )
         for slot in (1, 2):
             enabled = str(
                 get_setting(
@@ -4287,8 +4304,6 @@ class MainWindow(QMainWindow):
             if not enabled or camera_id < 0:
                 continue
 
-            enabled_slots.append(slot)
-
             target_fps = int(
                 get_setting(
                     f"camera_{slot}_target_fps",
@@ -4302,19 +4317,7 @@ class MainWindow(QMainWindow):
             # With two USB2 cameras active, 30 FPS capture preserves the
             # full 640x480 spatial quality while avoiding a needless 60 FPS
             # transfer rate that the CPU analysis pipeline cannot consume.
-            if len(
-                [
-                    s for s in (1, 2)
-                    if str(
-                        get_setting(
-                            f"camera_{s}_enabled",
-                            "1" if s == 1 else "0",
-                        )
-                        or "0"
-                    ).strip().lower()
-                    in {"1", "true", "yes", "on"}
-                ]
-            ) >= 2:
+            if enabled_camera_count >= 2:
                 target_fps = min(target_fps, self._dual_camera_fps_cap)
 
             role = str(
@@ -4364,10 +4367,13 @@ class MainWindow(QMainWindow):
                     "line_position": line_position,
                     "line_direction": line_direction,
                     "line_cooldown": line_cooldown,
-                    # Both installed ov534 cameras share USB2. Native 8-bit
-                    # Bayer halves the video payload while retaining 640x480.
-                    "raw_bayer": len(enabled_slots) >= 2
-                    and sys.platform.startswith("linux"),
+                    # Preserve the existing PS3 Eye/ov534 dual-camera path
+                    # automatically unless the operator explicitly overrides it.
+                    "raw_bayer": _camera_raw_bayer_setting(
+                        slot,
+                        camera_id,
+                        enabled_camera_count >= 2,
+                    ),
                 },
                 presence_state=self.presence_state,
                 identity_manager=self.global_identity_manager,
@@ -4398,18 +4404,39 @@ class MainWindow(QMainWindow):
             self.camera_previews[2].setText("Camera 2 غیرفعال است.")
 
     def stop_camera(self):
-        workers = list(self.camera_workers.values())
-        for worker in workers:
-            if worker.isRunning():
-                worker.stop()
-                worker.wait(5000)
+        for worker in self.camera_workers.values():
+            worker.stop()
+        with self._latest_camera_images_lock:
+            self._latest_camera_images.clear()
+        self._reap_camera_workers()
 
-        self.camera_workers.clear()
-        self.camera_worker = None
+    def _reap_camera_workers(self):
+        # Poll completion from the GUI event loop instead of blocking it in wait().
+        # Keep references to live QThreads, even when a native driver is stuck.
+        self.camera_workers = {
+            slot: worker for slot, worker in self.camera_workers.items()
+            if worker.isRunning()
+        }
+        self.camera_worker = self.camera_workers.get(1)
+        if self.camera_workers:
+            if not self._stop_poll_scheduled:
+                self._stop_poll_scheduled = True
+                QTimer.singleShot(100, self._poll_camera_stop)
+            return
+        if self._close_pending:
+            self._close_pending = False
+            QTimer.singleShot(0, self.close)
+        elif self._restart_requested:
+            self._restart_requested = False
+            self.start_camera()
+
+    def _poll_camera_stop(self):
+        self._stop_poll_scheduled = False
+        self._reap_camera_workers()
 
     def restart_camera(self):
+        self._restart_requested = True
         self.stop_camera()
-        self.start_camera()
 
     def _store_camera_preview(self, camera_slot, image):
         # This slot is deliberately a DirectConnection: it does not touch any
@@ -4420,7 +4447,8 @@ class MainWindow(QMainWindow):
 
     def _render_latest_camera_previews(self):
         with self._latest_camera_images_lock:
-            latest = dict(self._latest_camera_images)
+            latest = self._latest_camera_images
+            self._latest_camera_images = {}
 
         previews = getattr(self, "camera_previews", {})
         fallback = getattr(self, "camera_preview", None)
@@ -4430,6 +4458,7 @@ class MainWindow(QMainWindow):
             if preview is None or image is None:
                 continue
 
+            render_started = time.perf_counter()
             pixmap = QPixmap.fromImage(image)
             preview.setPixmap(
                 pixmap.scaled(
@@ -4439,6 +4468,8 @@ class MainWindow(QMainWindow):
                 )
             )
 
+            metrics.observe(f"camera.{camera_slot}.render", time.perf_counter() - render_started)
+
     def update_camera_preview(self, camera_slot, image):
         # Backwards-compatible entry point for callers outside the new mailbox.
         self._store_camera_preview(camera_slot, image)
@@ -4447,16 +4478,24 @@ class MainWindow(QMainWindow):
         self.camera_status.setText(message)
 
     def camera_error(self, message):
+        # Keep GUI feedback, but also make worker startup failures visible in
+        # terminal/profiling runs instead of silently producing zero FPS.
+        logging.error("Camera worker error: %s", message)
         self.camera_status.setText(f"خطای دوربین: {message}")
 
     def attendance_event(self, event):
-        self.refresh_dashboard()
-        if self.current_page == 4:
-            self.refresh_attendance()
-
+        if not self._attendance_refresh_pending:
+            self._attendance_refresh_pending = True
+            QTimer.singleShot(200, self._refresh_after_attendance)
         self.camera_status.setText(
             f"ثبت شد: {event['name']} • {event['time']}"
         )
+
+    def _refresh_after_attendance(self):
+        self._attendance_refresh_pending = False
+        self.refresh_dashboard()
+        if self.current_page == 4:
+            self.refresh_attendance()
 
     def refresh_all(self):
         self.refresh_dashboard()
@@ -5836,7 +5875,13 @@ class MainWindow(QMainWindow):
             )
 
     def closeEvent(self, event):
+        self._restart_requested = False
         self.stop_camera()
+        if self.camera_workers:
+            self._close_pending = True
+            self.camera_status.setText("Waiting for camera shutdown; window remains responsive")
+            event.ignore()
+            return
         event.accept()
 
 
@@ -6287,6 +6332,9 @@ def main():
 
     window = MainWindow()
     window.show()
+    duration = float(os.environ.get("FACE_PROFILE_SECONDS", "0"))
+    if duration > 0:
+        QTimer.singleShot(int(duration * 1000), window.close)
 
     sys.exit(app.exec())
 

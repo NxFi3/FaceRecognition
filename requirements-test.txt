@@ -1,0 +1,4 @@
+# Lightweight infrastructure tests do not require torch, Qt, dlib or models.
+pytest
+numpy
+opencv-python-headless

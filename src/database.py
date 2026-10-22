@@ -6,6 +6,11 @@ from pathlib import Path
 
 import numpy as np
 
+try:
+    from .profiling import timed
+except ImportError:
+    from src.profiling import timed
+
 
 if getattr(sys, "frozen", False):
     BASE_DIR = Path(sys.executable).resolve().parent
@@ -35,6 +40,9 @@ def _ensure_column(conn, table, column, definition):
 
 def init_db():
     conn = get_connection()
+    # Persistent journal mode: readers no longer block camera writers.
+    # Keep SQLite FULL synchronous durability; do not weaken commits.
+    conn.execute("PRAGMA journal_mode = WAL")
 
     conn.executescript(
         """
@@ -137,6 +145,9 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_events_timestamp
         ON events(timestamp);
+
+        CREATE INDEX IF NOT EXISTS idx_events_day_time
+        ON events(date(timestamp), timestamp DESC, id DESC);
 
         CREATE INDEX IF NOT EXISTS idx_events_student
         ON events(student_id);
@@ -502,6 +513,7 @@ def delete_school_day_override(override_id):
         conn.close()
 
 
+@timed("db.get_setting")
 def get_setting(key, default=None):
     conn = get_connection()
     try:
@@ -1163,6 +1175,7 @@ def get_student(student_id):
         conn.close()
 
 
+@timed("db.mark_attendance")
 def mark_attendance(student_id, camera_id="camera_0", status="present", notes=""):
     now = datetime.now()
     date = now.strftime("%Y-%m-%d")
@@ -1170,20 +1183,13 @@ def mark_attendance(student_id, camera_id="camera_0", status="present", notes=""
 
     conn = get_connection()
     try:
-        existing = conn.execute(
-            "SELECT id FROM attendance WHERE student_id = ? AND date = ?",
-            (student_id, date),
-        ).fetchone()
-
-        if existing is not None:
-            return False
-
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT INTO attendance
                 (student_id, date, timestamp, camera_id, status,
                  notes, source, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, 'camera', ?)
+            ON CONFLICT(student_id, date) DO NOTHING
             """,
             (
                 student_id,
@@ -1196,7 +1202,7 @@ def mark_attendance(student_id, camera_id="camera_0", status="present", notes=""
             ),
         )
         conn.commit()
-        return True
+        return cursor.rowcount == 1
     finally:
         conn.close()
 
@@ -1312,6 +1318,7 @@ def get_attendance_stats(
     return total, present, absent, late, excused
 
 
+@timed("db.get_daily_report_summary")
 def get_daily_report_summary(
     start_date,
     end_date,
@@ -1449,6 +1456,7 @@ def get_daily_report_summary(
 
 
 
+@timed("db.get_class_report_summary")
 def get_class_report_summary(
     start_date,
     end_date,
@@ -1793,6 +1801,7 @@ def get_today_attendance():
 
 
 
+@timed("db.add_event")
 def add_event(
     event_type,
     student_id=None,
@@ -1831,6 +1840,7 @@ def add_event(
         conn.close()
 
 
+@timed("db.get_recent_events")
 def get_recent_events(limit=100, date=None):
     conn = get_connection()
     try:
