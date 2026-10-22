@@ -380,10 +380,11 @@ class SmartCameraWorker(QThread):
         if candidates:
             return str(candidates[0])
 
-        raise FileNotFoundError(
-            "YOLO person model not found. Put yolo26n.pt in the project root "
-            "or set the 'person_model_path' application setting."
-        )
+        # Development fallback: Ultralytics resolves official model names and
+        # downloads the weights on first use when they are not cached locally.
+        # Production/offline builds should bundle the resolved file and will
+        # continue to prefer that local copy above.
+        return "yolo26n.pt"
 
     def _record_event(self, **kwargs):
         event_id = add_event(**kwargs)
