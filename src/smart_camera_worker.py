@@ -5,11 +5,13 @@ from __future__ import annotations
 import os
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Lock
 import math
 
+from .runtime import BoundedExecutor, DetectionSchedule, profile, thread_count, configure_native_environment
+configure_native_environment()
+from .profiling import metrics, measured_job, MeasuredProxy, StaleWork
 from .camera_capture import LatestFrameCapture
 
 import cv2
@@ -62,14 +64,10 @@ def _get_shared_face_executor():
 
     with _FACE_EXECUTOR_LOCK:
         if _FACE_EXECUTOR is None:
-            cpu_count = os.cpu_count() or 1
-            worker_count = min(
-                MAX_FACE_RECOGNITION_JOBS,
-                max(1, cpu_count // 2),
-            )
-            _FACE_EXECUTOR = ThreadPoolExecutor(
-                max_workers=worker_count,
-                thread_name_prefix="smart-face",
+            settings = profile()
+            _FACE_EXECUTOR = BoundedExecutor(
+                thread_count("FACE_DOWNSTREAM_WORKERS", settings.face_workers),
+                settings.downstream_capacity,
             )
 
         return _FACE_EXECUTOR
@@ -101,6 +99,7 @@ class SmartCameraWorker(QThread):
 
     def stop(self):
         self._running = False
+        self.requestInterruption()
 
     @staticmethod
     def _face_models():
@@ -367,8 +366,13 @@ class SmartCameraWorker(QThread):
 
     def _resolve_person_model(self):
         configured = str(get_setting("person_model_path", "") or "").strip()
-        if configured and os.path.exists(configured):
-            return configured
+        if configured:
+            path = Path(configured).expanduser()
+            if not path.is_absolute():
+                path = Path(BASE_DIR) / path
+            if not path.exists():
+                raise FileNotFoundError(f"Configured person model not found: {path}")
+            return str(path)
 
         candidates = make_person_model_candidates(
             Path(__file__).resolve().parent.parent
@@ -391,8 +395,11 @@ class SmartCameraWorker(QThread):
     def run(self):
         self._running = True
         capture = None
-        futures = set()
-        cache_futures = set()
+        futures = {}
+        cache_futures = {}
+        settings = profile()
+        prefix = f"camera.{self.camera_slot}"
+        tracker = event_engine = None
 
         try:
             # Importing app at runtime avoids a module-level circular import.
@@ -486,7 +493,8 @@ class SmartCameraWorker(QThread):
             actual_width = capture.width or CAMERA_WIDTH
             actual_height = capture.height or CAMERA_HEIGHT
             actual_fps = capture.fps
-            face_detector.setInputSize((actual_width, actual_height))
+            face_input_size = (actual_width, actual_height)
+            face_detector.setInputSize(face_input_size)
 
             resolved_person_device = person_device or "cpu"
             person_detection_interval = (
@@ -502,7 +510,7 @@ class SmartCameraWorker(QThread):
                 imgsz=PERSON_IMAGE_SIZE,
             )
             tracker = SmartPersonTracker(
-                reid=reid,
+                reid=MeasuredProxy(reid, prefix + ".downstream.reid") if reid is not None else None,
                 reid_interval=reid_interval,
             )
 
@@ -563,7 +571,31 @@ class SmartCameraWorker(QThread):
                 state=self.presence_state,
             )
 
+            event_engine = MeasuredProxy(event_engine, prefix + ".events")
             executor = _get_shared_face_executor()
+            schedule = DetectionSchedule(person_detection_interval, settings.idle_detection_seconds)
+
+            def submit_cache(track):
+                # Snapshot only at admission attempt; per-camera and shared bounds
+                # prevent unlimited crop retention during a burst of crossings.
+                if len(cache_futures) >= settings.downstream_capacity:
+                    return False
+                future = executor.submit(
+                    measured_job, time.monotonic(), prefix + ".downstream.cache",
+                    self._finalize_face_cache_task, matcher, track.snapshot_face_cache(),
+                )
+                if future is None:
+                    metrics.count(prefix + ".downstream.rejected_cache")
+                    return False
+                cache_futures[future] = (track, camera_id)
+                return True
+
+            def finish_pending(track, event_camera):
+                pending = track.metadata.pop("pending_crossing", None)
+                if pending is not None:
+                    event_engine.on_crossing(track, pending["direction"], event_camera)
+                track.clear_face_cache()
+
 
             frame_no = 0
             last_capture_sequence = 0
@@ -581,28 +613,40 @@ class SmartCameraWorker(QThread):
                 f"line events • {len(matcher.students)} students • {reid_status}"
             )
 
-            while self._running:
-                sequence, frame = capture.wait_for_frame(
+            while self._running and not self.isInterruptionRequested():
+                sequence, frame, captured_at = capture.wait_for_frame(
                     last_capture_sequence,
-                    timeout=1.0,
+                    timeout=0.2,
+                    with_timestamp=True,
                 )
-                if frame is None:
-                    continue
+                if frame is not None:
 
-                # The capture thread may have consumed many physical frames
-                # while inference was busy. Process only the newest snapshot so
-                # latency stays bounded instead of building a stale-frame queue.
-                last_capture_sequence = sequence
-                frame_no += 1
+                    # The capture thread may have consumed many physical frames
+                    # while inference was busy. Process only the newest snapshot so
+                    # latency stays bounded instead of building a stale-frame queue.
+                    metrics.count(prefix + ".dropped", max(0, sequence - last_capture_sequence - 1))
+                    last_capture_sequence = sequence
+                    frame_started = time.monotonic()
+                    metrics.observe(prefix + ".capture_age", frame_started - captured_at)
+                    if frame_started - captured_at > settings.max_frame_age:
+                        metrics.count(prefix + ".stale_frames")
+                        frame = None
+                    else:
+                        frame_no += 1
+                        new_size = (frame.shape[1], frame.shape[0])
+                        if new_size != face_input_size:
+                            face_detector.setInputSize(new_size)
+                            face_input_size = new_size
 
                 for future in tuple(cache_futures):
                     if not future.done():
                         continue
-                    cache_futures.remove(future)
+                    track, event_camera = cache_futures.pop(future)
                     try:
-                        track, result, camera_id = future.result()
+                        result = future.result()
                     except Exception as exc:
                         self.error.emit(f"Face cache worker failed: {exc}")
+                        finish_pending(track, event_camera)
                         continue
 
                     pending = track.metadata.pop("pending_crossing", None)
@@ -616,7 +660,7 @@ class SmartCameraWorker(QThread):
                                 student["student_code"],
                                 student["name"],
                                 confidence,
-                                camera_id,
+                                event_camera,
                             )
                         track.metadata["cache_identity_votes"] = result["votes"]
                         track.metadata["cache_cluster_size"] = result["cluster_size"]
@@ -626,7 +670,7 @@ class SmartCameraWorker(QThread):
                         event_engine.on_crossing(
                             track,
                             pending["direction"],
-                            camera_id,
+                            event_camera,
                         )
                     track.clear_face_cache()
 
@@ -634,9 +678,11 @@ class SmartCameraWorker(QThread):
                     if not future.done():
                         continue
 
-                    futures.remove(future)
+                    futures.pop(future)
                     try:
                         track_id, result = future.result()
+                    except StaleWork:
+                        continue
                     except Exception as exc:
                         self.error.emit(f"Face recognition worker failed: {exc}")
                         continue
@@ -702,10 +748,13 @@ class SmartCameraWorker(QThread):
                         track.metadata["face_stability"] = stability
                         track.metadata["identity_reconciled"] = was_reconciled
 
-                if frame_no % person_detection_interval == 0:
+                if frame is None:
+                    continue
+
+                if metrics.call(prefix + ".preprocess.motion", schedule.due, frame, frame_no, tracker.tracks):
                     previous_tracks = dict(tracker.tracks)
-                    last_person_detections = person_detector.detect(frame)
-                    active_tracks = tracker.update(
+                    last_person_detections = metrics.call(prefix + ".detector", person_detector.detect, frame)
+                    active_tracks = metrics.call(prefix + ".tracker", tracker.update,
                         last_person_detections,
                         frame,
                         frame_no,
@@ -728,13 +777,9 @@ class SmartCameraWorker(QThread):
                                 and not lost_track.face_cache_finalized
                                 and lost_track.metadata.get("pending_crossing")
                             ):
-                                cache_futures.add(
-                                    executor.submit(
-                                        self._finalize_face_cache_task,
-                                        matcher,
-                                        lost_track.snapshot_face_cache(),
-                                    )
-                                )
+                                if not submit_cache(lost_track):
+                                    self.error.emit("Downstream overload: recording crossing without cache finalization")
+                                    finish_pending(lost_track, camera_id)
 
                     for track in active_tracks:
                         if track.last_seen_frame != frame_no:
@@ -781,13 +826,9 @@ class SmartCameraWorker(QThread):
                                     "frame_no": frame_no,
                                 }
                                 track.face_cache_finalized = True
-                                cache_futures.add(
-                                    executor.submit(
-                                        self._finalize_face_cache_task,
-                                        matcher,
-                                        track.snapshot_face_cache(),
-                                    )
-                                )
+                                if not submit_cache(track):
+                                    self.error.emit("Downstream overload: recording crossing without cache finalization")
+                                    finish_pending(track, camera_id)
                             else:
                                 event_engine.on_crossing(
                                     track,
@@ -803,7 +844,7 @@ class SmartCameraWorker(QThread):
                     tracker.tracks
                     and frame_no % FACE_DETECTION_INTERVAL == 0
                 ):
-                    _, detections = face_detector.detect(frame)
+                    _, detections = metrics.call(prefix + ".face_detector", face_detector.detect, frame)
                     last_face_detections = []
                     if detections is not None:
                         for detection in detections:
@@ -820,7 +861,8 @@ class SmartCameraWorker(QThread):
                             ):
                                 last_face_detections.append((bbox, detection))
 
-                submitted_tracks = set()
+                submitted_tracks = set(futures.values())
+                face_tracks = list(tracker.tracks.values())
                 if (
                     not tracker.tracks
                     or frame_no % FACE_DETECTION_INTERVAL != 0
@@ -832,7 +874,7 @@ class SmartCameraWorker(QThread):
                 for face_bbox, face_detection in last_face_detections_for_recognition:
                     track = self._find_track_for_face(
                         face_bbox,
-                        list(tracker.tracks.values()),
+                        face_tracks,
                     )
                     if track is None or track.misses > 0:
                         continue
@@ -840,10 +882,13 @@ class SmartCameraWorker(QThread):
                         continue
                     if frame_no - track.last_face_frame < FACE_RECOGNITION_INTERVAL:
                         continue
-                    if len(futures) >= MAX_FACE_RECOGNITION_JOBS:
+                    if (len(futures) >= MAX_FACE_RECOGNITION_JOBS
+                            or executor.pending >= settings.downstream_capacity - 1):
+                        # Leave room for crossing finalization before optional observations.
+                        metrics.count(prefix + ".downstream.deferred_face")
                         break
 
-                    prepared = _prepare_face_crop(frame, face_bbox)
+                    prepared = metrics.call(prefix + ".preprocess.crop", _prepare_face_crop, frame, face_bbox)
                     if prepared is None:
                         continue
 
@@ -865,16 +910,16 @@ class SmartCameraWorker(QThread):
                             frame_no,
                             FACE_CACHE_MAX_SAMPLES,
                         )
-                    track.last_face_frame = frame_no
-                    futures.add(
-                        executor.submit(
-                            self._recognize_task,
-                            matcher,
-                            face_crop,
-                            local_bbox,
-                            track.track_id,
-                        )
+                    future = executor.submit(
+                        measured_job, time.monotonic(), prefix + ".downstream.face",
+                        self._recognize_task, matcher, face_crop, local_bbox, track.track_id,
+                        max_queue_delay=0.5,
                     )
+                    if future is None:
+                        metrics.count(prefix + ".downstream.rejected_face")
+                        break
+                    track.last_face_frame = frame_no
+                    futures[future] = track.track_id
                     submitted_tracks.add(track.track_id)
 
                 preview_now = time.perf_counter()
@@ -886,7 +931,11 @@ class SmartCameraWorker(QThread):
                     fps_start = preview_now
 
                 preview_time = time.perf_counter()
-                if preview_time - last_preview >= 1.0 / PREVIEW_FPS:
+                # Suppress preview under overload; event processing always ran first.
+                if (preview_time - last_preview >= 1.0 / settings.preview_fps
+                        and time.monotonic() - captured_at < settings.max_frame_age):
+                    render_started = time.perf_counter()
+                    frame = frame.copy()  # published capture arrays are immutable
                     # Annotation is only needed for the UI preview. Keeping it
                     # off the inference path avoids drawing several rectangles
                     # and text layers on every processing frame.
@@ -986,9 +1035,16 @@ class SmartCameraWorker(QThread):
 
                     self.frame_ready.emit(
                         self.camera_slot,
-                        frame_to_qimage(frame),
+                        metrics.call(prefix + ".qimage", frame_to_qimage, frame),
                     )
                     last_preview = preview_time
+                    metrics.observe(prefix + ".preview", time.perf_counter() - render_started)
+                metrics.count(prefix + ".processed")
+                metrics.gauge(prefix + ".active_tracks", sum(t.misses == 0 for t in tracker.tracks.values()))
+                metrics.gauge(prefix + ".stale_tracks", sum(t.misses > 0 for t in tracker.tracks.values()))
+                metrics.gauge("downstream.depth", executor.pending)
+                metrics.observe(prefix + ".processing", time.monotonic() - frame_started)
+                metrics.observe(prefix + ".total", time.monotonic() - captured_at)
 
         except Exception as exc:
             self.error.emit(str(exc))
@@ -996,10 +1052,24 @@ class SmartCameraWorker(QThread):
         finally:
             for future in futures:
                 future.cancel()
-            for future in cache_futures:
+            for future, (track, event_camera) in cache_futures.items():
                 future.cancel()
+                # A shutdown must not silently discard an observed crossing.
+                try:
+                    finish_pending(track, event_camera)
+                except Exception as exc:
+                    self.error.emit(f"Could not persist pending crossing: {exc}")
+            if tracker is not None and event_engine is not None:
+                for track in tracker.tracks.values():
+                    try:
+                        event_engine.on_track_lost(track, camera_id)
+                        if self.identity_manager is not None:
+                            self.identity_manager.track_lost(track, camera_id)
+                    except Exception as exc:
+                        self.error.emit(f"Track shutdown cleanup failed: {exc}")
             if capture is not None:
-                capture.stop()
+                while not capture.stop(join_timeout=0.5):
+                    time.sleep(0.1)
             self._running = False
 
     def _mark_attendance_event(

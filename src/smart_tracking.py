@@ -12,6 +12,7 @@ import numpy as np
 
 REID_INTERVAL = 6
 MAX_MISSES = 18
+MAX_TENTATIVE_MISSES = 2
 MIN_PERSON_SIZE = 45
 ASSOCIATION_IOU_GATE = 0.08
 ASSOCIATION_REID_GATE = 0.70
@@ -82,6 +83,14 @@ class PersonDetector:
                 "Person tracking needs ultralytics in the active Python environment."
             ) from exc
 
+        # Ultralytics select_device() resets torch threads to its own host-core
+        # default during lazy predictor setup. Bound that reset too, otherwise
+        # application startup limits are silently undone by the first camera.
+        from ultralytics.utils import torch_utils
+        from .runtime import profile, thread_count
+        cpu_threads = thread_count("FACE_TORCH_THREADS", profile().torch_threads)
+        if str(device).lower() == "cpu":
+            torch_utils.NUM_THREADS = cpu_threads
         self.model = YOLO(str(model_path))
         self.device = device
         self.conf = float(conf)
@@ -362,7 +371,10 @@ class SmartPersonTracker:
                 continue
             track.misses += 1
             track.age += 1
-            if track.misses <= MAX_MISSES:
+            # A one/two-observation detector blip should not retain crops and
+            # clutter the worker for the full mature-track occlusion window.
+            max_misses = MAX_MISSES if track.hits >= 3 else MAX_TENTATIVE_MISSES
+            if track.misses <= max_misses:
                 next_tracks[track_id] = track
 
         self.tracks = next_tracks
