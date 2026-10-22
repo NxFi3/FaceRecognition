@@ -251,6 +251,31 @@ def _camera_backends():
     return [cv2.CAP_ANY]
 
 
+def _camera_prefers_raw_bayer(camera_id):
+    """Auto-enable the proven low-bandwidth path only for known ov534 cameras.
+
+    The two PS3 Eye/ov534 cameras used by this deployment previously relied on
+    raw Bayer when both were active. PR #5 accidentally changed that behavior
+    to opt-in via a new DB setting that existing installations do not have.
+    Ordinary webcams remain on their normal RGB/YUYV path.
+    """
+    if not sys.platform.startswith("linux"):
+        return False
+    try:
+        name_path = Path(f"/sys/class/video4linux/video{int(camera_id)}/name")
+        name = name_path.read_text(encoding="utf-8", errors="ignore").strip().lower()
+    except (OSError, ValueError):
+        return False
+    return "ov534" in name or "playstation" in name or "ps3 eye" in name
+
+
+def _camera_raw_bayer_setting(slot, camera_id, dual_camera):
+    configured = get_setting(f"camera_{slot}_raw_bayer", None)
+    if configured is not None and str(configured).strip() != "":
+        return str(configured).strip().lower() in {"1", "true", "yes", "on"}
+    return bool(dual_camera and _camera_prefers_raw_bayer(camera_id))
+
+
 def _open_camera(camera_id, target_fps=DEFAULT_CAMERA_TARGET_FPS):
     for backend in _camera_backends():
         cap = cv2.VideoCapture(camera_id, backend)
@@ -4351,9 +4376,13 @@ class MainWindow(QMainWindow):
                     "line_position": line_position,
                     "line_direction": line_direction,
                     "line_cooldown": line_cooldown,
-                    # Device-specific raw capture must be explicitly enabled.
-                    "raw_bayer": str(get_setting(f"camera_{slot}_raw_bayer", "0")).lower()
-                    in {"1", "true", "yes", "on"},
+                    # Preserve the existing PS3 Eye/ov534 dual-camera path
+                    # automatically unless the operator explicitly overrides it.
+                    "raw_bayer": _camera_raw_bayer_setting(
+                        slot,
+                        camera_id,
+                        len(enabled_slots) >= 2,
+                    ),
                 },
                 presence_state=self.presence_state,
                 identity_manager=self.global_identity_manager,
@@ -4458,6 +4487,9 @@ class MainWindow(QMainWindow):
         self.camera_status.setText(message)
 
     def camera_error(self, message):
+        # Keep GUI feedback, but also make worker startup failures visible in
+        # terminal/profiling runs instead of silently producing zero FPS.
+        logging.error("Camera worker error: %s", message)
         self.camera_status.setText(f"خطای دوربین: {message}")
 
     def attendance_event(self, event):
