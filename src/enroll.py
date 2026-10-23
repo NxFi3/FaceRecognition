@@ -1,6 +1,12 @@
 import cv2
 import time
 import numpy as np
+try:
+    from .engine.model_assets import install_legacy_model_compat
+except ImportError:
+    from engine.model_assets import install_legacy_model_compat
+install_legacy_model_compat()
+
 import face_recognition
 from ultralytics import YOLO
 

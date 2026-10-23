@@ -1,14 +1,9 @@
-"""Desktop account client. No cached/offline admission at process startup.
-
-A fresh server challenge is mandatory. Running sessions use a monotonic deadline
-so changing the desktop clock cannot extend their signed lease.
-"""
+"""Offline-first signed entitlement; network operations are called by background jobs."""
 import base64
 from contextlib import closing
 from dataclasses import dataclass
 import hashlib
 import json
-import math
 import os
 from pathlib import Path
 import secrets
@@ -21,6 +16,7 @@ import uuid
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 import requests
+from .offline import Checkpoint, verify, boot_id, CLOCK_TOLERANCE, envelope_hash
 
 MAX_BACKUP_BYTES = 128 * 1024 * 1024
 
@@ -102,23 +98,108 @@ class CloudClient:
         self._backup_lock = threading.Lock()
         self._state_io_lock = threading.Lock()
         self._closed = False
-        self.state = {}
-        if self.state_path.exists():
-            self.state = json.loads(self.state_path.read_text(encoding="utf-8"))
-        self.installation = str(uuid.UUID(self.state.setdefault("installation_id", str(uuid.uuid4()))))
         self.store = store or CredentialStore("FaceRecognition:" + config.url)
+        self.state = {}
+        damaged = False
+        if self.state_path.exists():
+            try:
+                self.state = json.loads(self.state_path.read_text(encoding='utf-8'))
+                if not isinstance(self.state, dict):
+                    raise ValueError('Invalid metadata')
+            except (ValueError, UnicodeError):
+                damaged = True
+                self.state = {}
+        self._anchor_key = 'installation-id:' + hashlib.sha256(os.path.normcase(str(self.state_path.resolve())).encode()).hexdigest()
+        protected_id = self.store.get(self._anchor_key)
+        candidate = protected_id or self.state.get('installation_id') or str(uuid.uuid4())
+        try:
+            self.installation = str(uuid.UUID(candidate))
+        except (ValueError, TypeError):
+            self.installation, damaged = str(uuid.uuid4()), True
+        changed_id = bool(protected_id and self.state.get('installation_id', protected_id) != protected_id)
+        self.state['installation_id'] = self.installation
         self.credential = self.store.get(self.installation)
         self.remembered = bool(self.credential)
         self._lease = None
         self._deadline = 0
         self._database_path = None
         self.transport = transport or requests.request
+        self._checkpoint = Checkpoint(self.store, self.installation)
+        self._generation = 0
+        self._anchor_time, self._anchor_tick = time.time(), license_clock()
+        self._wall_anchor = time.time()
+        self._suspicious = False
+        self._envelope = None
+        self._mirror_pending = False
+        self._load_offline()
+        if damaged or changed_id:
+            self._suspicious = True
+        self.save_state()
+        if self._lease is not None and not self._suspicious:
+            try:
+                self._checkpoint.finish()
+            except OSError:
+                pass  # Still safely use the authoritative protected generation.
+
+    def _load_offline(self):
+        try:
+            saved = self._checkpoint.load()
+            if not saved:
+                return  # Legacy online-only clients activate once with the new server.
+            value = verify(saved['envelope'], self.config.public_key, self.installation)
+            previous_school = self.state.get('school_id')
+            self.state['school_id'] = value['school_id']
+            if previous_school is not None and previous_school != value['school_id']:
+                raise ValueError('School metadata tampering')
+            if saved.get('suspicious'):
+                raise ValueError('Online clock verification required')
+            self._generation = int(saved['generation'])
+            # Vault checkpoint is authoritative, including after an interrupted JSON mirror write.
+            if int(self.state.get('license_generation', self._generation)) > self._generation:
+                raise ValueError('Protected state rollback')
+            mirror = self.state.get('signed_license')
+            if mirror is not None and mirror != saved['envelope']:
+                previous = saved.get('previous')
+                if not previous or previous['hash'] != envelope_hash(mirror) or previous['generation'] != self.state.get('license_generation'):
+                    raise ValueError('License file rollback/tampering')
+                # Crash between vault commit and mirror replacement: keep the NEW
+                # protected license/time, never roll back to the old public file.
+            elapsed = max(0, license_clock() - saved['tick']) if saved['boot'] and saved['boot'] == boot_id() else 0
+            observed_wall = float(saved['wall'])
+            floor = float(saved['time']) + max(elapsed, time.time() - observed_wall)
+            if time.time() < observed_wall + elapsed - CLOCK_TOLERANCE:
+                raise ValueError('Clock rollback')
+            self._anchor_time = floor
+            self._wall_anchor = time.time()
+            self._anchor_tick = license_clock()
+            self._lease, self._envelope = value, saved['envelope']
+            self.state.update(school_id=value['school_id'], signed_license=saved['envelope'], license_generation=self._generation)
+            self._deadline = self._anchor_tick + value['subscription_expires_at'] - self._anchor_time
+        except Exception:
+            self._suspicious = True
+            self._lease = None
+
+    def checkpoint_time(self):
+        # Called by the background control plane, never the frame or GUI thread.
+        with self._state_io_lock:
+            with self._lock:
+                if self._closed or self._envelope is None or self._mirror_pending:
+                    return
+                envelope = self._envelope
+                current = self._anchor_time + max(0, license_clock() - self._anchor_tick, time.time() - self._wall_anchor)
+                generation = self._generation + 1
+            self._checkpoint.save(envelope, current, license_clock(), generation, suspicious=self._suspicious)
+            with self._lock:
+                self._generation = generation
+                self.state['license_generation'] = generation
         self.save_state()
 
     def save_state(self):
         # Disk/fsync work must not hold the entitlement lock used by camera loops.
         with self._state_io_lock:
             with self._lock:
+                if self._closed:
+                    return
                 state = dict(self.state)
             self.state_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             fd, temporary = tempfile.mkstemp(dir=self.state_path.parent, prefix=".cloud-")
@@ -156,8 +237,6 @@ class CloudClient:
             response.close()
             if code == "backups_disabled":
                 raise CloudError("بکاپ توسط مدیر سرویس غیرفعال شده است.")
-            with self._lock:
-                self._lease, self._deadline = None, 0
             messages = {
                 "invalid_credentials": "ایمیل یا رمز درست نیست، یا ایمیل هنوز تأیید نشده است.",
                 "subscription_inactive": "اشتراک مدرسه فعال نیست یا پایان یافته است؛ حساب سایت را بررسی کنید.",
@@ -186,48 +265,65 @@ class CloudClient:
 
     def accept_lease(self, envelope, nonce, started):
         try:
-            raw = base64.b64decode(envelope["payload"], validate=True)
-            signature = base64.b64decode(envelope["signature"], validate=True)
-            Ed25519PublicKey.from_public_bytes(self.config.public_key).verify(signature, raw)
-            lease = json.loads(raw)
-            if (lease["version"] != 1 or lease["audience"] != "face-recognition-desktop"
-                    or lease["nonce"] != nonce or lease["device_id"] != self.installation):
-                raise ValueError()
-            uuid.UUID(lease["school_id"])
-            if type(lease["student_limit"]) is not int or not 1 <= lease["student_limit"] <= 1000000:
-                raise ValueError()
-            issued, expires, subscription = (float(lease[k]) for k in ("issued_at", "lease_expires_at", "subscription_expires_at"))
-            if not all(math.isfinite(v) for v in (issued, expires, subscription)) or not 0 < expires - issued <= 900.001 or expires > subscription:
-                raise ValueError()
-            deadline = started + expires - issued
-            if deadline <= license_clock():
-                raise ValueError()
-            previous = self.state.get("school_id")
-            if previous is not None and previous != lease["school_id"]:
-                raise AccessDenied("این نصب به مدرسهٔ دیگری متصل است؛ برای انتقال با پشتیبانی تماس بگیرید.")
-        except AccessDenied:
-            raise
+            value = verify(envelope, self.config.public_key, self.installation,
+                           self.state.get('school_id'), nonce)
+            elapsed = license_clock() - started
+            if not 0 <= elapsed <= 120:
+                raise ValueError('Stale synchronization response')
         except Exception as exc:
             raise AccessDenied("امضا یا اعتبار مجوز سرویس تأیید نشد.") from exc
-        if self._database_path is not None:
-            with closing(sqlite3.connect(f"{self._database_path.resolve().as_uri()}?mode=ro", uri=True)) as connection:
-                count = connection.execute("SELECT COUNT(*) FROM students").fetchone()[0]
-            if count > lease["student_limit"]:
+        with self._state_io_lock:
+            with self._lock:
+                if self._closed:
+                    raise AccessDenied("نشست برنامه بسته شده است.")
+                generation = self._generation + 1
+                previous = {'hash': envelope_hash(self.state.get('signed_license')), 'generation': self.state.get('license_generation')}
+                self._mirror_pending = True
+            # A verified denial must stop the current session even if persistence fails.
+            if value['status'] != 'active':
                 with self._lock:
-                    self._lease, self._deadline = None, 0
-                raise AccessDenied("ظرفیت اشتراک جدید از تعداد رکوردهای مدرسه کمتر است؛ با پشتیبانی تماس بگیرید.")
-        with self._lock:
-            if self._closed:
-                raise AccessDenied("نشست برنامه بسته شده است.")
-            self._lease, self._deadline = lease, deadline
-            self.state["school_id"] = lease["school_id"]
+                    self._lease, self._envelope, self._deadline = value, envelope, 0
+                    self.state.update(school_id=value['school_id'], signed_license=envelope,
+                                      license_generation=generation)
+            # Persist before granting access. No plaintext fallback for protected state.
+            trusted = value['issued_at'] + elapsed
+            try:
+                if not self.store.set(self._anchor_key, self.installation):
+                    raise OSError('ذخیره‌سازی امن شناسهٔ نصب انجام نشد.')
+                self._checkpoint.save(envelope, trusted, license_clock(), generation, previous=previous)
+            except OSError as exc:
+                if value['status'] != 'active':
+                    from .recovery import atomic_json
+                    try:
+                        atomic_json(self.state_path, dict(self.state))
+                    except OSError:
+                        pass  # Current session stays denied; unavailable storage cannot persist.
+                    raise AccessDenied('دسترسی لغو شده است؛ ذخیرهٔ وضعیت امن هم در دسترس نیست.') from exc
+                self._mirror_pending = False
+                raise CloudError(str(exc)) from exc
+            with self._lock:
+                if self._closed:
+                    raise AccessDenied('نشست برنامه بسته شده است.')
+                self._generation = generation
+                self._anchor_time, self._anchor_tick = trusted, license_clock()
+                self._wall_anchor = time.time()
+                self._deadline = self._anchor_tick + value['subscription_expires_at'] - trusted
+                self._suspicious = False
+                self._lease, self._envelope = value, envelope
+                self.state.update(school_id=value['school_id'], signed_license=envelope, license_generation=generation)
         self.save_state()
-        return lease
+        with self._state_io_lock:
+            if self._generation == generation:
+                self._checkpoint.finish()
+                self._mirror_pending = False
+        if value['status'] != 'active':
+            raise AccessDenied("دسترسی مدرسه یا این نصب توسط سرویس لغو شده است.")
+        return value
 
     def login(self, email, password):
         nonce, started = secrets.token_urlsafe(32), license_clock()
         result = self._json("POST", "/api/v1/login/", json={"email": email, "password": password,
-            "device_id": self.installation, "label": "School desktop", "nonce": nonce})
+            "device_id": self.installation, "label": "School desktop", "nonce": nonce, "license_version": 2})
         lease = self.accept_lease(result["lease"], nonce, started)
         self.credential = result["credential"]
         self.remembered = self.store.set(self.installation, self.credential)
@@ -237,10 +333,14 @@ class CloudClient:
         if not self.credential:
             raise AccessDenied("ابتدا وارد حساب مدرسه شوید.")
         nonce, started = secrets.token_urlsafe(32), license_clock()
-        result = self._json("POST", "/api/v1/lease/", json={"nonce": nonce})
+        result = self._json("POST", "/api/v1/lease/", json={"nonce": nonce, "license_version": 2})
         return self.accept_lease(result["lease"], nonce, started)
 
     def close(self):
+        try:
+            self.checkpoint_time()
+        except OSError:
+            pass  # Keep the preceding durable checkpoint if disk/vault is unavailable.
         # A late network reply must never reactivate a session during shutdown.
         with self._lock:
             self._closed = True
@@ -248,12 +348,16 @@ class CloudClient:
 
     def allowed(self):
         with self._lock:
-            return not self._closed and self._lease is not None and license_clock() < self._deadline
+            if time.time() < self._wall_anchor + max(0, license_clock() - self._anchor_tick) - CLOCK_TOLERANCE:
+                self._suspicious = True
+            return (not self._closed and not self._suspicious and self._lease is not None
+                    and self._lease.get('status') == 'active' and license_clock() < self._deadline
+                    and self._anchor_time + max(0, license_clock() - self._anchor_tick, time.time() - self._wall_anchor) < self._lease['subscription_expires_at'])
 
     def require_lease(self):
         with self._lock:
             if not self.allowed():
-                raise AccessDenied("اشتراک یا مهلت اتصال معتبر نیست؛ دوباره وارد حساب شوید.")
+                raise AccessDenied("اشتراک پایان یافته یا بررسی آنلاینِ اعتبار و ساعت لازم است؛ اطلاعات مدرسه حفظ شده است.")
             return dict(self._lease)
 
     def logout(self):
@@ -262,6 +366,10 @@ class CloudClient:
                 self._json("POST", "/api/v1/logout/", json={})
         finally:
             self.store.delete(self.installation)
+            self.store.delete(self._checkpoint.key)
+            self.state.pop('signed_license', None)
+            self.state.pop('license_generation', None)
+            self.save_state()
             with self._lock:
                 self.credential, self._lease, self._deadline = None, None, 0
 
@@ -287,26 +395,50 @@ class CloudClient:
         lease = self.require_lease()
         if not lease.get("backups_enabled"):
             raise CloudError("بکاپ برای این اشتراک غیرفعال است.")
-        with tempfile.TemporaryDirectory(prefix="face-backup-") as directory:
-            snapshot = Path(directory) / "snapshot.sqlite3"
-            source = sqlite3.connect(f"{Path(database_path).resolve().as_uri()}?mode=ro", uri=True)
-            destination = sqlite3.connect(snapshot)
-            try:
-                source.backup(destination, pages=128, sleep=.01)
-                check_database(destination, lease, require_binding=True)
-            finally:
-                source.close()
-                destination.close()
-            if snapshot.stat().st_size > MAX_BACKUP_BYTES:
-                raise CloudError("حجم بکاپ بیشتر از ۱۲۸ مگابایت است؛ با پشتیبانی تماس بگیرید.")
+        from .recovery import make_bundle
+        key = self.backup_key()
+        database_path = Path(database_path)
+        with tempfile.TemporaryDirectory(prefix='.face-backup-', dir=database_path.parent) as directory:
+            snapshot = Path(directory) / 'school.frbackup'
+            size = make_bundle(database_path, snapshot, lease['school_id'], key)
+            if size > MAX_BACKUP_BYTES:
+                raise CloudError(f"حجم بکاپ رمزگذاری‌شده {size} بایت است و از سقف ۱۲۸ مگابایت بیشتر است؛ خروجی کامل محلی بگیرید و با پشتیبانی تماس بگیرید.")
             digest = file_digest(snapshot)
-            with snapshot.open("rb") as content:
-                result = self._json("POST", "/api/v1/backups/upload/", data=content,
-                    headers={"Content-Type": "application/octet-stream", "X-Backup-SHA256": digest})
+            with snapshot.open('rb') as content:
+                result = self._json('POST', '/api/v1/backups/upload/', data=content,
+                    headers={'Content-Type': 'application/octet-stream', 'X-Backup-SHA256': digest,
+                             'X-Backup-Format': 'client-v2'})
             with self._lock:
-                self.state["last_backup_at"] = time.time()
+                self.state['last_backup_at'] = time.time()
             self.save_state()
             return result
+
+    def backup_key(self):
+        school = self.state.get('school_id')
+        raw = self.store.get('backup-key:' + str(school))
+        if not raw:
+            raise CloudError('ابتدا کلید بازیابی مدرسه را در یک محل امنِ جداگانه ذخیره یا وارد کنید.')
+        key = base64.b64decode(raw, validate=True)
+        if len(key) != 32:
+            raise CloudError('کلید بازیابی معتبر نیست.')
+        return key
+
+    def configure_backup_key(self, path, importing=False):
+        from .recovery import export_key, import_key
+        school = self.state['school_id']
+        if importing:
+            key = import_key(path, school)
+            existing = self.store.get('backup-key:' + school)
+            if existing and base64.b64decode(existing, validate=True) != key:
+                raise CloudError('کلید واردشده با کلید فعلی متفاوت است؛ برای جلوگیری از از دست رفتن بازیابی، جایگزین نشد.')
+        else:
+            # Re-export the SAME key. Never silently rotate away from older backups.
+            raw = self.store.get('backup-key:' + school)
+            key = base64.b64decode(raw, validate=True) if raw else os.urandom(32)
+            export_key(path, school, key)
+        if not self.store.set('backup-key:' + school, base64.b64encode(key).decode()):
+            raise CloudError('ذخیرهٔ امن کلید بازیابی انجام نشد؛ فایل کلید را نگه دارید.')
+        return True
 
     def backups(self):
         return self._json("GET", "/api/v1/backups/")["backups"]
@@ -333,6 +465,16 @@ class CloudClient:
                 os.fsync(output.fileno())
             if digest.hexdigest() != expected:
                 raise CloudError("صحت فایل بازیابی تأیید نشد؛ دیتابیس فعلی حفظ شد.")
+            from .recovery import MAGIC, unpack_bundle, install_bundle
+            with temporary.open('rb') as source:
+                encrypted = source.read(len(MAGIC)) == MAGIC
+            if encrypted:
+                with tempfile.TemporaryDirectory(prefix='.restore-private-', dir=target.parent) as directory:
+                    unpack_bundle(temporary, directory, lease['school_id'], self.backup_key())
+                    self.require_lease()
+                    install_bundle(directory, target)
+                return str(target)
+            # Explicit legacy compatibility: old backups contained SQLite only.
             with closing(sqlite3.connect(f"{temporary.resolve().as_uri()}?mode=ro", uri=True)) as connection:
                 check_database(connection, lease, require_binding=True)
             with self._lock:
@@ -371,8 +513,6 @@ def check_database(connection, lease, require_binding=False):
             raise CloudError("دیتابیس پشتیبان سالم نیست.")
         if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
             raise CloudError("ارتباط رکوردهای دیتابیس معتبر نیست.")
-        if connection.execute("SELECT COUNT(*) FROM students").fetchone()[0] > lease["student_limit"]:
-            raise CloudError("تعداد دانش‌آموزان دیتابیس از ظرفیت اشتراک بیشتر است.")
         row = connection.execute("SELECT value FROM app_settings WHERE key='cloud_school_id'").fetchone()
         if row and row[0] != lease["school_id"] or require_binding and not row:
             raise CloudError("فایل پشتیبان به این مدرسه تعلق ندارد.")

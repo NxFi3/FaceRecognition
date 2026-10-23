@@ -15,6 +15,6 @@ def enforce_student_capacity(connection):
     if _gate is None:
         return
     lease = _gate.require_lease()
-    count = connection.execute("SELECT COUNT(*) FROM students").fetchone()[0]
+    count = connection.execute("SELECT COUNT(*) FROM students WHERE capacity_archived=0").fetchone()[0]
     if count >= lease["student_limit"]:
         raise ValueError("ظرفیت دانش‌آموز اشتراک تکمیل شده است؛ برای افزایش ظرفیت با پشتیبانی تماس بگیرید.")

@@ -54,7 +54,7 @@ jobs:
       - name: Verify Python dependencies and model
         shell: pwsh
         run: |
-          python -c "import cv2, dlib, face_recognition, face_recognition_models, numpy, PySide6; print('PYTHON_RUNTIME_OK')"
+          python -c "import cv2, dlib, numpy, PySide6; print('PYTHON_RUNTIME_OK')"
           python -c "import cv2; d=cv2.FaceDetectorYN.create('models/face_detection_yunet_2023mar.onnx','',(1280,720),0.60,0.30,5000); d.setInputSize((1280,720)); print('YUNET_MODEL_LOAD_OK')"
 
       - name: Run unit tests
@@ -74,10 +74,20 @@ jobs:
           @{service_url=$env:CLOUD_SERVICE_URL; public_key=$env:CLOUD_PUBLIC_KEY} | ConvertTo-Json | Set-Content -Encoding utf8NoBOM subscription-client.json
           python -c "from src.cloud.client import ClientConfig; ClientConfig.load('subscription-client.json'); print('SUBSCRIPTION_CONFIG_OK')"
 
+      - name: Require explicit pilot Re-ID capability review
+        shell: pwsh
+        env:
+          RELEASE_REID_POLICY: ${{ vars.RELEASE_REID_POLICY }}
+        run: |
+          if ($env:RELEASE_REID_POLICY -ne 'not-used-in-pilot') {
+            throw 'This CI job has no validated OSNet weights. Use buildwindows.bat with FACE_REID_CACHE for an OSNet pilot. Set RELEASE_REID_POLICY=not-used-in-pilot only when that matches the tested baseline.'
+          }
+          python -m tools.prepare_windows_assets --allow-no-reid
+
       - name: Build Windows application
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name FaceRecognition --add-data 'models/face_detection_yunet_2023mar.onnx;models' --add-data 'models/yolo26n.onnx;models' --hidden-import face_recognition_models --hidden-import onnxruntime --collect-all face_recognition --collect-all face_recognition_models --collect-all onnxruntime --collect-binaries dlib --collect-all keyring --collect-all cryptography src/app.py
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --contents-directory . --name FaceRecognition --add-data 'models;models' --hidden-import face_recognition_models --hidden-import onnxruntime --additional-hooks-dir hooks --collect-all onnxruntime --collect-binaries dlib --collect-all keyring --collect-all cryptography src/app.py
           Copy-Item subscription-client.json dist/FaceRecognition/subscription-client.json
 
       - name: Verify packaged files

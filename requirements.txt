@@ -1,11 +1,11 @@
 opencv-python
 face_recognition
-face_recognition_models
+face_recognition_models==0.3.0
 numpy
 PySide6
 openpyxl
 dlib
-setuptools<81
+setuptools>=83.0.0
 lap>=0.5.12
 onnxruntime
 

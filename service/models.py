@@ -17,7 +17,7 @@ class School(models.Model):
     status = models.CharField("وضعیت اشتراک", max_length=16, choices=Status.choices, default=Status.SUSPENDED)
     starts_at = models.DateTimeField("شروع اشتراک (UTC)", null=True, blank=True)
     expires_at = models.DateTimeField("پایان اشتراک (UTC)", null=True, blank=True)
-    student_limit = models.PositiveIntegerField("ظرفیت رکورد دانش‌آموز", default=0, validators=[MaxValueValidator(1000000)], help_text="همهٔ رکوردهای دانش‌آموز ذخیره‌شده شمرده می‌شوند؛ صفر یعنی بدون دسترسی.")
+    student_limit = models.PositiveIntegerField("ظرفیت رکورد دانش‌آموز", default=0, validators=[MaxValueValidator(1000000)], help_text="رکوردهای فعال برای ظرفیت شمرده می‌شوند؛ آرشیو داده‌ها را حذف نمی‌کند. صفر یعنی بدون دسترسی.")
     device_limit = models.PositiveSmallIntegerField("تعداد دستگاه مجاز", default=1, validators=[MinValueValidator(1), MaxValueValidator(100)])
     backup_quota_bytes = models.PositiveBigIntegerField(default=1024 ** 3)
     backup_retention = models.PositiveSmallIntegerField("تعداد بکاپ نگهداری‌شده", default=7, validators=[MinValueValidator(1), MaxValueValidator(100)])
@@ -64,6 +64,7 @@ class Backup(models.Model):
     blob_name = models.CharField(max_length=64, unique=True, editable=False)
     size = models.PositiveBigIntegerField()
     sha256 = models.CharField(max_length=64)
+    format = models.CharField(max_length=20, default="legacy-sqlite", choices=[("legacy-sqlite", "Legacy SQLite"), ("client-v2", "Client-encrypted complete recovery")])
     created_at = models.DateTimeField(auto_now_add=True)
     class Meta:
         ordering = ["-created_at"]

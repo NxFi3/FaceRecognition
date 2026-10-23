@@ -42,3 +42,17 @@ data/.application.lock
 data/before-restore-*.sqlite3
 service/staticfiles/
 *.age
+
+# School-owned recovery material and interrupted-operation state
+*.frkey
+*.frbackup
+data/before-restore-*/
+data/.restore-*
+data/.recovery-*/
+data/.face-backup-*/
+
+models/runtime-assets.json
+models/torch/
+
+.backup-*
+data/.local-restore-*/

@@ -38,7 +38,7 @@ def location(school_id, blob_name):
 
 
 def describe(backup):
-    return {"id": str(backup.pk), "size": backup.size, "sha256": backup.sha256, "created_at": backup.created_at.isoformat()}
+    return {"id": str(backup.pk), "size": backup.size, "sha256": backup.sha256, "created_at": backup.created_at.isoformat(), "format": backup.format}
 
 
 @csrf_exempt
@@ -58,6 +58,9 @@ def upload(request):
     expected = request.headers.get("X-Backup-SHA256", "")
     if len(expected) != 64 or any(c not in "0123456789abcdef" for c in expected):
         return error("invalid_digest", 400)
+    backup_format = request.headers.get('X-Backup-Format', 'legacy-sqlite')
+    if backup_format not in ('legacy-sqlite', 'client-v2'):
+        return error('invalid_backup_format', 400)
     directory = settings.BACKUP_ROOT / str(request.school.pk)
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     temporary = None
@@ -76,7 +79,7 @@ def upload(request):
                 chunk = request.read(65536)
                 if not chunk:
                     break
-                if count == 0 and not chunk.startswith(SQLITE_HEADER):
+                if count == 0 and not chunk.startswith(SQLITE_HEADER if backup_format == "legacy-sqlite" else b"FRCLIENT2" + request.school.pk.bytes):
                     return error("invalid_sqlite_backup", 400)
                 count += len(chunk)
                 if count > settings.MAX_BACKUP_BYTES or count > length:
@@ -105,7 +108,7 @@ def upload(request):
                 os.fsync(directory_fd)
             finally:
                 os.close(directory_fd)
-            backup = Backup.objects.create(school=school, blob_name=blob_name, size=count, sha256=expected)
+            backup = Backup.objects.create(school=school, blob_name=blob_name, size=count, sha256=expected, format=backup_format)
             for item in remove:
                 path = location(school.pk, item.blob_name)
                 item.delete()
@@ -145,8 +148,9 @@ def download_response(backup):
             if output.tell() != backup.size or digest.hexdigest() != backup.sha256:
                 raise ValueError("Backup integrity failure")
         output.seek(0)
-        response = FileResponse(output, as_attachment=True, filename=f"backup-{backup.created_at:%Y%m%d-%H%M%S}.sqlite3", content_type="application/octet-stream")
+        response = FileResponse(output, as_attachment=True, filename=f"backup-{backup.created_at:%Y%m%d-%H%M%S}." + ("frbackup" if backup.format == "client-v2" else "sqlite3"), content_type="application/octet-stream")
         response["X-Backup-SHA256"] = backup.sha256
+        response["X-Backup-Format"] = backup.format
         response["Content-Length"] = str(backup.size)
         return response
     except BaseException:

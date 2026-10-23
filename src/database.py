@@ -232,6 +232,8 @@ def init_db():
         "TEXT",
     )
 
+    _ensure_column(conn, "students", "capacity_archived", "INTEGER NOT NULL DEFAULT 0")
+
     year_count = conn.execute(
         "SELECT COUNT(*) FROM academic_years"
     ).fetchone()[0]
@@ -1917,3 +1919,27 @@ def get_recent_events(limit=100, date=None):
             metadata = {}
         result.append(row[:9] + (metadata,))
     return result
+
+
+def set_student_capacity_archived(student_id, archived):
+    """Explicit subscription roster classification; never deletes biometric/history data.
+
+    Recognition and attendance eligibility remain unchanged in this pilot. This
+    field is deliberately not used by load_students or event decision logic.
+    """
+    conn = get_connection()
+    try:
+        conn.execute('BEGIN IMMEDIATE')
+        row = conn.execute('SELECT capacity_archived FROM students WHERE id=?', (student_id,)).fetchone()
+        if row is None:
+            raise ValueError('دانش‌آموز پیدا نشد.')
+        if row[0] and not archived:
+            try:
+                from .cloud.entitlement import enforce_student_capacity
+            except ImportError:
+                from cloud.entitlement import enforce_student_capacity
+            enforce_student_capacity(conn)
+        conn.execute('UPDATE students SET capacity_archived=? WHERE id=?', (int(bool(archived)), student_id))
+        conn.commit()
+    finally:
+        conn.close()

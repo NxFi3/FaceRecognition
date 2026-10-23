@@ -49,7 +49,7 @@ echo.
 REM ===== 3. Check required dependencies =====
 echo Checking dependencies...
 
-%PY% -c "import cv2, numpy, dlib, face_recognition_models, PySide6, onnxruntime, PyInstaller, cryptography, requests, keyring, filelock; print('Dependencies OK')"
+%PY% -c "import cv2, numpy, dlib, PySide6, onnxruntime, PyInstaller, cryptography, requests, keyring, filelock; print('Dependencies OK')"
 if errorlevel 1 (
     echo ERROR: A required build dependency is missing.
     goto :fail
@@ -60,6 +60,22 @@ if errorlevel 1 goto :fail
 
 %PY% -c "import onnxruntime as ort; s=ort.InferenceSession('models/yolo26n.onnx', providers=['CPUExecutionProvider']); print('YOLO ONNX OK:', s.get_providers())"
 if errorlevel 1 goto :fail
+
+REM Explicitly preserve the pilot's OSNet capability; never silently exclude it.
+set "REID_ARGS=--exclude-module torch --exclude-module torchvision --exclude-module torchreid"
+if defined FACE_REID_CACHE (
+    %PY% -m tools.prepare_windows_assets --torch-cache "%FACE_REID_CACHE%"
+    if errorlevel 1 goto :fail
+    set "REID_ARGS=--collect-all torch --collect-all torchvision --collect-all torchreid"
+) else (
+    if not "%FACE_ALLOW_NO_REID%"=="1" (
+        echo ERROR: Set FACE_REID_CACHE to the validated TORCH_HOME cache.
+        echo Use FACE_ALLOW_NO_REID=1 only if the pilot baseline did not use OSNet.
+        goto :fail
+    )
+    %PY% -m tools.prepare_windows_assets --allow-no-reid
+    if errorlevel 1 goto :fail
+)
 
 REM ===== 4. Clean previous build =====
 echo.
@@ -79,21 +95,21 @@ echo.
  --clean ^
  --onedir ^
  --windowed ^
+ --contents-directory . ^
  --name "FaceRecognition" ^
  --paths "src" ^
  --collect-all cv2 ^
  --collect-all PySide6 ^
- --collect-all face_recognition_models ^
+ --additional-hooks-dir hooks ^
+ --hidden-import face_recognition_models ^
  --collect-binaries dlib ^
  --hidden-import database ^
  --hidden-import auth ^
  --collect-all keyring ^
  --collect-all cryptography ^
- --hidden-import onnxruntime ^
- --exclude-module torch ^
- --exclude-module torchvision ^
+ --collect-all onnxruntime ^
+ %REID_ARGS% ^
  --exclude-module ultralytics ^
- --exclude-module torchreid ^
  --add-data "models;models" ^
  src\app.py
 

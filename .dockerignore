@@ -9,3 +9,7 @@ logs
 models
 *.pt
 .venv
+
+*.frkey
+*.frbackup
+subscription-client.json

@@ -33,22 +33,28 @@ def body(request):
     return value
 
 
-def signed_lease(school, installation_id, nonce):
+def signed_lease(school, installation_id, nonce, revoked=False, version=2):
     if not isinstance(nonce, str) or not 32 <= len(nonce) <= 128 or not nonce.isascii():
         raise ValueError("invalid nonce")
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError("Unsupported license version")
     now = timezone.now()
-    expires = min(school.expires_at, now + timedelta(seconds=settings.LEASE_SECONDS))
-    payload = {"version": 1, "audience": "face-recognition-desktop", "school_id": str(school.pk),
+    expires = school.expires_at or now
+    if version == 1:
+        expires = min(expires, now + timedelta(seconds=settings.LEASE_SECONDS))
+    payload = {"version": version, "license_id": str(uuid.uuid4()),
+               "status": "active" if school.entitled and not revoked else "revoked",
+               "subscription_starts_at": (school.starts_at or now).timestamp(), "device_limit": school.device_limit, "audience": "face-recognition-desktop", "school_id": str(school.pk),
                "school_name": school.name, "device_id": str(installation_id), "nonce": nonce,
                "issued_at": now.timestamp(), "lease_expires_at": expires.timestamp(),
-               "subscription_expires_at": school.expires_at.timestamp(), "student_limit": school.student_limit,
+               "subscription_expires_at": (school.expires_at or now).timestamp(), "student_limit": school.student_limit,
                "backups_enabled": school.backups_enabled}
     serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
     key = Ed25519PrivateKey.from_private_bytes(base64.b64decode(settings.SIGNING_PRIVATE_KEY, validate=True))
     return {"payload": base64.b64encode(serialized).decode(), "signature": base64.b64encode(key.sign(serialized)).decode()}
 
 
-def device_auth(entitlement=True):
+def device_auth(entitlement=True, synchronization=False):
     def decorate(function):
         @wraps(function)
         def wrapped(request, *args, **kwargs):
@@ -57,7 +63,7 @@ def device_auth(entitlement=True):
                 return error("authentication_required", 401)
             digest = hashlib.sha256(header[7:].encode()).hexdigest()
             device = Device.objects.select_related("school__user").filter(token_digest=digest).first()
-            if device is None or device.revoked or device.credential_expires_at <= timezone.now() or not device.school.user.is_active or not constant_time_compare(device.password_stamp, device.school.user.get_session_auth_hash()):
+            if device is None or not constant_time_compare(device.password_stamp, device.school.user.get_session_auth_hash()) or (not synchronization and (device.revoked or device.credential_expires_at <= timezone.now() or not device.school.user.is_active)):
                 return error("invalid_device_credential", 401)
             if entitlement and not device.school.entitled:
                 return error("subscription_inactive")
@@ -77,6 +83,8 @@ def login(request):
         password = data.get("password", "")
         installation_id = uuid.UUID(str(data.get("device_id", "")))
         nonce = data["nonce"]
+        if type(data.get("license_version", 1)) is not int or data.get("license_version", 1) not in (1, 2):
+            raise ValueError("Unsupported license version")
         if len(email) > 150 or not isinstance(password, str) or len(password) > 1024:
             raise ValueError()
         if not isinstance(nonce, str) or not 32 <= len(nonce) <= 128 or not nonce.isascii():
@@ -95,7 +103,7 @@ def login(request):
         device = Device.objects.filter(school=school, installation_id=installation_id).first()
         if device and device.revoked:
             return error("device_revoked")
-        others = Device.objects.filter(school=school, revoked=False, token_digest__isnull=False, credential_expires_at__gt=timezone.now()).exclude(installation_id=installation_id).count()
+        others = Device.objects.filter(school=school, revoked=False, token_digest__isnull=False).exclude(installation_id=installation_id).count()
         if others >= school.device_limit:
             return error("device_limit_reached")
         token = secrets.token_urlsafe(32)
@@ -104,25 +112,29 @@ def login(request):
         device.label = str(data.get("label", "Desktop"))[:80]
         device.token_digest = hashlib.sha256(token.encode()).hexdigest()
         device.password_stamp = user.get_session_auth_hash()
-        device.credential_expires_at = timezone.now() + timedelta(days=settings.DEVICE_CREDENTIAL_DAYS)
+        device.credential_expires_at = max(school.expires_at, timezone.now() + timedelta(days=settings.DEVICE_CREDENTIAL_DAYS))
         device.last_seen = timezone.now()
         device.save()
         AuditEvent.objects.create(actor=user, school=school, action="device.login", object_id=str(device.pk))
-        lease = signed_lease(school, installation_id, nonce)
+        lease = signed_lease(school, installation_id, nonce, version=data.get("license_version", 1))
     return JsonResponse({"credential": token, "lease": lease})
 
 
 @csrf_exempt
 @require_POST
-@device_auth()
+@device_auth(entitlement=False, synchronization=True)
 def lease(request):
     if throttled(request, "lease", str(request.device.pk), limit=120):
         return error("rate_limited", 429)
     try:
-        result = signed_lease(request.school, request.device.installation_id, body(request)["nonce"])
+        data = body(request)
+        version = data.get('license_version', 1)
+        if version == 1 and (request.device.revoked or not request.school.entitled):
+            return error('subscription_inactive')
+        result = signed_lease(request.school, request.device.installation_id, data['nonce'], revoked=request.device.revoked, version=version)
     except (KeyError, ValueError, TypeError, json.JSONDecodeError):
         return error("invalid_request", 400)
-    Device.objects.filter(pk=request.device.pk).update(last_seen=timezone.now(), credential_expires_at=timezone.now() + timedelta(days=settings.DEVICE_CREDENTIAL_DAYS))
+    Device.objects.filter(pk=request.device.pk).update(last_seen=timezone.now(), credential_expires_at=max(request.school.expires_at or timezone.now(), timezone.now() + timedelta(days=settings.DEVICE_CREDENTIAL_DAYS)))
     return JsonResponse({"lease": result})
 
 

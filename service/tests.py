@@ -48,7 +48,7 @@ class ServiceTests(TestCase):
         return self.client.post(url, data=json.dumps(payload), content_type="application/json", secure=True, **headers)
     def login(self, installation=None, email="school@example.com", password=PASSWORD):
         return self.post("/api/v1/login/", {"email": email, "password": password,
-            "device_id": installation or self.installation, "nonce": "n" * 43})
+            "device_id": installation or self.installation, "nonce": "n" * 43, "license_version": 2})
     def token(self):
         response = self.login()
         self.assertEqual(response.status_code, 200)
@@ -65,7 +65,9 @@ class ServiceTests(TestCase):
         lease = json.loads(raw)
         self.assertEqual(lease["student_limit"], 900)
         self.assertEqual(lease["nonce"], "n" * 43)
-        self.assertLessEqual(lease["lease_expires_at"] - lease["issued_at"], 900)
+        self.assertEqual(lease["version"], 2)
+        self.assertEqual(lease["subscription_expires_at"], self.school.expires_at.timestamp())
+        self.assertGreater(lease["subscription_expires_at"] - lease["issued_at"], 364 * 86400)
         self.assertNotIn(response.json()["credential"], Device.objects.get().token_digest)
     def test_inactive_expired_future_and_banned_deny_login(self):
         for status, start, end in [("banned", -1, 1), ("suspended", -1, 1), ("active", -2, -1), ("active", 1, 2)]:
@@ -80,33 +82,33 @@ class ServiceTests(TestCase):
         self.assertEqual(self.login(str(uuid.uuid4())).json()["error"], "device_limit_reached")
         second = self.token()
         self.assertNotEqual(first, second)
-        self.assertEqual(self.post("/api/v1/lease/", {"nonce": "x" * 43}, first).status_code, 401)
+        self.assertEqual(self.post("/api/v1/lease/", {"nonce": "x" * 43, "license_version": 2}, first).status_code, 401)
         device = Device.objects.get()
         device.revoked = True
         device.save()
-        self.assertEqual(self.post("/api/v1/lease/", {"nonce": "x" * 43}, second).status_code, 401)
+        self.assertEqual(json.loads(base64.b64decode(self.post("/api/v1/lease/", {"nonce": "x" * 43, "license_version": 2}, second).json()["lease"]["payload"]))["status"], "revoked")
         self.assertEqual(self.login().json()["error"], "device_revoked")
     def test_password_change_invalidates_device_credential(self):
         token = self.token()
         self.user.set_password("A-different-secure-password!67")
         self.user.save()
-        self.assertEqual(self.post("/api/v1/lease/", {"nonce": "x" * 43}, token).status_code, 401)
+        self.assertEqual(self.post("/api/v1/lease/", {"nonce": "x" * 43, "license_version": 2}, token).status_code, 401)
     def test_ban_and_expiry_reject_renewal(self):
         token = self.token()
         self.school.status = "banned"
         self.school.save()
-        self.assertEqual(self.post("/api/v1/lease/", {"nonce": "x" * 43}, token).status_code, 403)
+        self.assertEqual(json.loads(base64.b64decode(self.post("/api/v1/lease/", {"nonce": "x" * 43, "license_version": 2}, token).json()["lease"]["payload"]))["status"], "revoked")
     def test_logout_invalidates_token(self):
         token = self.token()
         self.assertEqual(self.post("/api/v1/logout/", {}, token).status_code, 200)
-        self.assertEqual(self.post("/api/v1/lease/", {"nonce": "x" * 43}, token).status_code, 401)
+        self.assertEqual(self.post("/api/v1/lease/", {"nonce": "x" * 43, "license_version": 2}, token).status_code, 401)
     def test_login_rate_limit(self):
         for _ in range(15):
             self.assertEqual(self.login(password="wrong").status_code, 401)
         self.assertEqual(self.login(password="wrong").status_code, 429)
     def test_cookie_session_cannot_authenticate_device_api(self):
         self.client.force_login(self.user)
-        self.assertEqual(self.post("/api/v1/lease/", {"nonce": "x" * 43}).status_code, 401)
+        self.assertEqual(self.post("/api/v1/lease/", {"nonce": "x" * 43, "license_version": 2}).status_code, 401)
     def test_json_required_and_nonce_validated(self):
         self.assertEqual(self.client.post("/api/v1/login/", {"email": self.user.email}, secure=True).status_code, 400)
         self.assertEqual(self.post("/api/v1/login/", {"device_id": self.installation, "nonce": "short"}).status_code, 400)
@@ -212,8 +214,85 @@ class ServiceTests(TestCase):
         self.assertEqual(redirected.status_code, 302)
         changed = self.client.post(redirected["Location"], {"new_password1": "New-strong-reset-password!84", "new_password2": "New-strong-reset-password!84"}, secure=True)
         self.assertEqual(changed.status_code, 302)
-        self.assertEqual(self.post("/api/v1/lease/", {"nonce": "x" * 43}, credential).status_code, 401)
+        self.assertEqual(self.post("/api/v1/lease/", {"nonce": "x" * 43, "license_version": 2}, credential).status_code, 401)
 
+
+    def test_offline_renewal_contract_repeated_years_and_revocation(self):
+        token = self.token()
+        for year in range(1, 4):
+            self.school.expires_at = timezone.now() + timedelta(days=365 * year)
+            self.school.student_limit = 900 + year
+            self.school.save()
+            # Credential may expire during a year offline; sync still verifies its secret.
+            Device.objects.update(credential_expires_at=timezone.now() - timedelta(days=1))
+            response = self.post('/api/v1/lease/', {'nonce': 'x' * 43, 'license_version': 2}, token)
+            self.assertEqual(response.status_code, 200)
+            envelope = response.json()['lease']
+            self.signer.public_key().verify(base64.b64decode(envelope['signature']), base64.b64decode(envelope['payload']))
+            value = json.loads(base64.b64decode(envelope['payload']))
+            self.assertEqual(value['student_limit'], 900 + year)
+            self.assertEqual(value['subscription_expires_at'], self.school.expires_at.timestamp())
+            self.assertEqual(value['status'], 'active')
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.post(f'/account/devices/{Device.objects.get().pk}/revoke/', secure=True).status_code, 302)
+        response = self.post('/api/v1/lease/', {'nonce': 'x' * 43, 'license_version': 2}, token)
+        self.assertEqual(json.loads(base64.b64decode(response.json()['lease']['payload']))['status'], 'revoked')
+
+    def test_legacy_online_client_protocol_remains_supported(self):
+        response = self.post('/api/v1/login/', {'email': self.user.username, 'password': PASSWORD,
+            'device_id': self.installation, 'nonce': 'n' * 43})
+        value = json.loads(base64.b64decode(response.json()['lease']['payload']))
+        self.assertEqual(value['version'], 1)
+        self.assertLessEqual(value['lease_expires_at'] - value['issued_at'], 900)
+
+    def test_client_encrypted_backup_is_opaque_and_school_isolated(self):
+        token = self.token()
+        value = b'FRCLIENT2' + self.school.pk.bytes + b'client ciphertext and tag' * 10
+        response = self.client.post('/api/v1/backups/upload/', data=value, content_type='application/octet-stream', secure=True,
+            HTTP_AUTHORIZATION='Bearer ' + token, HTTP_X_BACKUP_SHA256=hashlib.sha256(value).hexdigest(), HTTP_X_BACKUP_FORMAT='client-v2')
+        self.assertEqual(response.status_code, 201)
+        backup = Backup.objects.get()
+        self.assertEqual(backup.format, 'client-v2')
+        download = self.client.get(f'/api/v1/backups/{backup.pk}/', secure=True, HTTP_AUTHORIZATION='Bearer ' + token)
+        self.assertEqual(b''.join(download.streaming_content), value)
+        wrong_school = b'FRCLIENT2' + uuid.uuid4().bytes + b'ciphertext' * 10
+        response = self.client.post('/api/v1/backups/upload/', data=wrong_school, content_type='application/octet-stream', secure=True,
+            HTTP_AUTHORIZATION='Bearer ' + token, HTTP_X_BACKUP_SHA256=hashlib.sha256(wrong_school).hexdigest(), HTTP_X_BACKUP_FORMAT='client-v2')
+        self.assertEqual(response.status_code, 400)
+
+    def test_backup_deletion_requires_school_ownership_and_csrf(self):
+        token = self.token()
+        self.assertEqual(self.upload(token).status_code, 201)
+        backup = Backup.objects.get()
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(f'/account/backups/{backup.pk}/delete/', secure=True).status_code, 405)
+        outsider = get_user_model().objects.create_user('outsider@example.com', password=PASSWORD)
+        self.client.force_login(outsider)
+        self.assertEqual(self.client.post(f'/account/backups/{backup.pk}/delete/', secure=True).status_code, 404)
+        self.client.force_login(self.user)
+        strict = Client(enforce_csrf_checks=True)
+        strict.force_login(self.user)
+        self.assertEqual(strict.post(f'/account/backups/{backup.pk}/delete/', secure=True).status_code, 403)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(self.client.post(f'/account/backups/{backup.pk}/delete/', secure=True).status_code, 302)
+        self.assertFalse(Backup.objects.filter(pk=backup.pk).exists())
+        self.assertFalse(location(backup.school_id, backup.blob_name).exists())
+
+    def test_cleared_subscription_dates_and_disabled_account_produce_signed_denial(self):
+        token = self.token()
+        self.school.starts_at = self.school.expires_at = None
+        self.school.save()
+        self.user.is_active = False
+        self.user.save()
+        response = self.post('/api/v1/lease/', {'nonce': 'x' * 43, 'license_version': 2}, token)
+        self.assertEqual(response.status_code, 200)
+        value = json.loads(base64.b64decode(response.json()['lease']['payload']))
+        self.assertEqual(value['status'], 'revoked')
+
+    def test_expiring_network_credential_does_not_release_offline_installation_slot(self):
+        token = self.token()
+        Device.objects.update(credential_expires_at=timezone.now() - timedelta(days=1))
+        self.assertEqual(self.login(str(uuid.uuid4())).json()['error'], 'device_limit_reached')
 
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
@@ -243,7 +322,7 @@ class ConcurrentAdmissionTests(TransactionTestCase):
             try:
                 barrier.wait(timeout=5)
                 return Client().post("/api/v1/login/", data=json.dumps({"email": "race@example.com", "password": PASSWORD,
-                    "device_id": str(uuid.uuid4()), "nonce": "n" * 43}), content_type="application/json", secure=True).status_code
+                    "device_id": str(uuid.uuid4()), "nonce": "n" * 43, "license_version": 2}), content_type="application/json", secure=True).status_code
             finally:
                 connections.close_all()
         with ThreadPoolExecutor(max_workers=2) as executor:
@@ -254,7 +333,7 @@ class ConcurrentAdmissionTests(TransactionTestCase):
         self.school.backup_quota_bytes = 150
         self.school.save()
         response = self.client.post("/api/v1/login/", data=json.dumps({"email": "race@example.com", "password": PASSWORD,
-            "device_id": str(uuid.uuid4()), "nonce": "n" * 43}), content_type="application/json", secure=True)
+            "device_id": str(uuid.uuid4()), "nonce": "n" * 43, "license_version": 2}), content_type="application/json", secure=True)
         token = response.json()["credential"]
         data = b"SQLite format 3\x00" + b"x" * 100
         barrier = Barrier(2)

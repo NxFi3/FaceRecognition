@@ -18,7 +18,7 @@ class DeviceAdmin(admin.ModelAdmin):
     list_display = ("school", "label", "revoked", "last_seen", "credential_expires_at")
     list_filter = ("revoked",)
     readonly_fields = ("school", "installation_id", "label", "credential_expires_at", "last_seen")
-    exclude = ("token_digest",)
+    exclude = ("token_digest", "password_stamp")
     def has_add_permission(self, request):
         return False
     def save_model(self, request, obj, form, change):
@@ -29,7 +29,7 @@ class DeviceAdmin(admin.ModelAdmin):
 @admin.register(Backup)
 class BackupAdmin(admin.ModelAdmin):
     list_display = ("id", "school", "size", "created_at")
-    readonly_fields = ("id", "school", "blob_name", "size", "sha256", "created_at")
+    readonly_fields = ("id", "school", "blob_name", "size", "sha256", "created_at", "format")
     def has_add_permission(self, request):
         return False
     def has_delete_permission(self, request, obj=None):

@@ -175,7 +175,7 @@ class SmartCameraWorker(QThread):
 
     @staticmethod
     def _face_models():
-        import face_recognition_models
+        from . import model_assets as face_recognition_models
 
         shape_path = face_recognition_models.pose_predictor_five_point_model_location()
         encoder_path = face_recognition_models.face_recognition_model_location()

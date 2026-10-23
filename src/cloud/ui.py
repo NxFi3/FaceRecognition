@@ -8,8 +8,8 @@ import webbrowser
 from filelock import FileLock, Timeout
 from PySide6.QtCore import QObject, Signal, QTimer, Qt
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit, QLabel,
-    QPushButton, QMessageBox, QCheckBox, QListWidget, QDialogButtonBox)
-from .client import AccessDenied, ClientConfig, CloudClient
+    QPushButton, QMessageBox, QCheckBox, QListWidget, QDialogButtonBox, QFileDialog)
+from .client import AccessDenied, ClientConfig, CloudClient, CloudError
 from .entitlement import bind_gate
 
 
@@ -42,7 +42,7 @@ class Jobs(QObject):
 
 
 class LoginDialog(QDialog):
-    def __init__(self, client, parent=None):
+    def __init__(self, client, parent=None, recovery=None):
         super().__init__(parent)
         self.client = client
         self.setWindowTitle("ورود به حساب مدرسه")
@@ -71,6 +71,10 @@ class LoginDialog(QDialog):
         website = QPushButton("ثبت‌نام / بازیابی رمز در سایت")
         website.clicked.connect(lambda: webbrowser.open(client.config.url + "/login/"))
         layout.addWidget(website)
+        if recovery:
+            export = QPushButton('خروجی / بازیابی محلی اطلاعات مدرسه (بدون اینترنت)')
+            export.clicked.connect(recovery)
+            layout.addWidget(export)
         self.jobs = Jobs(self)
         self.jobs.completed.connect(self.done_job, Qt.QueuedConnection)
         self.finished.connect(lambda _: self.jobs.close())
@@ -107,16 +111,28 @@ class AccountDialog(QDialog):
         info.setTextFormat(Qt.PlainText)
         info.setWordWrap(True)
         layout.addWidget(info)
+        online = QPushButton('بررسی / تمدید آنلاین و ورود دوباره به حساب سایت')
+        online.clicked.connect(lambda: LoginDialog(client, self).exec())
+        layout.addWidget(online)
         if not client.remembered:
-            layout.addWidget(QLabel("ذخیره‌سازی امن سیستم‌عامل در دسترس نیست؛ ورود در اجرای بعدی دوباره لازم است."))
-        notice = QLabel("بکاپ شامل تمام دیتابیس، اطلاعات دانش‌آموزان، حضور و غیاب و داده‌های ثبت‌شدهٔ چهره است. روی سرور رمزگذاری می‌شود. تصاویر خارج از دیتابیس در این بکاپ نیستند.")
+            layout.addWidget(QLabel("ورود حساب سایت ذخیره نشده؛ مجوز آفلاین در خزانهٔ امن سیستم نگهداری می‌شود."))
+        notice = QLabel("بکاپ شامل تمام دیتابیس، اطلاعات دانش‌آموزان، حضور و غیاب و داده‌های ثبت‌شدهٔ چهره است. پیش از ارسال، با کلید مدرسه در همین دستگاه رمزگذاری می‌شود و تصاویر رویدادها را هم شامل می‌شود. سرور کلید بازیابی را دریافت نمی‌کند. بدون کلید، بازیابی روی دستگاه جدید ممکن نیست.")
         notice.setWordWrap(True)
         layout.addWidget(notice)
-        self.auto = QCheckBox("با ارسال خودکار روزانهٔ دیتابیس به سرور موافقم")
+        self.auto = QCheckBox("با ارسال خودکار روزانهٔ بکاپ رمزگذاری‌شدهٔ اطلاعات چهره و تصاویر به سرور موافقم")
         self.auto.setChecked(bool(client.state.get("automatic_backups", False)))
         self.auto.setEnabled(bool(lease.get("backups_enabled")))
         self.auto.toggled.connect(self.auto_changed)
         layout.addWidget(self.auto)
+        key_export = QPushButton('ذخیرهٔ کلید بازیابی مدرسه در محل امن')
+        key_export.clicked.connect(lambda: self.configure_key(False))
+        layout.addWidget(key_export)
+        key_import = QPushButton('واردکردن کلید بازیابی موجود مدرسه')
+        key_import.clicked.connect(lambda: self.configure_key(True))
+        layout.addWidget(key_import)
+        roster = QPushButton('مدیریت فهرست فعال / آرشیو ظرفیت')
+        roster.clicked.connect(self.roster)
+        layout.addWidget(roster)
         self.upload = QPushButton("ساخت و ارسال بکاپ اکنون")
         self.upload.setEnabled(bool(lease.get("backups_enabled")))
         self.upload.clicked.connect(self.backup)
@@ -151,8 +167,20 @@ class AccountDialog(QDialog):
         self.renew_timer = QTimer(self)
         self.renew_timer.setInterval(300000)
         self.renew_timer.timeout.connect(lambda: self.jobs.start("renew", client.renew))
-        self.renew_timer.start()
+        # Main controller handles opportunistic sync after startup; no startup network dependency.
         self.finished.connect(lambda _: self.renew_timer.stop())
+    def roster(self):
+        RosterDialog(self.database_path, self).exec()
+
+    def configure_key(self, importing):
+        if importing:
+            path, _ = QFileDialog.getOpenFileName(self, 'کلید بازیابی مدرسه', '', 'Recovery key (*.frkey)')
+        else:
+            QMessageBox.information(self, 'کلید محرمانهٔ مدرسه', 'کلید را روی حافظهٔ جداگانه در محل امن نگه دارید؛ همراه بکاپ روی سرور بارگذاری نکنید. گم‌شدن همهٔ نسخه‌های کلید یعنی از دست رفتن امکان بازیابی. فایل کلید بدون رمز است؛ دسترسی به آن را محدود کنید.')
+            path, _ = QFileDialog.getSaveFileName(self, 'کلید جدید یا خروجی دوبارهٔ کلید فعلی', '', 'Recovery key (*.frkey)')
+        if path:
+            self.jobs.start('key', lambda: self.client.configure_backup_key(path, importing))
+
     def auto_changed(self, checked):
         self.client.state["automatic_backups"] = checked
         self.client.save_state()
@@ -206,7 +234,10 @@ class CloudController(QObject):
         self.jobs = Jobs(self)
         self.jobs.completed.connect(self.done_job, Qt.QueuedConnection)
         app.aboutToQuit.connect(self.jobs.close)
-        self.next_renewal = time.monotonic() + 300
+        self.next_renewal = time.monotonic() + 5
+        self.retry_seconds = 60
+        self.online_ready = False
+        self.next_checkpoint = time.monotonic() + 60
         self.next_backup_attempt = 0
         self.locked = False
         self.license_label = QLabel()
@@ -242,20 +273,25 @@ class CloudController(QObject):
                 self.locked = True
                 self.window.hide()
                 self.window.stop_camera()
-                QMessageBox.warning(None, "اشتراک", "اعتبار دسترسی پایان یافته است. اینترنت و اشتراک مدرسه را بررسی کنید و دوباره وارد شوید.")
+                QMessageBox.warning(None, "اشتراک", "اعتبار دسترسی پایان یافته یا بررسی آنلاین ساعت لازم است. اطلاعات حذف نشده است. در اجرای بعد از ورود آنلاین برای تمدید یا خروجی / بازیابی محلی استفاده کنید.")
                 self.app.quit()
             return
         now = time.monotonic()
         if now >= self.next_renewal:
-            self.next_renewal = now + 60  # bounded retry after transient failure
+            self.next_renewal = now + self.retry_seconds
             self.jobs.start("renew", self.client.renew)
-        if lease.get("backups_enabled") and self.client.state.get("automatic_backups") and time.time() - self.client.state.get("last_backup_at", 0) >= 86400 and now >= self.next_backup_attempt:
+        if now >= self.next_checkpoint:
+            self.next_checkpoint = now + 60
+            self.jobs.start('checkpoint', self.client.checkpoint_time)
+        if self.online_ready and lease.get("backups_enabled") and self.client.state.get("automatic_backups") and time.time() - self.client.state.get("last_backup_at", 0) >= 86400 and now >= self.next_backup_attempt:
             self.next_backup_attempt = now + 3600
             self.jobs.start("backup", lambda: self.client.backup(self.database_path))
     def done_job(self, name, result, error):
         self.jobs.finished(name)
-        if name == "renew" and not error:
-            self.next_renewal = time.monotonic() + 300
+        if name == 'renew':
+            self.online_ready = error is None
+            self.retry_seconds = min(self.retry_seconds * 2, 3600) if error else 60
+            self.next_renewal = time.monotonic() + (self.retry_seconds if error else 3600)
             self.update_label()
         if name == "logout":
             if error:
@@ -282,11 +318,23 @@ def run_application(app, window_class, init_db, ensure_local_admin, database_pat
         except Exception:
             QMessageBox.critical(None, "تنظیم سرویس", "فایل معتبر subscription-client.json کنار برنامه نصب نشده است. بستهٔ کامل را از پشتیبانی دریافت کنید.")
             return 1
-        if LoginDialog(client).exec() != QDialog.Accepted:
-            return 0
+        from .recovery import recover_interrupted_restore
+        recover_interrupted_restore(database_path)
         init_db()
         if not ensure_local_admin():
             return 0
+        recovered = []
+        def local_recovery():
+            dialog = RecoveryDialog(database_path)
+            dialog.exec()
+            if dialog.restored:
+                recovered.append(True)
+        if not client.allowed() and LoginDialog(client, recovery=local_recovery).exec() != QDialog.Accepted:
+            return 0
+        if recovered:
+            init_db()
+            if not ensure_local_admin():
+                return 0
         try:
             import sqlite3
             from contextlib import closing
@@ -331,3 +379,113 @@ def run_application(app, window_class, init_db, ensure_local_admin, database_pat
                     worker.wait()
         lock.release()
         bind_gate(None)
+
+
+class RosterDialog(QDialog):
+    """Capacity roster only; does not alter recognition or attendance decisions."""
+    def __init__(self, database_path, parent=None):
+        super().__init__(parent)
+        self.database_path = database_path
+        self.setWindowTitle('فهرست فعال / آرشیو ظرفیت')
+        layout = QVBoxLayout(self)
+        note = QLabel('آرشیو فقط طبقه‌بندی فهرست ظرفیت است؛ سوابق و چهره حذف نمی‌شوند و منطق تشخیص و حضور و غیاب تغییر نمی‌کند. این گزینه ابزار قطع تشخیص فرد نیست.')
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        self.listing = QListWidget()
+        layout.addWidget(self.listing)
+        button = QPushButton('تغییر وضعیت دانش‌آموز انتخاب‌شده')
+        button.clicked.connect(self.toggle)
+        layout.addWidget(button)
+        self.refresh()
+    def refresh(self):
+        import sqlite3
+        from contextlib import closing
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            self.rows = connection.execute('SELECT id, student_code, name, capacity_archived FROM students ORDER BY id').fetchall()
+        self.listing.clear()
+        for _, code, name, archived in self.rows:
+            self.listing.addItem(f'{code} — {name} — ' + ('آرشیو' if archived else 'فعال'))
+    def toggle(self):
+        row = self.listing.currentRow()
+        if not 0 <= row < len(self.rows):
+            return
+        if QMessageBox.question(self, 'تغییر فهرست ظرفیت', 'وضعیت انتخاب‌شده تغییر کند؟ سوابق حفظ می‌شوند.', QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        try:
+            # Use the same module/path as the running application, not a second DB.
+            import sys
+            db = sys.modules.get('database') or sys.modules.get('src.database')
+            db.set_student_capacity_archived(self.rows[row][0], not self.rows[row][3])
+            self.refresh()
+        except Exception as exc:
+            QMessageBox.warning(self, 'ظرفیت', str(exc))
+
+
+class RecoveryDialog(QDialog):
+    """Offline data ownership path, behind the existing local-admin password."""
+    def __init__(self, database_path, parent=None):
+        super().__init__(parent)
+        self.database_path = Path(database_path)
+        self.restored = False
+        self.setWindowTitle('خروجی و بازیابی محلی — بدون نیاز به اشتراک فعال')
+        layout = QVBoxLayout(self)
+        note = QLabel('دوربین‌ها در این حالت اجرا نمی‌شوند. خروجی CSV سوابق، یا بکاپ کامل رمزگذاری‌شده با کلید مدرسه بگیرید. بازیابی فقط از بکاپ همین مدرسه و با کلید درست انجام می‌شود. فایل‌های خروجی حاوی اطلاعات محرمانه‌اند؛ محل امن انتخاب کنید.')
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        self.status = QLabel('')
+        self.status.setTextFormat(Qt.PlainText)
+        self.status.setWordWrap(True)
+        for title, operation in [('خروجی CSV حضور و غیاب', self.export_csv),
+                                 ('خروجی کامل رمزگذاری‌شده', lambda: self.bundle(False)),
+                                 ('بازیابی بکاپ کامل محلی', lambda: self.bundle(True))]:
+            button = QPushButton(title)
+            button.clicked.connect(operation)
+            layout.addWidget(button)
+        layout.addWidget(self.status)
+        self.jobs = Jobs(self)
+        self.jobs.completed.connect(self.done_job, Qt.QueuedConnection)
+        self.finished.connect(lambda _: self.jobs.close())
+    def export_csv(self):
+        path, _ = QFileDialog.getSaveFileName(self, 'خروجی محرمانهٔ حضور و غیاب', '', 'CSV (*.csv)')
+        if path:
+            from .local_export import export_attendance
+            self.jobs.start('csv', lambda: export_attendance(self.database_path, path))
+    def bundle(self, restoring):
+        from .local_export import bound_school
+        from .recovery import import_key, make_bundle, unpack_bundle, install_bundle
+        import tempfile
+        try:
+            school = bound_school(self.database_path)
+            keypath, _ = QFileDialog.getOpenFileName(self, 'کلید بازیابی همین مدرسه', '', 'Recovery key (*.frkey)')
+            if not keypath:
+                return
+            key = import_key(keypath, school)
+            if restoring:
+                path, _ = QFileDialog.getOpenFileName(self, 'بکاپ کامل', '', 'Backup (*.frbackup)')
+            else:
+                path, _ = QFileDialog.getSaveFileName(self, 'بکاپ کامل رمزگذاری‌شده', '', 'Backup (*.frbackup)')
+            if not path:
+                return
+            if restoring and QMessageBox.warning(self, 'جایگزینی اطلاعات محلی', 'دیتابیس و تصاویر رویدادها جایگزین شوند؟ نسخهٔ قبل نگه داشته می‌شود.', QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+                return
+            def work():
+                if restoring:
+                    with tempfile.TemporaryDirectory(prefix='.local-restore-', dir=self.database_path.parent) as directory:
+                        unpack_bundle(path, directory, school, key)
+                        install_bundle(directory, self.database_path)
+                else:
+                    make_bundle(self.database_path, path, school, key)
+            self.setEnabled(False)
+            self.jobs.start('restore' if restoring else 'export', work)
+        except Exception as exc:
+            self.status.setText(str(exc))
+    def done_job(self, name, result, error):
+        self.jobs.finished(name)
+        self.setEnabled(True)
+        if name == 'restore' and not error:
+            self.restored = True
+        self.status.setText(str(error) if error else 'عملیات انجام شد؛ برای ورود عادی برنامه را دوباره اجرا کنید.')
+    def reject(self):
+        if self.jobs.busy:
+            return
+        super().reject()

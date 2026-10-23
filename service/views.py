@@ -148,8 +148,8 @@ def revoke_device(request, device_id):
     if device is None:
         raise Http404
     device.revoked = True
-    device.token_digest = None
-    device.save(update_fields=["revoked", "token_digest"])
+    # Retain the digest so this revoked installation can receive a signed denial.
+    device.save(update_fields=["revoked"])
     AuditEvent.objects.create(actor=request.user, school=device.school, action="device.revoked", object_id=str(device.pk))
     return redirect("account")
 
@@ -164,3 +164,21 @@ def health(request):
     except Exception:
         return JsonResponse({"ok": False}, status=503)
     return JsonResponse({"ok": True})
+
+
+@login_required
+@require_POST
+def delete_backup(request, backup_id):
+    from .backups import location
+    with transaction.atomic():
+        school = School.objects.select_for_update().filter(user=request.user).first()
+        backup = Backup.objects.filter(pk=backup_id, school=school).first()
+        if backup is None:
+            raise Http404
+        path = location(backup.school_id, backup.blob_name)
+        identifier = str(backup.pk)
+        backup.delete()
+        transaction.on_commit(lambda: path.unlink(missing_ok=True), robust=True)
+        AuditEvent.objects.create(actor=request.user, school=school, action='backup.deleted', object_id=identifier)
+    messages.success(request, 'بکاپ انتخاب‌شده حذف شد؛ نسخه‌های جداگانهٔ بازیابی سرور تابع سیاست نگهداری خود هستند.')
+    return redirect('account')

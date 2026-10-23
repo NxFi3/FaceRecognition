@@ -17,6 +17,7 @@ urlpatterns = [
     path("reset/done/", auth.PasswordResetCompleteView.as_view(template_name="registration/password_reset_complete.html"), name="password_reset_complete"),
     path("account/", views.account, name="account"),
     path("account/backups/<uuid:backup_id>/", views.web_download, name="web-download"),
+    path("account/backups/<uuid:backup_id>/delete/", views.delete_backup, name="delete-backup"),
     path("account/devices/<int:device_id>/revoke/", views.revoke_device, name="revoke-device"),
     path("api/v1/login/", api.login), path("api/v1/lease/", api.lease), path("api/v1/logout/", api.logout),
     path("api/v1/backups/", backups.listing), path("api/v1/backups/upload/", backups.upload),

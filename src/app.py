@@ -16,7 +16,10 @@ from pathlib import Path
 
 import cv2
 import dlib
-import face_recognition_models
+try:
+    from .engine import model_assets as face_recognition_models
+except ImportError:
+    from engine import model_assets as face_recognition_models
 import numpy as np
 from PySide6.QtCore import QDate, QLibraryInfo, QThread, QTranslator, Qt, Signal, QTimer, QPointF, QRectF
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
@@ -175,6 +178,11 @@ if getattr(sys, "frozen", False):
     BASE_DIR = Path(sys.executable).resolve().parent
 else:
     BASE_DIR = Path(__file__).resolve().parent.parent
+
+# A full Windows release can carry the SAME warmed OSNet cache as the pilot.
+# This changes only packaged asset lookup, never model selection or cadence.
+if getattr(sys, "frozen", False) and (BASE_DIR / "models" / "torch").is_dir():
+    os.environ.setdefault("TORCH_HOME", str(BASE_DIR / "models" / "torch"))
 
 YUNET_MODEL_FILENAME = "face_detection_yunet_2023mar.onnx"
 YUNET_MODEL_PATH = BASE_DIR / "models" / YUNET_MODEL_FILENAME
@@ -5331,8 +5339,8 @@ class MainWindow(QMainWindow):
                 logger.warning("Could not save exit-event snapshot id=%s slot=%s", event_id, slot)
                 return False
             logger.info(
-                "EARLY_EXIT_EVIDENCE_SAVED event_id=%s slot=%s path=%s name=%s code=%s",
-                event_id, slot, path, name, code
+                "EARLY_EXIT_EVIDENCE_SAVED event_id=%s slot=%s",
+                event_id, slot
             )
             return True
         except Exception:
@@ -7137,7 +7145,6 @@ def run_smoke_test():
         raise RuntimeError(f"YuNet model missing: {YUNET_MODEL_PATH}")
 
     import dlib
-    import face_recognition_models
 
     model_locations = {
         "5-point": face_recognition_models.pose_predictor_five_point_model_location(),

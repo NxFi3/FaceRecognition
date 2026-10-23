@@ -1,184 +1,247 @@
-# Subscription service implementation and validation
+# Offline-first licensing: implementation and pilot validation
 
-This change extends `fix/enrollment-dialog-responsive` after the audited baseline
-`a8c2189`. No work from the rejected performance branch/PR is incorporated.
-It is a deployable subscription/account and database-backup implementation, not
-an assertion of completed external security certification or live deployment.
+Dedicated branch: `hardening/offline-first-licensing`, based directly on
+`fix/enrollment-dialog-responsive` at `5f6bd20`. No performance-branch code or PR #5
+was used. This is a pilot-hardening implementation, not a claim of a completed
+Windows release, external security certification, or live commercial deployment.
 
-## Components and authority
+## Inspected architecture and findings
 
-- `service/`: Django 5.2 LTS site/auth/admin/API, PostgreSQL persistent accounts,
-  subscription windows/status/quotas, installation credentials and audit records.
-  Public registration requires email verification and starts suspended with zero
-  capacity. Only vendor staff can grant/extend service. Payment activation is
-  manual; no payment gateway/webhook is implemented yet.
-- Browser sessions: built-in Django password hashing/validation/reset/session
-  machinery, secure HTTP-only same-site cookies, CSRF on all browser mutations,
-  host validation, HTTPS redirect, host-scoped HSTS and CSP. API authentication
-  never accepts a browser cookie in place of a device credential.
-- Device API: random 256-bit credentials, SHA-256 token digests at rest, password
-  auth stamp invalidation, explicit installation revocation and a 30-day rolling
-  credential lifetime. PostgreSQL school-row locks serialize device admission
-  and backup quota decisions across Gunicorn workers. Redis fixed-window limits
-  apply per IP and account; unavailable Redis fails closed. Proxy headers are
-  trustworthy only because Gunicorn is private and Caddy overwrites them.
-- Leases: Ed25519-signed payload bound to application audience, schema version,
-  school UUID, installation UUID and a fresh caller nonce. Every startup requires
-  a fresh online response. Renew every five minutes; lease validity <=15 minutes
-  and <=subscription expiry. The desktop subtracts the full request duration
-  from the usable lifetime through a monotonic deadline (Linux CLOCK_BOOTTIME includes suspend), so desktop clock rollback
-  and replaying an old response cannot extend an active session. Server clock/NTP
-  is authoritative. Revocation has a bounded delay, not instant offline effect.
-- `src/cloud/`: HTTPS account client, OS-vault-only credential persistence,
-  atomic nonsecret state writes, account/backup dialogs and asynchronous control
-  plane. No plaintext credential fallback. GUI and camera admission use an
-  in-memory gate; no network or disk I/O in the frame gate. State fsync uses a
-  separate lock so it cannot stall camera admission. Late network replies cannot
-  reopen a closed session. Existing model/detector/recognition cadence and
-  biometric decisions are unchanged.
-- Capacity: total stored student records; admission uses the existing SQLite
-  connection with `BEGIN IMMEDIATE`, so concurrent registrations cannot both
-  claim the last seat. Startup/restore validate existing count and tenant binding;
-  renewal also rejects a reduction below the existing count. This is not an
-  active/archive licensing scheme and does not change recognition eligibility.
-- Backups: SQLite backup API, integrity/schema/foreign-key/tenant/count checks,
-  streamed HTTPS upload with a SHA-256 digest, server-side streaming AES-256-GCM
-  with per-school HKDF key derivation and tenant AAD. No client filenames used as
-  server paths. Ciphertext and directory are fsynced before metadata commit.
-  Retention deletes old blobs after commit. Interrupted-upload/orphan cleanup
-  is explicit and age-bounded. GCM authentication and digest verification finish
-  before download emits plaintext. Each tenant can only enumerate/download its
-  own records. Expired subscriptions can export existing backups from the site
-  while the user account remains active. Disabling backup alone does not revoke
-  an otherwise valid application subscription.
-- Restore: startup only, instance lock, verified download and SQLite validation,
-  rollback snapshot, checkpoint and atomic replacement. The application retains
-  camera QThread references and waits for native work to return before releasing
-  its instance/restore lock. Native code that never returns remains a hardware/
-  driver shutdown limitation; forced thread destruction is not used. The local
-  admin credential in a restored DB is checked again before opening the app.
-- Deployment: Caddy automatic TLS, PostgreSQL and Redis on a private network,
-  web image as non-root with read-only root FS, bounded tmpfs, dropped capabilities
-  and no-new-privileges. PostgreSQL app role owns its DB but is not a cluster
-  superuser/role creator/database creator. Secrets generator refuses overwrite.
-  Gunicorn access log omits request URLs/query strings to avoid routine token-link
-  logging. Cold server recovery bundles include database, blobs, keys and code
-  revision, encrypted for a separate operator-held age recovery identity.
+The existing path remains capture thread/latest-frame slot → smart camera worker
+→ person detector → tracker/optional OSNet → YuNet/cached face observations →
+shared bounded recognition executor → global identity/event engine → per-call
+SQLite connections (WAL, foreign keys, busy timeout) → Qt latest-preview mailbox
+and local reports. Recognition thresholds, voting, model weights, crop logic,
+detection/recognition cadence, cross-camera handoff and attendance decisions are
+unchanged. The existing opt-in runtime profiler remains available.
 
-No biometric matching thresholds, crops, model files, voting rules, association
-logic or camera format policy changed. A packaged smoke-test defect was fixed:
-the smoke command now uses the existing PersonDetector backend selection instead
-of unconditionally importing Ultralytics in an ONNX-only package.
+| Finding | Evidence | Action |
+| --- | --- | --- |
+| Mandatory login each startup, 900-second in-memory leases | Direct client/UI/server execution path | Replaced for v2 clients with persisted signed subscription-duration entitlement |
+| Network credential expiration could make a long-offline installation count as a free slot | Admission query inspected; regression test | Count non-revoked bound credentials independently of their network expiry |
+| Website revocation deleted the only token digest usable to return signed status | Direct `revoke_device` path; server regression | Preserve digest for status synchronization only; revoked devices remain forbidden from data APIs |
+| Reducing capacity below historical record count blocked startup/restore | Client admission/restore code | Data stays accessible; only new enrollment/reactivation consumes an active seat |
+| Backup upload was plaintext SQLite inside TLS; server could decrypt | Existing streaming implementation | New client-side AES-GCM complete bundles; retain legacy format explicitly |
+| Existing backup omitted external event photos | SQLite-only snapshot vs `early_exit_review` inspected | Include photos and DB-held settings, add journaled complete restore |
+| Multi-file restore can fail between DB and photo replacement | Failure injection and actual subprocess `os._exit(77)` test | Durable rollback journal, preserved previous generation, startup recovery |
+| PII in early-exit evidence log | Source inspection | Remove name/code/path from that log |
+| `setuptools<81` had advisory PYSEC-2026-3447 | Actual full desktop-requirements `pip-audit` | Require corrected >=83; replace deprecated path lookup with identical original asset paths |
+| Local Windows builder excluded Torch/Re-ID, and expected root assets despite PyInstaller's default nested layout | Packaging inspection; no actual Windows build | Explicit Re-ID capability gate/cache inclusion, root contents layout, ORT/DLL collection, custom dlib asset hook |
+| Native driver/model call might never return during shutdown | Strong structural evidence, not reproduced on real hardware | Keep existing ownership/wait semantics; do not kill native threads or redesign pipeline |
+| GUI report queries/evidence writes and SQLite 8-second busy timeout could cause stalls under disk contention | Plausible, unmeasured | Document for real-footage testing; no speculative scheduling changes |
+| Live DB/photo snapshot is not one filesystem-wide transaction | Structural limitation | Provide stopped-app full recovery CLI; live backup can omit a photo still being written |
 
-## Validation
+Do not optimize biometric matching, caches/confirmation, camera format handling,
+Re-ID association or stage cadence in this pass. Future work, ordered by benefit
+and risk: actual Windows/offline asset verification (high benefit/low runtime risk),
+real disk/photo growth and restore drills (high/low), measured GUI/DB contention
+(high/medium), native-driver isolation if hangs are reproduced (high/high). No FPS
+improvement is claimed or attempted.
 
-Validation was performed on a development environment, not a customer's VPS or
-camera deployment. The commands are:
+## License protocol and trust
+
+V2 Ed25519 payload: audience/version, unique license UUID, school UUID/name,
+installation UUID, start/end/issue UTC timestamps, student and device limits,
+backup permission, nonce and active/revoked status. Each online response is
+verified with the pinned public key, current nonce and installation/school binding.
+Its request age is bounded. The private signer stays on the server. Legacy v1
+clients negotiate their original short online lease; v2 clients never promote a
+v1 lease into a long offline license. Upgrade the server before activating a v2
+client. Existing accounts/server blobs are migrated in place with no rekeying.
+
+A successful activation saves the signed envelope plus trusted time/generation
+in an approved OS credential vault. Compressed checkpoint storage avoids wasting
+Windows credential-blob space. The JSON mirror is atomically replaced and is not
+secret. A two-phase protected/mirror checkpoint recognizes an interrupted write
+and keeps the newer protected license; restoring an older mirror after a completed
+commit requires verification, rather than reverting the entitlement. A protected installation anchor survives missing metadata. Protected time,
+local observed wall time, and suspend-aware elapsed time are combined; backward
+jumps beyond five minutes or inconsistent/tampered state require online verification.
+Periodic checkpoints run on a background job; clean shutdown also checkpoints.
+Ordinary whole-file rollback cannot move the protected time floor backwards.
+A fully privileged whole-machine/vault snapshot remains outside this protection.
+
+An already activated valid client does not show online login at startup. Its
+in-memory frame gate does no disk/network work. The controller starts asynchronous
+sync after five seconds, then hourly on success; failure backoff doubles from
+120 seconds to a 3600-second ceiling. Only one job of each kind is outstanding. Automatic backup preparation waits
+for a successful background sync, avoiding repeated expensive snapshots while offline.
+HTTP errors/timeouts never erase a valid offline license. Signed denial is durable;
+expiry blocks operational admission but preserves data. Signed online renewal can
+restore admission repeatedly, including after subscription/network-token expiry.
+Password-stamp changes require account login again; they are not signed revocation.
+
+**A long valid offline license and immediate remote revocation are mutually
+exclusive.** Revocation arrives at the next successful authenticated sync; an
+entirely offline old installation can continue until its signed end. Installation
+UUIDs and the vault are not TPM binding, executable integrity or perfect DRM.
+
+## Data ownership, capacity and permissions
+
+Existing databases receive `students.capacity_archived INTEGER NOT NULL DEFAULT 0`;
+all old records remain active. Explicit roster classification is reversible.
+`BEGIN IMMEDIATE` serializes new enrollment and archived→active transitions.
+Capacity reductions do not block existing data/restore. Archived embeddings and
+attendance are retained, and **archiving does not change recognition eligibility**
+in this pilot. This contractual roster policy is not a biometric exclusion switch
+or a tamper-proof bound on inference identities. UI states this explicitly.
+
+On expired/suspicious admission, local-admin authentication precedes an offline
+CSV/full encrypted export/recovery dialog. The independent `tools.school_recovery`
+also works without service configuration; it requires existing bound school data
+and the app-instance lock. CSV sanitizes spreadsheet formula prefixes. Full
+operational dashboards are not exposed as an expired read-only desktop session.
+
+Essential roles are vendor staff (grant/renew/revoke) versus school account owner
+(own devices/backups only), plus the existing local admin password. Existing
+single-owner accounts are preserved. No new multi-staff school roles were added:
+per-teacher permissions and per-operator local audit are not implemented and must
+be evaluated before a pilot needing them. Staff must never grant staff/superuser
+to customer accounts. Tenant-filtered queries, bearer-only API auth, browser CSRF
+and PostgreSQL row locks remain enforced. Backup deletion is now owner-scoped,
+POST+CSRF, audited and physically unlinks after commit.
+
+## Recovery format and security
+
+New client backups: private SQLite snapshot → ZIP/Deflate level 1 including DB
+settings/embeddings/events and external `event_*.jpg` photos → streaming AES-256-GCM.
+Header `FRCLIENT2` authenticates school UUID and nonce. The 32-byte school key is
+never uploaded; the school explicitly exports a `.frkey` file and keeps another
+protected offline copy. The file is NOT password encrypted; both possession of it
+and of a backup grants decryption. Protect it with separate encrypted removable
+storage/physical access policy. Lost keys cannot be recovered by the vendor.
+The existing OS vault keeps the local working copy. Different keys cannot silently
+replace an existing key; automatic key rotation is not implemented.
+
+Server migration 0002 labels old backups `legacy-sqlite`, new ones `client-v2`.
+The server keeps its previous per-tenant AES-GCM outer encryption. Decrypting that
+outer layer returns client ciphertext for new backups, not student plaintext.
+Legacy backups still download/restore as before and remain server-decryptable.
+There is no automatic conversion/deletion of old backups. Retention defaults to
+seven versions/one GiB; operator backup-server snapshots have their own offsite
+retention and must be included in deletion agreements. Orphan-pruning is explicit.
+
+Downloads validate size/hash; the desktop authenticates GCM before extraction,
+rejects cross-school keys/bundles, unsafe Windows paths, duplicate entries,
+symlinks and oversized ZIP expansion (local safety ceiling 2 GiB). Schema,
+quick_check, foreign keys and DB tenant binding are validated before installation.
+A preserved previous generation and atomic/fsynced journal allow rollback after
+process death. Cloud restore is startup-only; the local CLI holds the same instance
+lock. The restored local-admin password is checked before operational access.
+
+Snapshots/decrypted staging/CSV/rollback data remain confidential local plaintext.
+Private temp directories/files are used; POSIX modes and explicit fsync are applied.
+Windows relies on the parent directory's NTFS ACL; use a dedicated restricted
+Windows account/folder and disk encryption. Application-level full local database
+encryption, secure erasure on SSD, seamless key rotation and TPM attestation are
+not implemented. Neither secrets nor backup content are logged by the new paths.
+
+## Storage check (actually obtained, not a school prediction)
+
+`python -m tools.measure_backup_fixture` was run once, with synthetic data:
+
+- 900 students, 4500 dummy 128-float64 embedding blobs: 4,608,000 bytes of blobs.
+- 162,000 attendance rows (180 days); logical SQLite: 21,241,856 bytes.
+- 100 incompressible dummy photo files of 256 KiB each: 26,214,400 bytes.
+- Encrypted complete bundle: **33,396,164 bytes** (random fixture contents can
+  slightly change the final compressed size on another run).
+
+Cloud limit stays **134,217,728 bytes (128 MiB)**. The check does NOT establish that
+900 real students or a year of real photos fit. Photo accumulation can dominate.
+Use `python -m tools.backup_inventory --database data/attendance.db` to inventory
+actual storage privately. A too-large cloud backup gives an explicit error; local
+complete recovery remains available. Larger quotas/limits require actual disk,
+proxy, temp space and concurrency planning rather than a blind constant increase.
+
+## Validation commands
 
 ```sh
-python -m unittest discover -s tests -v
-SERVICE_TESTING=1 python -m service.manage test service -v 2
-SERVICE_TESTING=1 SERVICE_TEST_DATABASE_URL=postgresql://TEST_USER:TEST_PASSWORD@127.0.0.1:5432/TEST_DB python -m service.manage test service --noinput -v 2
+QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -q
+SERVICE_TESTING=1 python -m service.manage test service -v 1
+SERVICE_TESTING=1 SERVICE_TEST_DATABASE_URL=postgresql://TEST_USER:TEST_PASSWORD@127.0.0.1:5432/TEST_DB python -m service.manage test service -v 1
+SERVICE_TESTING=1 python -m service.manage makemigrations --check --dry-run
 SERVICE_TESTING=1 python -m service.manage check --deploy --fail-level WARNING
-python -m pip install pip-audit
 python -m pip_audit -r requirements-service.txt -r requirements-cloud.txt --progress-spinner off
-python -m compileall -q src service deploy tests
+python -m pip_audit -r requirements.txt --progress-spinner off
+python -m compileall -q src service tools tests hooks deploy
+git diff --check
 ```
 
-Use a disposable PostgreSQL test user with CREATE DATABASE privilege for the
-Django test runner; production application credentials intentionally lack it.
-Do not run service tests against a production database. PostgreSQL-specific
-concurrency cases are skipped on SQLite. CI runs them with PostgreSQL 17 and
-also exercises the non-root/read-only Docker image.
+Use only disposable PostgreSQL test databases with a test user allowed to create
+DBs. Never use production credentials for Django tests. SQLite skips the two
+production-database concurrency cases. Final results are recorded below. The deployment check intentionally silences Django's
+two previously documented whole-domain HSTS/preload policy recommendations.
 
-Desktop tests cover credential storage behavior, signed-lease admission,
-replay/nonce/device/tenant/expiry rejection, clock rollback, network loss versus
-explicit rejection, seat concurrency, shutdown/late reply, backup/restore and
-rollback integrity, cross-school restore rejection, background delivery to Qt's
-UI thread, expired UI/camera admission, consent, missing-config failure, config
-key generation/overwrite refusal and preserving the packaged ONNX smoke path.
-Existing tracking, face-cache, handoff, event and profiling tests run unchanged.
+The full dependency audit initially found PYSEC-2026-3447 in pinned setuptools
+80.10.2; upgraded to 84.2.1 and required >=83. The model locator tests verify the
+same original .dat paths without importing pkg_resources. Model weights are not
+modified. Package-advisory checks are not an independent penetration test or a
+promise of zero vulnerabilities.
 
-Server tests cover signature/limits, inactive/expired/future/banned windows,
-credential rotation/logout/password changes, device limits/revocation, rate
-limits, CSRF/session/API separation, verification replay, ownership/IDOR,
-encrypted backup round trips, corrupted tags, size/quota/retention, export after
-expiry, nonstaff admin exclusion and simultaneous PostgreSQL admissions/uploads.
+## Windows and pilot checklist
 
-The first dependency audit identified advisories against cryptography 46.0.7.
-The declared requirement was raised to the corrected 50.x series and the audit
-was rerun with 50.0.2, reporting **no known vulnerabilities** for the resolved
-service/cloud requirements at that time. This is a package-advisory result, not a
-proof of application security or a scan of every inherited vision dependency /
-operating-system package. Rerun it before releases and after dependency updates.
+No Windows EXE was built or signed in this Linux environment. Build scripts/CI
+were inspected and changed; actual DLL/Qt/keyring/model inclusion must still be
+verified on Windows. CI refuses a silent OSNet omission: use the full local
+builder and existing validated Torch cache when the pilot uses Re-ID. Asset hashes
+and dependency versions are emitted in a release manifest; freeze that environment
+for repeat builds. No server secrets are bundled. No real TLS/SMTP/VPS/payment
+infrastructure was purchased or publicly deployed in this pass.
 
-Final recorded counts and stack/recovery smoke results are in the commit's
-validation notes below. No camera FPS, target-hardware latency or hosting
-capacity claims are inferred from functional test runtime.
+Before the first school:
 
-## Operational boundaries
-
-Real domain DNS/ACME issuance, SMTP delivery, Windows signing/packaging, actual
-camera parity and a supervised external deployment still need real credentials,
-infrastructure and devices. No VPS/domain/payment account was bought or deployed
-on the user's behalf. VPS sizing in the Persian guide is a starting estimate.
-Automatic off-VPS copying needs an actual destination account. The service-wide
-backup/recovery guide must be rehearsed on a fresh destination, never a live
-production database.
-
-Installation UUIDs plus an OS credential vault are not TPM-backed hardware DRM.
-A machine owner who patches the executable or exports credentials is outside the
-security boundary of ordinary desktop licensing. There is no absolute anti-crack
-or zero-vulnerability claim. Server/SMTP compromise, signing/backup key loss and
-privileged local file access need operational controls. Backups are encrypted
-at rest by the server, not end-to-end against the server operator. Keys must be
-retained and backed up; key rotation/re-encryption is not automatic.
-
-Consent covers the DB (including stored face data), not arbitrary outside files.
-Local DB/rollback snapshots retain the existing application's at-rest protection;
-restrict filesystem permissions and storage access on school PCs. Encrypted
-cloud backups do not encrypt those local files. Default backup size is 128 MiB;
-monitor actual growth and plan retention/storage before onboarding more schools.
-The current architecture still has the audit's native driver/model shutdown
-risks, shared cache-finalization workload and inference costs; this change is
-not an FPS optimization pass.
+- Build on actual Windows x64, check all DLL/Qt/dlib/ONNX assets and manifest;
+  sign the executable and verify antivirus behavior on the CPU-only machine.
+- Activate once using the school's Windows account; restart repeatedly with
+  internet physically disconnected, including reboot and sleep/resume. Verify
+  enrollment, reports, both cameras and event parity against the known-good pilot.
+- Verify OSNet is actually loaded with the same weights if baseline uses it;
+  a successful ONNX smoke test alone does not prove Re-ID inclusion or parity.
+- Use short TEST subscriptions (not production data) to check offline expiry,
+  export access, online renewal across multiple periods, and signed revocation.
+- Test rollback/tampered state and online recovery, including unavailable/unlocked
+  Windows Credential Manager; never delete real checkpoint data during tests.
+- Verify owner/other-school isolation, capacity reduction/archive/reactivation,
+  and the local-admin password after restore.
+- Export the school key, obtain consent, upload, download, and restore on a separate
+  activated installation; compare attendance, settings, embeddings and event photos.
+- Rehearse interrupted restore/disk-full recovery in a disposable copy, measure
+  real backup growth, and agree retention/deletion and custody of recovery keys.
+- Verify actual DNS/HTTPS/SMTP/password reset and a cold server restore with
+  off-VPS copies. Keep signer/master keys; never regenerate them during upgrades.
+- Run the existing `python -m tools.profile_runtime --seconds 120 --output baseline.jsonl`
+  on real footage/hardware to check parity; no FPS number is inferred here.
 
 
-## Recorded results (2026-10-23)
+## Recorded results — 2026-10-23
 
-- Desktop/core suite: **83 tests passed**, including the pre-existing vision/event
-  regressions and the new account/backup/Qt/config/smoke checks.
-- Service suite against a disposable **PostgreSQL 17** instance: **20 tests
-  passed**, including both real concurrent admission/quota cases.
-- `makemigrations --check --dry-run`: no changes. Django deployment checks pass
-  with the two documented host-policy advisories intentionally silenced. Python
-  compilation, shell syntax checks and Git whitespace checks pass.
-- Resolved `requirements-service.txt` / `requirements-cloud.txt` package audit:
-  **no known vulnerabilities found** after moving to cryptography 50.0.2.
-- Built the service Docker image and launched the Compose DB/Redis/web stack.
-  All three reported healthy; app DB role was confirmed `rolsuper=false`,
-  `rolcreatedb=false`, `rolcreaterole=false`. The web process ran as UID 10001,
-  with read-only root FS and a writable bounded tmpfs/backup volume.
-- A synthetic full-stack session passed: CSRF-bearing login page, account login,
-  pinned-key/nonce lease verification, real SQLite snapshot upload, encrypted
-  storage/listing/download, school DB restore plus rollback copy, renewal and
-  logout. API traffic used loopback HTTP with explicit trusted-proxy headers;
-  **no real-domain TLS or SMTP delivery was claimed**.
-- The actual cold server-backup script produced an age-encrypted bundle with
-  PostgreSQL dump, ciphertext blobs, original keys and code revision. The bundle
-  was decrypted and restored into **fresh isolated PostgreSQL/Redis/blob
-  volumes**. Login succeeded and an original school backup decrypted/restored
-  successfully with the retained keys. Only synthetic fixture data was used.
-- Caddy validated the shipped configuration. Public ACME issuance/renewal still
-  needs the user's DNS/domain. Ubuntu host provisioning and Windows EXE signing
-  still require the actual host/build environment; they were not simulated as
-  successful deployments.
+- `QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -q`:
+  **111 tests passed** (0.808 s in the recorded final functional run). Includes
+  existing vision/event/cache/handoff regressions, new licensing/Qt/recovery tests,
+  and an actual subprocess crash/rollback test. This runtime is not a hardware
+  benchmark or a Windows result.
+- Disposable PostgreSQL 17: `SERVICE_TESTING=1 SERVICE_TEST_DATABASE_URL=... python -m service.manage test service -v 1`:
+  **26 tests passed**, including both real concurrency cases (1.136 s recorded).
+- Non-root, read-only Docker image built successfully; `docker run --rm --read-only
+  --tmpfs /tmp -e SERVICE_TESTING=1 face-subscription:hardening python -m service.manage test service -v 1`:
+  **26 tests discovered, 24 passed, 2 PostgreSQL-only cases skipped** (0.975 s).
+- `SERVICE_TESTING=1 python -m tools.smoke_offline_license`: **PASS** using the
+  real Django API/signatures and desktop client, disposable in-memory server DB,
+  real SQLite snapshots and real client encryption/full restoration. Covers
+  offline restart and network failure, three renewals, expiry recovery and durable
+  signed revocation. Added to service CI with an explicitly isolated in-memory DB.
+- `python -m pip_audit -r requirements-service.txt -r requirements.txt --progress-spinner off`:
+  **No known vulnerabilities found** after the setuptools fix. Earlier separate
+  service/cloud and desktop audits also passed after remediation.
+- `python -m pip check`: **No broken requirements found**.
+- `SERVICE_TESTING=1 python -m service.manage makemigrations --check --dry-run`:
+  **No changes detected**; `check --deploy --fail-level WARNING`:
+  **no issues, 2 documented host-policy checks silenced**.
+- Compilation, deployment shell syntax checks and `git diff --check`: passed.
+- Actual Windows packaging/signing, live camera throughput/parity, public TLS/SMTP,
+  target-PC performance, and external penetration testing: **not performed**.
 
-The stack exercise caught and fixed non-root source-read permissions,
-Gunicorn's control-socket location on a read-only filesystem, the Compose tmpfs
-list quoting, and PostgreSQL init-script permissions under restrictive umask.
-The Postgres initializer is baked into a tiny image with normalized permissions.
-The Windows dependency installation order and ONNX smoke path were also corrected
-so the cloud conversion does not rely on an unintended dlib source build or
-Ultralytics import in an ONNX-only release. Actual Windows packaging remains a
-release validation step.
+Only synthetic/local test data was used. The test PostgreSQL container is disposable;
+no production data was migrated or destroyed. The previous branch's Compose/cold
+server-recovery results are historical and are not presented as a repeat test of
+this new change. Rehearse the documented server recovery procedure before a pilot.
