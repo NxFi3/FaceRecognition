@@ -14,6 +14,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from .camera_capture import LatestFrameCapture
+from .runtime_profile import profile
 from .camera_device import open_camera
 
 import cv2
@@ -546,8 +547,11 @@ class SmartCameraWorker(QThread):
         self.event_added.emit(event)
         return event_id
 
+    @profile.in_camera(lambda self: self.camera_slot)
     def run(self):
         self._running = True
+        profile.count("worker_starts")
+        profile.gauge("worker_running", 1)
         logger.info("WORKER_START slot=%s config=%s", self.camera_slot, self.camera_config)
         capture = None
         futures = set()
@@ -778,7 +782,8 @@ class SmartCameraWorker(QThread):
                 track.face_cache_finalized = True
                 track.metadata.pop("cache_finalize_waiting", None)
                 cache_futures.add(
-                    executor.submit(
+                    profile.submit(
+                        executor, "cache_finalization",
                         self._finalize_face_cache_for_track,
                         matcher,
                         track.snapshot_face_cache(),
@@ -810,6 +815,14 @@ class SmartCameraWorker(QThread):
             last_face_recognition_ms = 0.0
             last_face_compute_ms = 0.0
 
+            if profile.enabled:
+                profile.details(physical_camera_id=camera_id, width=actual_width, height=actual_height,
+                                reported_capture_fps=actual_fps, person_backend=person_detector.backend,
+                                person_model=Path(person_model).name, reid_status=reid_status,
+                                person_interval=person_detection_interval, reid_interval=reid_interval,
+                                face_detection_interval=FACE_DETECTION_INTERVAL,
+                                face_recognition_interval=FACE_RECOGNITION_INTERVAL,
+                                recognition_workers=executor._max_workers, opencv_threads=cv2.getNumThreads())
             logger.info("WORKER_ONLINE slot=%s camera_id=%s role=%s actual=%sx%s fps=%s students=%s reid=%s", self.camera_slot, camera_id, camera_role, actual_width, actual_height, actual_fps, len(matcher.students), reid_status)
             self.status_changed.emit(
                 f"Smart camera online • Camera {self.camera_slot} "
@@ -824,6 +837,7 @@ class SmartCameraWorker(QThread):
                     timeout=1.0,
                 )
                 if frame is None:
+                    profile.count("frame_wait_timeouts")
                     logger.debug("FRAME_WAIT_TIMEOUT slot=%s", self.camera_slot)
                     continue
 
@@ -1266,6 +1280,7 @@ class SmartCameraWorker(QThread):
                         )
                     _, detections = face_detector.detect(face_frame)
                     last_face_detect_ms = (time.perf_counter() - face_started) * 1000.0
+                    profile.observe("yunet_including_resize", last_face_detect_ms)
                     last_face_detections = []
                     if detections is not None:
                         for raw_detection in detections:
@@ -1334,7 +1349,8 @@ class SmartCameraWorker(QThread):
                             if prepared is not None:
                                 face_crop, local_bbox = prepared
                                 submitted_at = time.perf_counter()
-                                future = executor.submit(
+                                future = profile.submit(
+                                    executor, "face_recognition",
                                     self._recognize_task,
                                     matcher,
                                     face_crop,
@@ -1376,7 +1392,8 @@ class SmartCameraWorker(QThread):
                         )
                     track.last_face_frame = frame_no
                     submitted_at = time.perf_counter()
-                    future = executor.submit(
+                    future = profile.submit(
+                        executor, "face_recognition",
                         self._recognize_task,
                         matcher,
                         face_crop,
@@ -1507,8 +1524,19 @@ class SmartCameraWorker(QThread):
                         frame_to_qimage(frame),
                     )
                     last_preview = preview_time
+                    if profile.enabled:
+                        profile.observe("preview_including_qimage", (time.perf_counter() - preview_time) * 1000)
+                    profile.count("preview_frames")
+
+                if profile.enabled:
+                    profile.gauge("active_tracks", sum(t.misses == 0 for t in tracker.tracks.values()))
+                    profile.gauge("stale_tracks", sum(t.misses != 0 for t in tracker.tracks.values()))
+                    profile.gauge("unconsumed_face_futures", len(futures) + len(untracked_face_futures))
+                    profile.gauge("unconsumed_cache_futures", len(cache_futures))
+                    profile.frame_done()
 
         except Exception as exc:
+            profile.count("worker_crashes")
             logger.exception(
                 "WORKER_CRASH slot=%s config=%s",
                 self.camera_slot,
@@ -1526,6 +1554,9 @@ class SmartCameraWorker(QThread):
             if capture is not None:
                 capture.stop()
             self._running = False
+            profile.gauge("worker_running", 0)
+            for metric in ("active_tracks", "stale_tracks", "unconsumed_face_futures", "unconsumed_cache_futures"):
+                profile.gauge(metric, 0)
 
     def _mark_attendance_event(
         self,

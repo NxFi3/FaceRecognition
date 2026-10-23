@@ -13,6 +13,8 @@ import time
 
 import cv2
 
+from .runtime_profile import profile
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,6 +34,8 @@ class LatestFrameCapture:
         self._frame = None
         self._sequence = 0
         self._error = None
+        self._profile_camera = profile.camera()
+        self._profile_published_at = 0.0
 
         self.width = 0
         self.height = 0
@@ -73,15 +77,17 @@ class LatestFrameCapture:
         )
         self._thread.start()
 
+    @profile.in_camera(lambda self: self._profile_camera)
     def _capture_loop(self):
         cap = self._cap
         consecutive_failures = 0
 
         try:
             while not self._stop_event.is_set():
-                ok, frame = cap.read()
+                ok, frame = profile.call("capture_read", cap.read)
 
                 if not ok or frame is None:
+                    profile.count("capture_read_failures")
                     consecutive_failures += 1
                     if consecutive_failures == 1 or consecutive_failures == 10:
                         logger.warning("CAPTURE_READ_FAIL id=%s consecutive=%s", self.camera_id, consecutive_failures)
@@ -130,6 +136,9 @@ class LatestFrameCapture:
                 with self._condition:
                     self._frame = frame
                     self._sequence += 1
+                    if profile.enabled:
+                        self._profile_published_at = time.perf_counter()
+                        profile.count("captured_frames")
                     self._condition.notify_all()
         finally:
             try:
@@ -165,6 +174,7 @@ class LatestFrameCapture:
             if self._sequence <= int(last_sequence) or self._frame is None:
                 return None, None
 
+            profile.received(self._sequence, int(last_sequence), self._profile_published_at)
             return self._sequence, self._frame
 
     def stop(self, join_timeout=1.5):

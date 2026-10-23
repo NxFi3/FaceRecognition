@@ -15,6 +15,8 @@ import time
 
 import numpy as np
 
+from .runtime_profile import profile as runtime_profile
+
 
 DEFAULT_WINDOW_SEC = 15.0
 DEFAULT_MIN_SIMILARITY = 0.82
@@ -262,6 +264,7 @@ class GlobalIdentityManager:
             self._track_last_seen[track_key] = timestamp
             self._prune_tracks_locked(timestamp)
 
+    @runtime_profile.stage("global_observe_including_lock_wait")
     def observe_track(self, track, camera_id, now=None):
         """Observe a camera-local track and conservatively resolve an unknown one."""
         timestamp = time.monotonic() if now is None else float(now)
@@ -391,6 +394,8 @@ class GlobalIdentityManager:
                     )
                 )
 
+            runtime_profile.count("cross_camera_candidate_scans")
+            runtime_profile.count("cross_camera_candidates", len(candidates))
             if not candidates:
                 return None
 
@@ -438,6 +443,7 @@ class GlobalIdentityManager:
             self._track_links[track_key] = profile.student_id
             self._track_last_seen[track_key] = timestamp
 
+            runtime_profile.count("cross_camera_links")
             return IdentityMatch(
                 student_id=profile.student_id,
                 student_code=profile.student_code,

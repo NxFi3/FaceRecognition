@@ -6,6 +6,11 @@ import threading
 import logging
 from logging.handlers import RotatingFileHandler
 from concurrent.futures import ThreadPoolExecutor
+
+try:
+    from .engine.runtime_profile import profile
+except ImportError:
+    from engine.runtime_profile import profile
 from datetime import datetime
 from pathlib import Path
 
@@ -372,6 +377,7 @@ def _get_face_models():
     return models
 
 
+@profile.stage("qimage")
 def frame_to_qimage(frame):
     """Wrap a BGR OpenCV frame without an extra color-conversion pass."""
     h, w = frame.shape[:2]
@@ -685,6 +691,7 @@ class FaceMatcher:
             embedding
         )
 
+    @profile.stage("face_encode_and_match")
     def recognize_crop_with_embedding(self, crop, bbox):
         """Return both the face embedding and its matcher result.
 
@@ -5215,6 +5222,7 @@ class MainWindow(QMainWindow):
     def _render_latest_camera_previews(self):
         with self._latest_camera_images_lock:
             latest = dict(self._latest_camera_images)
+            profile_times = dict(self._latest_camera_image_times) if profile.enabled else None
 
         previews = getattr(self, "camera_previews", {})
         fallback = getattr(self, "camera_preview", None)
@@ -5224,6 +5232,7 @@ class MainWindow(QMainWindow):
             if preview is None or image is None:
                 continue
 
+            render_started = time.perf_counter() if profile.enabled else 0.0
             pixmap = QPixmap.fromImage(image)
             preview.setPixmap(
                 pixmap.scaled(
@@ -5232,6 +5241,10 @@ class MainWindow(QMainWindow):
                     Qt.FastTransformation,
                 )
             )
+            if profile.enabled:
+                with profile.scope(camera_slot):
+                    profile.rendered(image.cacheKey(), profile_times[camera_slot],
+                                     (time.perf_counter() - render_started) * 1000)
 
     def update_camera_preview(self, camera_slot, image):
         # Backwards-compatible entry point for callers outside the new mailbox.

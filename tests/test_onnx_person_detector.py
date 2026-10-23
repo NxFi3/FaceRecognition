@@ -51,7 +51,7 @@ class OnnxPersonDetectorTests(unittest.TestCase):
     def test_decode_rejects_unexpected_output_layout(self):
         detector = PersonDetector.__new__(PersonDetector)
         detector.conf = 0.2
-        with self.assertRaisesRegex(RuntimeError, r"Expected [1, N, 6]"):
+        with self.assertRaisesRegex(RuntimeError, r"Expected \[1, N, 6\]"):
             detector._decode_onnx_output(
                 np.zeros((1, 84, 8400), dtype=np.float32),
                 frame_shape=(480, 640, 3),

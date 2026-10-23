@@ -7,6 +7,8 @@ import logging
 from datetime import datetime
 from threading import RLock
 
+from .runtime_profile import profile
+
 
 @dataclass
 class AttendancePresenceState:
@@ -183,6 +185,8 @@ class AttendanceEventEngine:
 
         return True
 
+    @profile.stage("event_face_identity")
+    @profile.identity("face")
     def on_face_identity(
         self,
         track,
@@ -202,6 +206,8 @@ class AttendanceEventEngine:
             EVENT_FACE_RECOGNIZED,
         )
 
+    @profile.stage("event_reid_identity")
+    @profile.identity("reid")
     def on_reid_identity(
         self,
         track,
@@ -223,6 +229,7 @@ class AttendanceEventEngine:
             metadata,
         )
 
+    @profile.stage("event_crossing")
     def on_crossing(self, track, direction, camera_id):
         self.ensure_current_day()
 

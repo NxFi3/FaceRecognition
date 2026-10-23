@@ -13,6 +13,8 @@ from typing import Iterable
 
 import numpy as np
 
+from .runtime_profile import profile
+
 
 class OSNetReID:
     """CPU/GPU OSNet feature extractor with normalized embeddings."""
@@ -46,6 +48,7 @@ class OSNetReID:
         norms = np.linalg.norm(features, axis=1, keepdims=True)
         return features / np.maximum(norms, 1e-12)
 
+    @profile.stage("osnet_single")
     def embed(self, image_bgr: np.ndarray) -> np.ndarray:
         if image_bgr is None or image_bgr.size == 0:
             raise ValueError("image_bgr must be a non-empty image")
@@ -55,6 +58,7 @@ class OSNetReID:
             features = features.detach().cpu().numpy()
         return self._normalize(features)[0]
 
+    @profile.stage("osnet_batch")
     def embed_batch(self, images_bgr: Iterable[np.ndarray]) -> np.ndarray:
         images = list(images_bgr)
         if not images:

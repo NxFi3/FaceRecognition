@@ -7,6 +7,11 @@ from pathlib import Path
 
 import numpy as np
 
+try:
+    from .engine.runtime_profile import profile
+except ImportError:
+    from engine.runtime_profile import profile
+
 
 if getattr(sys, "frozen", False):
     BASE_DIR = Path(sys.executable).resolve().parent
@@ -506,6 +511,7 @@ def delete_school_day_override(override_id):
         conn.close()
 
 
+@profile.stage("db_setting")
 def get_setting(key, default=None):
     conn = get_connection()
     try:
@@ -1167,6 +1173,7 @@ def get_student(student_id):
         conn.close()
 
 
+@profile.stage("db_attendance")
 def mark_attendance(student_id, camera_id="camera_0", status="present", notes=""):
     now = datetime.now()
     date = now.strftime("%Y-%m-%d")
@@ -1827,6 +1834,7 @@ def get_today_attendance():
 
 
 
+@profile.stage("db_event")
 def add_event(
     event_type,
     student_id=None,
@@ -1865,6 +1873,7 @@ def add_event(
         conn.close()
 
 
+@profile.stage("db_recent_events")
 def get_recent_events(limit=100, date=None):
     conn = get_connection()
     try:

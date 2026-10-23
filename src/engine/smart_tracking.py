@@ -14,6 +14,8 @@ import time
 logger = logging.getLogger(__name__)
 import numpy as np
 
+from .runtime_profile import profile
+
 
 REID_INTERVAL = 6
 MAX_MISSES = 18
@@ -280,6 +282,7 @@ class PersonDetector:
                 break
         return detections
 
+    @profile.stage("person_detector")
     def detect(self, frame):
         if frame is None or getattr(frame, "size", 0) == 0:
             return []
@@ -421,6 +424,7 @@ class PersonTrack:
         self.face_cache.clear()
         self.face_cache_finalized = True
 
+    @profile.stage("track_predict")
     def predict(self, frame_shape):
         x1, y1, x2, y2 = self.bbox
         dx, dy, dw, dh = self.velocity
@@ -548,6 +552,7 @@ class SmartPersonTracker:
 
         return assignments, used_detections
 
+    @profile.stage("tracker_update_including_reid")
     def update(self, detections, frame, frame_no):
         for track in self.tracks.values():
             if track.misses == 0:
@@ -596,6 +601,7 @@ class SmartPersonTracker:
                     bbox=bbox,
                     last_seen_frame=frame_no,
                 )
+                profile.track_created(track)
             else:
                 track = self.tracks[track_id]
                 track.update_geometry(bbox, frame_no)

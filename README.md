@@ -77,3 +77,18 @@ Model files are kept under models/. The application retains a compatibility fall
 ## Research and benchmarking
 
 For research-grade results, record the code commit, model versions, camera/video settings, device, inference settings, and exact test split. Compare changes against a fixed baseline and report the metrics actually supported by the dataset annotations. Do not claim school attendance accuracy from a generic indoor tracking dataset alone.
+
+## Production baseline profiling
+
+Record the existing runtime without changing inference scheduling:
+
+```sh
+python -m pip install psutil
+python -m tools.profile_runtime --seconds 120 --output baseline.jsonl
+```
+
+Use the normal application login and camera configuration. Recording ends after
+120 seconds of camera activity; the app stays open. Close it normally.
+See [metric definitions and validation](docs/runtime-profiling.md) and the
+[production runtime audit](docs/runtime-baseline-audit.md). Profiling is disabled
+when starting the application normally.
