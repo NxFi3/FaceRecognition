@@ -8,3 +8,5 @@ dlib
 setuptools<81
 lap>=0.5.12
 onnxruntime
+
+-r requirements-cloud.txt

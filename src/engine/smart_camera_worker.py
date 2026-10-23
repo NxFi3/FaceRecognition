@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 from .camera_capture import LatestFrameCapture
 from .runtime_profile import profile
+try:
+    from ..cloud.entitlement import runtime_allowed
+except ImportError:
+    from cloud.entitlement import runtime_allowed
 from .camera_device import open_camera
 
 import cv2
@@ -831,7 +835,7 @@ class SmartCameraWorker(QThread):
                 f"line events • {len(matcher.students)} students • {reid_status}"
             )
 
-            while self._running:
+            while self._running and runtime_allowed():
                 sequence, frame = capture.wait_for_frame(
                     last_capture_sequence,
                     timeout=1.0,

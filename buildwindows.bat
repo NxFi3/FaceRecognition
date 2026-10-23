@@ -25,6 +25,11 @@ if not exist "models\yolo26n.onnx" (
     goto :fail
 )
 
+if not exist "subscription-client.json" (
+    echo ERROR: Generate subscription-client.json with deploy.configure first.
+    goto :fail
+)
+
 REM ===== 2. Select Python =====
 set "PY=python"
 %PY% --version >nul 2>&1
@@ -44,7 +49,7 @@ echo.
 REM ===== 3. Check required dependencies =====
 echo Checking dependencies...
 
-%PY% -c "import cv2, numpy, dlib, face_recognition_models, PySide6, onnxruntime, PyInstaller; print('Dependencies OK')"
+%PY% -c "import cv2, numpy, dlib, face_recognition_models, PySide6, onnxruntime, PyInstaller, cryptography, requests, keyring, filelock; print('Dependencies OK')"
 if errorlevel 1 (
     echo ERROR: A required build dependency is missing.
     goto :fail
@@ -82,6 +87,8 @@ echo.
  --collect-binaries dlib ^
  --hidden-import database ^
  --hidden-import auth ^
+ --collect-all keyring ^
+ --collect-all cryptography ^
  --hidden-import onnxruntime ^
  --exclude-module torch ^
  --exclude-module torchvision ^
@@ -95,6 +102,8 @@ if errorlevel 1 (
     echo ERROR: PyInstaller failed.
     goto :fail
 )
+
+copy /Y "subscription-client.json" "dist\FaceRecognition\subscription-client.json" >nul
 
 REM ===== 6. Verify output =====
 if not exist "dist\FaceRecognition\FaceRecognition.exe" (

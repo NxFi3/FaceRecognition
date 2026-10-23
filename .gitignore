@@ -33,3 +33,12 @@ dist/
 # Editors
 .vscode/
 .idea/
+
+# Deployment secrets and generated client configuration
+deploy/generated/
+subscription-client.json
+data/cloud-state.json
+data/.application.lock
+data/before-restore-*.sqlite3
+service/staticfiles/
+*.age

@@ -1,0 +1,20 @@
+"""In-memory admission gate. The application binds a verified lease at startup."""
+_gate = None
+
+
+def bind_gate(gate):
+    global _gate
+    _gate = gate
+
+
+def runtime_allowed():
+    return _gate is None or _gate.allowed()
+
+
+def enforce_student_capacity(connection):
+    if _gate is None:
+        return
+    lease = _gate.require_lease()
+    count = connection.execute("SELECT COUNT(*) FROM students").fetchone()[0]
+    if count >= lease["student_limit"]:
+        raise ValueError("ظرفیت دانش‌آموز اشتراک تکمیل شده است؛ برای افزایش ظرفیت با پشتیبانی تماس بگیرید.")

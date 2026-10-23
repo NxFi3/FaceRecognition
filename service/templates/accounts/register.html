@@ -1,0 +1,1 @@
+{% extends 'base.html' %}{% block content %}<h1>ساخت حساب مدرسه</h1><p>پس از تأیید ایمیل، اشتراک توسط مدیر سامانه فعال می‌شود. ثبت‌نام به‌تنهایی اشتراک فعال ایجاد نمی‌کند.</p><form method="post">{% csrf_token %}{{ form.as_p }}<button>ساخت حساب</button></form>{% endblock %}

@@ -48,6 +48,13 @@ The optional live-camera Re-ID diagnostic is not the production tracker. Run it 
 
 ## Run
 
+The desktop now requires a configured subscription service and an active school
+account. Start with the [Persian deployment and operations guide](docs/subscription-setup-fa.md).
+It covers VPS setup, website/admin accounts, subscription activation, Windows
+packaging, encrypted backups and disaster recovery. Payment activation is manual.
+Copy the generated public `subscription-client.json` beside the application;
+never ship the private server `.env` or signing/backup keys.
+
 From the repository root:
 
     python src/app.py

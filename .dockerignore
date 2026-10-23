@@ -1,0 +1,11 @@
+.git
+.env
+**/.env
+**/generated
+**/__pycache__
+**/staticfiles
+data
+logs
+models
+*.pt
+.venv

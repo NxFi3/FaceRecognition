@@ -5006,6 +5006,12 @@ class MainWindow(QMainWindow):
         )
 
     def start_camera(self):
+        try:
+            from .cloud.entitlement import runtime_allowed
+        except ImportError:
+            from cloud.entitlement import runtime_allowed
+        if not runtime_allowed():
+            return
         logger.info("APP_START_CAMERA requested")
         self._camera_supervisor_enabled = True
         if self.camera_workers and any(
@@ -7158,16 +7164,16 @@ def run_smoke_test():
     )
     detector.setInputSize((CAMERA_WIDTH, CAMERA_HEIGHT))
 
-    # Validate the person detector too, so packaged builds cannot silently ship
-    # without the model required by the real-time attendance pipeline.
-    person_model_path = BASE_DIR / "models" / "yolo26n.pt"
-    if not person_model_path.exists():
-        person_model_path = BASE_DIR / "yolo26n.pt"
-    if not person_model_path.exists():
-        raise RuntimeError(f"YOLO person model missing: {person_model_path}")
-
-    from ultralytics import YOLO
-    YOLO(str(person_model_path))
+    # Exercise the same optional backend selection as the production detector.
+    # Packaged CPU builds ship ONNX and intentionally do not depend on Torch.
+    try:
+        from .engine.smart_tracking import PersonDetector, make_person_model_candidates
+    except ImportError:
+        from engine.smart_tracking import PersonDetector, make_person_model_candidates
+    candidates = make_person_model_candidates(BASE_DIR)
+    if not candidates:
+        raise RuntimeError("YOLO person model missing from the application package.")
+    PersonDetector(candidates[0], device="cpu", imgsz=512)
 
     print("FACE_RECOGNITION_SMOKE_TEST_OK")
     print("PERSON_DETECTOR_SMOKE_TEST_OK")
@@ -7667,18 +7673,15 @@ def main():
         """
     )
 
-    init_db()
+    try:
+        from .cloud.ui import run_application
+        from .database import DB_PATH
+    except ImportError:
+        from cloud.ui import run_application
+        from database import DB_PATH
+    sys.exit(run_application(app, MainWindow, init_db, ensure_admin_access,
+                             DB_PATH, BASE_DIR, open_reports_on_start))
 
-    if not ensure_admin_access():
-        return
-
-    window = MainWindow()
-    window.show()
-    if open_reports_on_start:
-        window.show_page(5)
-        window.report_tabs.setCurrentIndex(1)
-
-    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

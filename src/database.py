@@ -1021,6 +1021,12 @@ def find_class_by_name(name, academic_year_id):
 def add_student(student_code, name, class_id=None):
     conn = get_connection()
     try:
+        try:
+            from .cloud.entitlement import enforce_student_capacity
+        except ImportError:
+            from cloud.entitlement import enforce_student_capacity
+        conn.execute("BEGIN IMMEDIATE")
+        enforce_student_capacity(conn)
         cursor = conn.execute(
             """
             INSERT INTO students (student_code, name)
