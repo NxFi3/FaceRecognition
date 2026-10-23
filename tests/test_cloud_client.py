@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 import requests
 
-from src.cloud.client import AccessDenied, ClientConfig, CloudClient, CloudError
+from src.cloud.client import AccessDenied, ClientConfig, CloudClient, CloudError, license_clock
 from src.cloud.entitlement import bind_gate, runtime_allowed
 from src import database
 
@@ -96,19 +96,19 @@ class CloudClientTests(unittest.TestCase):
         for changes in [{"nonce": "wrong"}, {"device_id": str(uuid.uuid4())}, {"lease_expires_at": time.time() + 901}, {"student_limit": True}]:
             with self.subTest(changes=changes):
                 with self.assertRaises(AccessDenied):
-                    self.client.accept_lease(self.envelope("n" * 43, **changes), "n" * 43, time.monotonic())
+                    self.client.accept_lease(self.envelope("n" * 43, **changes), "n" * 43, license_clock())
         envelope = self.envelope("n" * 43)
         envelope["signature"] = base64.b64encode(b"x" * 64).decode()
         with self.assertRaises(AccessDenied):
-            self.client.accept_lease(envelope, "n" * 43, time.monotonic())
+            self.client.accept_lease(envelope, "n" * 43, license_clock())
         self.login()
         with self.assertRaises(AccessDenied):
-            self.client.accept_lease(self.envelope("n" * 43, school_id=str(uuid.uuid4())), "n" * 43, time.monotonic())
+            self.client.accept_lease(self.envelope("n" * 43, school_id=str(uuid.uuid4())), "n" * 43, license_clock())
     def test_clock_rollback_does_not_extend_running_lease(self):
         self.login()
         with patch("src.cloud.client.time.time", return_value=0):
             self.assertTrue(self.client.allowed())
-            with patch("src.cloud.client.time.monotonic", return_value=self.client._deadline + 1):
+            with patch("src.cloud.client.license_clock", return_value=self.client._deadline + 1):
                 self.assertFalse(self.client.allowed())
                 with self.assertRaises(AccessDenied):
                     self.client.require_lease()
@@ -137,7 +137,7 @@ class CloudClientTests(unittest.TestCase):
         self.assertEqual(sorted(results), [False, True])
         with closing(sqlite3.connect(database.DB_PATH)) as connection:
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM students").fetchone()[0], 1)
-        with patch("src.cloud.client.time.monotonic", return_value=self.client._deadline + 1):
+        with patch("src.cloud.client.license_clock", return_value=self.client._deadline + 1):
             self.assertFalse(runtime_allowed())
             with self.assertRaises(AccessDenied):
                 database.add_student("3", "Blocked")
@@ -207,7 +207,7 @@ class CloudClientTests(unittest.TestCase):
         envelope = self.envelope("n" * 43)
         self.client.close()
         with self.assertRaises(AccessDenied):
-            self.client.accept_lease(envelope, "n" * 43, time.monotonic())
+            self.client.accept_lease(envelope, "n" * 43, license_clock())
         self.assertFalse(self.client.allowed())
 
     def test_backup_feature_disabled_does_not_revoke_valid_subscription(self):
@@ -239,3 +239,16 @@ class CloudClientTests(unittest.TestCase):
                 finally:
                     release.set()
                 renewal.result(2)
+
+
+    @unittest.skipUnless(hasattr(time, "CLOCK_BOOTTIME"), "Linux suspend-aware clock")
+    def test_linux_suspend_expires_lease_even_if_monotonic_did_not_advance(self):
+        with patch("src.cloud.client.time.clock_gettime", return_value=1000.0):
+            self.login()
+            self.assertTrue(self.client.allowed())
+        # Simulate a long suspend and a rolled-back desktop wall clock. The
+        # ordinary monotonic clock has not advanced, but boot time has.
+        with patch("src.cloud.client.time.clock_gettime", return_value=2000.0), \
+             patch("src.cloud.client.time.monotonic", return_value=1000.0), \
+             patch("src.cloud.client.time.time", return_value=0):
+            self.assertFalse(self.client.allowed())

@@ -26,7 +26,7 @@ an assertion of completed external security certification or live deployment.
   school UUID, installation UUID and a fresh caller nonce. Every startup requires
   a fresh online response. Renew every five minutes; lease validity <=15 minutes
   and <=subscription expiry. The desktop subtracts the full request duration
-  from the usable lifetime through a monotonic deadline, so desktop clock rollback
+  from the usable lifetime through a monotonic deadline (Linux CLOCK_BOOTTIME includes suspend), so desktop clock rollback
   and replaying an old response cannot extend an active session. Server clock/NTP
   is authoritative. Revocation has a bounded delay, not instant offline effect.
 - `src/cloud/`: HTTPS account client, OS-vault-only credential persistence,
@@ -146,7 +146,7 @@ not an FPS optimization pass.
 
 ## Recorded results (2026-10-23)
 
-- Desktop/core suite: **82 tests passed**, including the pre-existing vision/event
+- Desktop/core suite: **83 tests passed**, including the pre-existing vision/event
   regressions and the new account/backup/Qt/config/smoke checks.
 - Service suite against a disposable **PostgreSQL 17** instance: **20 tests
   passed**, including both real concurrent admission/quota cases.

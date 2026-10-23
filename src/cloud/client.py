@@ -25,6 +25,15 @@ import requests
 MAX_BACKUP_BYTES = 128 * 1024 * 1024
 
 
+def license_clock():
+    # Linux CLOCK_MONOTONIC stops during suspend; CLOCK_BOOTTIME includes it.
+    # Windows monotonic/QPC includes sleep. Wall-clock changes remain irrelevant.
+    clock_id = getattr(time, "CLOCK_BOOTTIME", None)
+    if clock_id is not None:
+        return time.clock_gettime(clock_id)
+    return time.monotonic()
+
+
 class CloudError(Exception):
     pass
 
@@ -191,7 +200,7 @@ class CloudClient:
             if not all(math.isfinite(v) for v in (issued, expires, subscription)) or not 0 < expires - issued <= 900.001 or expires > subscription:
                 raise ValueError()
             deadline = started + expires - issued
-            if deadline <= time.monotonic():
+            if deadline <= license_clock():
                 raise ValueError()
             previous = self.state.get("school_id")
             if previous is not None and previous != lease["school_id"]:
@@ -216,7 +225,7 @@ class CloudClient:
         return lease
 
     def login(self, email, password):
-        nonce, started = secrets.token_urlsafe(32), time.monotonic()
+        nonce, started = secrets.token_urlsafe(32), license_clock()
         result = self._json("POST", "/api/v1/login/", json={"email": email, "password": password,
             "device_id": self.installation, "label": "School desktop", "nonce": nonce})
         lease = self.accept_lease(result["lease"], nonce, started)
@@ -227,7 +236,7 @@ class CloudClient:
     def renew(self):
         if not self.credential:
             raise AccessDenied("ابتدا وارد حساب مدرسه شوید.")
-        nonce, started = secrets.token_urlsafe(32), time.monotonic()
+        nonce, started = secrets.token_urlsafe(32), license_clock()
         result = self._json("POST", "/api/v1/lease/", json={"nonce": nonce})
         return self.accept_lease(result["lease"], nonce, started)
 
@@ -239,7 +248,7 @@ class CloudClient:
 
     def allowed(self):
         with self._lock:
-            return not self._closed and self._lease is not None and time.monotonic() < self._deadline
+            return not self._closed and self._lease is not None and license_clock() < self._deadline
 
     def require_lease(self):
         with self._lock:
