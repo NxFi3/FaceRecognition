@@ -7,12 +7,18 @@ from pathlib import Path
 from typing import Optional
 
 import cv2
+import logging
+
+logger = logging.getLogger(__name__)
 import numpy as np
 
 
 REID_INTERVAL = 6
 MAX_MISSES = 18
-MIN_PERSON_SIZE = 45
+# Keep small/distant people in the tracking stream; face recognition has its
+# own stricter identity gates, so a slightly more permissive person detector
+# does not by itself grant attendance.
+MIN_PERSON_SIZE = 36
 ASSOCIATION_IOU_GATE = 0.08
 ASSOCIATION_REID_GATE = 0.70
 ASSOCIATION_REID_STRONG = 0.84
@@ -88,6 +94,7 @@ class PersonDetector:
         self.imgsz = max(320, int(imgsz))
 
     def detect(self, frame):
+        logger.debug("PERSON_DETECT_START device=%s imgsz=%s", self.device, self.imgsz)
         result = self.model.predict(
             frame,
             imgsz=self.imgsz,
@@ -163,6 +170,7 @@ class PersonTrack:
             "bbox": tuple(int(v) for v in bbox),
             "quality": float(quality),
             "frame_no": int(frame_no),
+            "embedding": None,
         }
 
         self.face_cache.append(sample)
@@ -181,6 +189,7 @@ class PersonTrack:
                 "bbox": tuple(sample["bbox"]),
                 "quality": float(sample["quality"]),
                 "frame_no": int(sample["frame_no"]),
+                "embedding": None if sample.get("embedding") is None else np.asarray(sample["embedding"], dtype=np.float32).copy(),
             }
             for sample in self.face_cache
         ]

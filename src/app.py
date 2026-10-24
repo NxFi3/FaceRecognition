@@ -3,6 +3,8 @@ import os
 import sys
 import time
 import threading
+import logging
+from logging.handlers import RotatingFileHandler
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -79,6 +81,7 @@ try:
         list_majors,
         list_students,
         mark_attendance,
+        get_current_presence_ids,
         set_active_academic_year,
         set_attendance_status,
         update_academic_year,
@@ -124,6 +127,7 @@ except ModuleNotFoundError:
         list_majors,
         list_students,
         mark_attendance,
+        get_current_presence_ids,
         set_active_academic_year,
         set_attendance_status,
         update_class,
@@ -170,7 +174,7 @@ DEFAULT_CAMERA_TARGET_FPS = 60
 CAMERA_SCAN_LIMIT = 8
 MAX_RECOGNITION_JOBS = 2
 
-YUNET_SCORE_THRESHOLD = 0.52
+YUNET_SCORE_THRESHOLD = 0.18
 YUNET_NMS_THRESHOLD = 0.30
 YUNET_TOP_K = 5000
 
@@ -194,7 +198,7 @@ REVALIDATION_MIN_INTERVAL = 10
 REVALIDATION_IOU_THRESHOLD = 0.72
 
 # Do not discard usable distant faces too early.
-MIN_FACE_SIZE = 28
+MIN_FACE_SIZE = 24
 
 # Runtime tracking/UI tuning.
 TRACK_IOU_THRESHOLD = 0.20
@@ -211,6 +215,40 @@ SMALL_FACE_THRESHOLD = 160
 SMALL_FACE_UPSCALE = 2.5
 
 UI_FRAME_LIMIT = 1.0 / 20.0
+
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOG_DIR / "facerecognition.log"
+
+
+def _configure_logging():
+    root = logging.getLogger()
+    if any(isinstance(handler, RotatingFileHandler) for handler in root.handlers):
+        return
+    root.setLevel(logging.INFO)
+    formatter = logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(name)s | %(threadName)s | %(message)s"
+    )
+    file_handler = RotatingFileHandler(
+        LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+    )
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+    console = logging.StreamHandler()
+    console.setFormatter(formatter)
+    root.addHandler(console)
+
+    def excepthook(exc_type, exc_value, exc_traceback):
+        logging.getLogger("uncaught").critical(
+            "UNCAUGHT EXCEPTION", exc_info=(exc_type, exc_value, exc_traceback)
+        )
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+    sys.excepthook = excepthook
+
+
+_configure_logging()
+logger = logging.getLogger(__name__)
 
 
 def _configure_cpu_runtime():
@@ -269,9 +307,12 @@ def _camera_backends():
 
 
 def _open_camera(camera_id, target_fps=DEFAULT_CAMERA_TARGET_FPS):
+    logger.info("CAMERA_OPEN_START id=%s target_fps=%s requested=%sx%s backends=%s", camera_id, target_fps, CAMERA_WIDTH, CAMERA_HEIGHT, _camera_backends())
     for backend in _camera_backends():
+        logger.info("CAMERA_OPEN_TRY id=%s backend=%s", camera_id, backend)
         cap = cv2.VideoCapture(camera_id, backend)
         if not cap.isOpened():
+            logger.warning("CAMERA_OPEN_FAIL id=%s backend=%s isOpened=false", camera_id, backend)
             cap.release()
             continue
 
@@ -282,8 +323,10 @@ def _open_camera(camera_id, target_fps=DEFAULT_CAMERA_TARGET_FPS):
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
         cap.set(cv2.CAP_PROP_FPS, target_fps)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        logger.info("CAMERA_OPEN_OK id=%s backend=%s actual=%sx%s fps=%s fourcc=%s", camera_id, backend, cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT), cap.get(cv2.CAP_PROP_FPS), cap.get(cv2.CAP_PROP_FOURCC))
         return cap
 
+    logger.error("CAMERA_OPEN_FAILED_ALL id=%s", camera_id)
     raise RuntimeError("Could not open camera.")
 
 
@@ -557,13 +600,19 @@ def _encode_face_crop(crop, bbox):
         bottom=y2,
     )
 
+    # dlib's face_recognition model expects RGB pixels. Enrollment uses
+    # face_recognition on an RGB conversion, so recognition must use the same
+    # color convention; passing OpenCV's native BGR here silently produces
+    # incompatible embeddings.
+    rgb_crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+
     shape = shape_predictor(
-        crop,
+        rgb_crop,
         rect,
     )
 
     descriptor = face_encoder.compute_face_descriptor(
-        crop,
+        rgb_crop,
         shape,
         0,
     )
@@ -1659,6 +1708,7 @@ class EnrollmentDialog(QDialog):
         self.accept()
 
     def closeEvent(self, event):
+        logger.info("APP_CLOSE_EVENT")
         if self.worker is not None and self.worker.isRunning():
             self.worker.stop()
             self.worker.wait(3000)
@@ -2985,6 +3035,9 @@ class MainWindow(QMainWindow):
         self.camera_workers = {}
         self.camera_worker = None  # Backwards-compatible alias for Camera 1.
         self._dual_camera_fps_cap = 30
+        self._camera_supervisor_enabled = True
+        self._camera_restart_pending = False
+        self._shutting_down = False
 
         # Preview frames use a latest-value mailbox rather than queued GUI
         # events. This prevents a slow GUI from displaying stale camera frames.
@@ -2995,12 +3048,11 @@ class MainWindow(QMainWindow):
         self._preview_timer.timeout.connect(self._render_latest_camera_previews)
 
         self.presence_state = AttendancePresenceState()
-        # Rebuild today's presence after an application restart so an in-memory
-        # reset cannot turn already-recorded students into unexpected exits.
+        # Restore only students whose latest movement event says they are
+        # currently inside. Attendance rows alone cannot distinguish someone
+        # who already exited from someone still present.
         try:
-            for row in get_attendance():
-                if row[5] in {"present", "late", "excused"}:
-                    self.presence_state.present.add(int(row[0]))
+            self.presence_state.present.update(get_current_presence_ids())
         except Exception:
             pass
         self.global_identity_manager = GlobalIdentityManager(
@@ -4266,6 +4318,8 @@ class MainWindow(QMainWindow):
         )
 
     def start_camera(self):
+        logger.info("APP_START_CAMERA requested")
+        self._camera_supervisor_enabled = True
         if self.camera_workers and any(
             worker.isRunning() for worker in self.camera_workers.values()
         ):
@@ -4393,6 +4447,9 @@ class MainWindow(QMainWindow):
                     f"Camera {s}: {message}"
                 )
             )
+            worker.finished.connect(
+                lambda s=slot, w=worker: self._camera_worker_finished(s, w)
+            )
             worker.start()
             self.camera_workers[slot] = worker
 
@@ -4403,7 +4460,40 @@ class MainWindow(QMainWindow):
         if hasattr(self, "camera_previews") and 2 not in self.camera_workers:
             self.camera_previews[2].setText("Camera 2 غیرفعال است.")
 
+    def _camera_worker_finished(self, slot, worker):
+        """Restart the whole camera pipeline after an unexpected worker stop."""
+        if self.camera_workers.get(slot) is not worker:
+            return
+
+        self.camera_workers.pop(slot, None)
+        if self.camera_worker is worker:
+            self.camera_worker = None
+
+        if not self._camera_supervisor_enabled or self._shutting_down:
+            return
+
+        self.camera_error(
+            f"Camera {slot}: worker stopped unexpectedly; restarting cameras."
+        )
+        if self._camera_restart_pending:
+            return
+
+        self._camera_restart_pending = True
+
+        def restart():
+            self._camera_restart_pending = False
+            if self._shutting_down or not self._camera_supervisor_enabled:
+                return
+            self._camera_supervisor_enabled = False
+            self.stop_camera()
+            self._camera_supervisor_enabled = True
+            self.start_camera()
+
+        QTimer.singleShot(1500, restart)
+
     def stop_camera(self):
+        logger.info("APP_STOP_CAMERA requested")
+        self._camera_supervisor_enabled = False
         workers = list(self.camera_workers.values())
         for worker in workers:
             if worker.isRunning():
@@ -4415,6 +4505,7 @@ class MainWindow(QMainWindow):
 
     def restart_camera(self):
         self.stop_camera()
+        self._camera_supervisor_enabled = True
         self.start_camera()
 
     def _store_camera_preview(self, camera_slot, image):
@@ -5842,6 +5933,8 @@ class MainWindow(QMainWindow):
             )
 
     def closeEvent(self, event):
+        self._shutting_down = True
+        self._camera_supervisor_enabled = False
         self.stop_camera()
         event.accept()
 

@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -17,8 +18,11 @@ DB_PATH = BASE_DIR / "data" / "attendance.db"
 
 def get_connection():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=8.0)
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 8000")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
 
@@ -1170,20 +1174,13 @@ def mark_attendance(student_id, camera_id="camera_0", status="present", notes=""
 
     conn = get_connection()
     try:
-        existing = conn.execute(
-            "SELECT id FROM attendance WHERE student_id = ? AND date = ?",
-            (student_id, date),
-        ).fetchone()
-
-        if existing is not None:
-            return False
-
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT INTO attendance
                 (student_id, date, timestamp, camera_id, status,
                  notes, source, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, 'camera', ?)
+            ON CONFLICT(student_id, date) DO NOTHING
             """,
             (
                 student_id,
@@ -1196,9 +1193,46 @@ def mark_attendance(student_id, camera_id="camera_0", status="present", notes=""
             ),
         )
         conn.commit()
-        return True
+        return cursor.rowcount == 1
     finally:
         conn.close()
+
+
+def get_current_presence_ids(date=None):
+    """Return students whose latest movement event for the day is an entry."""
+    if date is None:
+        date = datetime.now().strftime("%Y-%m-%d")
+
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT e.student_id, e.event_type
+            FROM events e
+            JOIN (
+                SELECT student_id, MAX(id) AS max_id
+                FROM events
+                WHERE student_id IS NOT NULL
+                  AND date(timestamp) = ?
+                  AND event_type IN (
+                      'PERSON_ENTERED',
+                      'PERSON_EXITED',
+                      'UNEXPECTED_EXIT'
+                  )
+                GROUP BY student_id
+            ) latest
+              ON latest.max_id = e.id
+            """,
+            (date,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return {
+        int(student_id)
+        for student_id, event_type in rows
+        if event_type == "PERSON_ENTERED"
+    }
 
 
 def set_attendance_status(

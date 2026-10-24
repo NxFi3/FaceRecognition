@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import logging
 from datetime import datetime
 from threading import RLock
 
@@ -12,6 +13,9 @@ class AttendancePresenceState:
     present: set[int] = field(default_factory=set)
     last_entered: dict[int, datetime] = field(default_factory=dict)
     active_tracks: dict[int, set[tuple[str, int]]] = field(default_factory=dict)
+    current_date: str = field(
+        default_factory=lambda: datetime.now().strftime("%Y-%m-%d")
+    )
     lock: RLock = field(default_factory=RLock, repr=False)
 
 
@@ -42,6 +46,18 @@ class AttendanceEventEngine:
     @property
     def present(self):
         return self._state.present
+
+    def ensure_current_day(self):
+        """Reset in-memory presence when the calendar day rolls over."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        with self._state.lock:
+            if self._state.current_date == today:
+                return False
+            self._state.current_date = today
+            self._state.present.clear()
+            self._state.last_entered.clear()
+            self._state.active_tracks.clear()
+        return True
 
     @property
     def last_entered(self):
@@ -86,6 +102,34 @@ class AttendanceEventEngine:
             track.student_code = student_code
             track.student_name = student_name
             track.identity_confidence = max(track.identity_confidence, confidence)
+
+            # A Re-ID hand-off can assign the same student before the face
+            # recognizer confirms them. When the face later agrees, still emit
+            # the stronger FACE_RECOGNIZED event and reconcile a crossing that
+            # happened while the provisional identity was active.
+            if event_type == EVENT_FACE_RECOGNIZED:
+                payload = dict(metadata or {})
+                payload.setdefault("student_code", student_code)
+                payload.setdefault("student_name", student_name)
+                self._emit(
+                    event_type,
+                    track,
+                    camera_id,
+                    confidence,
+                    payload,
+                )
+                if (
+                    track.last_crossing == "enter"
+                    and student_id not in self.present
+                ):
+                    self._enter(track, camera_id)
+                    return True
+                if (
+                    track.last_crossing == "exit"
+                    and student_id in self.present
+                ):
+                    self._exit(track, camera_id)
+                    return True
             return False
 
         if old_student_id is not None and old_student_id != student_id:
@@ -176,6 +220,8 @@ class AttendanceEventEngine:
         )
 
     def on_crossing(self, track, direction, camera_id):
+        self.ensure_current_day()
+
         if track.student_id is None:
             self._emit(
                 EVENT_UNKNOWN_PERSON,
@@ -196,12 +242,22 @@ class AttendanceEventEngine:
         if student_id is None:
             return [EVENT_UNKNOWN_PERSON]
 
+        if not track.metadata.get("face_witnessed_for_crossing", False):
+            self._emit(
+                EVENT_UNKNOWN_PERSON,
+                track,
+                camera_id,
+                track.identity_confidence,
+                {
+                    "direction": "enter",
+                    "reason": "face_witness_required",
+                },
+            )
+            return [EVENT_UNKNOWN_PERSON]
+
         with self._state.lock:
             if student_id in self.present:
                 return []
-
-            self.present.add(student_id)
-            self.last_entered[student_id] = datetime.now()
 
         start = self._time_setting("school_start_time", "08:00")
         late_enabled = self._bool_setting(
@@ -220,6 +276,10 @@ class AttendanceEventEngine:
                 else ""
             ),
         )
+
+        with self._state.lock:
+            self.present.add(student_id)
+            self.last_entered[student_id] = datetime.now()
 
         emitted = [EVENT_PERSON_ENTERED]
         self._emit(
@@ -323,6 +383,8 @@ class AttendanceEventEngine:
         return False
 
     def clear(self):
-        self.present.clear()
-        self.last_entered.clear()
-        self._state.active_tracks.clear()
+        with self._state.lock:
+            self.present.clear()
+            self.last_entered.clear()
+            self._state.active_tracks.clear()
+            self._state.current_date = datetime.now().strftime("%Y-%m-%d")

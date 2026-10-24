@@ -8,9 +8,12 @@ when inference is slower than the camera, preventing stale-frame buildup.
 from __future__ import annotations
 
 import threading
+import logging
 import time
 
 import cv2
+
+logger = logging.getLogger(__name__)
 
 
 class LatestFrameCapture:
@@ -38,6 +41,7 @@ class LatestFrameCapture:
         if self._thread is not None and self._thread.is_alive():
             return
 
+        logger.info("CAPTURE_START id=%s target_fps=%s raw_bayer=%s", self.camera_id, self.target_fps, self._raw_bayer)
         cap = self._open_camera(self.camera_id, self.target_fps)
 
         if self._raw_bayer:
@@ -58,6 +62,7 @@ class LatestFrameCapture:
         self.width = width
         self.height = height
         self.fps = fps
+        logger.info("CAPTURE_CONFIGURED id=%s actual=%sx%s fps=%s", self.camera_id, width, height, fps)
         self._cap = cap
         self._stop_event.clear()
 
@@ -78,6 +83,8 @@ class LatestFrameCapture:
 
                 if not ok or frame is None:
                     consecutive_failures += 1
+                    if consecutive_failures == 1 or consecutive_failures == 10:
+                        logger.warning("CAPTURE_READ_FAIL id=%s consecutive=%s", self.camera_id, consecutive_failures)
                     if consecutive_failures >= 10:
                         with self._condition:
                             self._error = (
@@ -128,7 +135,7 @@ class LatestFrameCapture:
             try:
                 cap.release()
             except Exception:
-                pass
+                logger.exception("CAPTURE_RELEASE_ERROR id=%s", self.camera_id)
 
             with self._condition:
                 self._cap = None
