@@ -64,3 +64,23 @@ limited) and release verification is proportional to artifact size. These were
 not redesigned without target-load evidence. Real SMTP/TLS delivery, Windows
 packaging/vaults, physical cameras and independent penetration testing require
 separate real environment verification.
+
+
+## Cascade follow-up: school retirement (same WEB-03 lifecycle)
+
+The baseline hard-delete policy also allowed deleting an otherwise manually active
+school with issued devices but no protective order/backup/subscription rows. An
+isolated synthetic reproduction restored only the baseline School/Device delete
+permissions and executed the actual authorized Django admin delete POST: school
+and device/digest rows were both removed (one proof test passed, 0.399 seconds).
+
+The earlier DeviceAdmin deletion guard already makes Django's nested collector
+refuse that cascade in the current code; this is **not** a newly claimed bypass of
+that guard. SchoolAdmin now independently forbids hard deletion as an explicit
+lifecycle policy, including the `delete_selected` bulk action. Retire/revoke the
+account/license through supported controls; privacy erasure remains a separate
+reviewed process rather than an accidental cascade from the technical admin.
+
+Two additional regressions cover fresh-owner single and bulk deletion attempts.
+The school/device fixture deliberately has no incidental PROTECT records, so the
+permission guard itself is verified. No production data or migration was changed.

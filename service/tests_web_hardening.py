@@ -187,3 +187,37 @@ class WebHardeningTests(TestCase):
         self.owner_login()
         response = self.client.post(reverse('owner-trial', args=[uuid.uuid4()]), secure=True)
         self.assertEqual(response.status_code, 404)
+
+    def test_school_hard_delete_cannot_cascade_issued_device_credentials(self):
+        import hashlib
+        import uuid
+        from datetime import timedelta
+        from django.contrib import admin
+        from django.utils import timezone
+        from .admin import SchoolAdmin
+        from .models import Device
+        owner = self.owner_login()
+        School.objects.filter(pk=self.school.pk).update(status='active', student_limit=900,
+            starts_at=timezone.now()-timedelta(days=1), expires_at=timezone.now()+timedelta(days=365))
+        device = Device.objects.create(school=self.school, installation_id=uuid.uuid4(), label='Synthetic desktop',
+            token_digest=hashlib.sha256(b'synthetic-issued-token').hexdigest(), password_stamp=self.user.get_session_auth_hash(),
+            credential_expires_at=timezone.now()+timedelta(days=365))
+        # No Order/Backup/ProductSubscription PROTECT rows: the lifecycle guard,
+        # not an incidental related-row restriction, must stop this deletion.
+        response = self.client.post(reverse('admin:service_school_delete', args=[self.school.pk]), {'post': 'yes'}, secure=True)
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(School.objects.filter(pk=self.school.pk).exists())
+        self.assertTrue(Device.objects.filter(pk=device.pk).exists())
+        self.assertFalse(SchoolAdmin(School, admin.site).has_delete_permission(type('Request', (), {'user': owner})()))
+
+    def test_school_bulk_delete_action_is_unavailable_and_cannot_erase_rows(self):
+        from types import SimpleNamespace
+        from django.contrib import admin
+        from .admin import SchoolAdmin
+        owner = self.owner_login()
+        request = SimpleNamespace(user=owner, GET={}, POST={})
+        self.assertNotIn('delete_selected', SchoolAdmin(School, admin.site).get_actions(request))
+        response = self.client.post(reverse('admin:service_school_changelist'), {
+            'action': 'delete_selected', '_selected_action': [str(self.school.pk)], 'post': 'yes'}, secure=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(School.objects.filter(pk=self.school.pk).exists())

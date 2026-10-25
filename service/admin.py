@@ -57,6 +57,10 @@ class SchoolAdmin(OwnerModelAdmin):
     list_filter = ("status",)
     search_fields = ("name", "user__username")
     readonly_fields = ("id", "created_at", "email_verified_at")
+    def has_delete_permission(self, request, obj=None):
+        # School deletion can cascade to installation credentials. Retire the
+        # account/license explicitly; privacy erasure requires a reviewed process.
+        return False
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
         from .commerce import sync_face_subscription
