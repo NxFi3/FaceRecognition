@@ -312,3 +312,43 @@ class CommerceConcurrencyTests(Fixtures, TransactionTestCase):
         self.assertEqual(sorted(self.concurrent(verify)), [False, True])
         self.assertEqual(VerifiedPayment.objects.count(), 1)
         self.assertEqual(School.objects.filter(status=School.Status.ACTIVE).count(), 1)
+
+
+    def test_claim_racing_verification_has_consistent_lock_order(self):
+        order = self.order()
+        def action(index):
+            try:
+                if index:
+                    verify_manual_payment(order.pk, self.owner, 'BANK-LOCK123', order.amount_irr)
+                else:
+                    submit_manual_payment(self.school, order.pk, 'BANK-LOCK123')
+                return True
+            except CommerceError:
+                return False  # Verification may finish before the customer claim.
+        self.concurrent(action)
+        self.assertEqual(VerifiedPayment.objects.count(), 1)
+        self.school.refresh_from_db()
+        self.assertTrue(self.school.entitled)
+
+    def test_cancellation_racing_verification_is_one_atomic_outcome(self):
+        order = self.order()
+        def action(index):
+            try:
+                if index:
+                    verify_manual_payment(order.pk, self.owner, 'BANK-CANCEL1', order.amount_irr)
+                else:
+                    cancel_order(self.school, order.pk)
+                return True
+            except CommerceError:
+                return False
+        results = self.concurrent(action)
+        self.assertEqual(sorted(results), [False, True])
+        order.refresh_from_db()
+        self.school.refresh_from_db()
+        if order.status == Order.Status.CANCELLED:
+            self.assertFalse(self.school.entitled)
+            self.assertFalse(VerifiedPayment.objects.exists())
+        else:
+            self.assertEqual(order.status, Order.Status.FULFILLED)
+            self.assertTrue(self.school.entitled)
+            self.assertEqual(VerifiedPayment.objects.count(), 1)

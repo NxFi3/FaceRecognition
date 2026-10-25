@@ -109,6 +109,9 @@ def create_order(school, plan_id, idempotency_key):
 def submit_manual_payment(school, order_id, reference):
     reference = normalize_reference(reference)
     with transaction.atomic():
+        # Keep the same School -> Order ordering as creation and fulfillment;
+        # the audit FK must never invert a simultaneous verification lock.
+        school = School.objects.select_for_update().get(pk=school.pk)
         order = Order.objects.select_for_update().filter(pk=order_id, school=school).first()
         if order is None:
             raise PermissionDenied('سفارش متعلق به این حساب نیست.')
@@ -128,6 +131,9 @@ def submit_manual_payment(school, order_id, reference):
 
 def cancel_order(school, order_id):
     with transaction.atomic():
+        # Keep the same School -> Order ordering as creation and fulfillment;
+        # the audit FK must never invert a simultaneous verification lock.
+        school = School.objects.select_for_update().get(pk=school.pk)
         order = Order.objects.select_for_update().filter(pk=order_id, school=school).first()
         if order is None:
             raise PermissionDenied('سفارش متعلق به این حساب نیست.')

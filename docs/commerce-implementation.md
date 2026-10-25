@@ -77,11 +77,14 @@ SERVICE_TESTING=1 python -m service.manage test service.tests_commerce -v 1
 SERVICE_TESTING=1 SERVICE_TEST_DATABASE_URL="$TEST_POSTGRES_URL" python -m service.manage test service.tests_commerce -v 1
 ```
 
-The recorded isolated SQLite run discovered 21 cases: **18 passed, 3 PostgreSQL-only
-cases skipped**. Those cases test parallel checkout, double verification (one
-extension), and reuse of one actual settlement across two schools. The final
-repository-wide PostgreSQL run records their real result separately; skipped
-SQLite cases must never be described as PostgreSQL passes.
+The recorded isolated SQLite run discovered 23 cases: **18 passed, 5 PostgreSQL-only
+cases skipped** (0.330 s). The actual disposable PostgreSQL 17 run then executed
+**all 23 successfully** (1.840 s), including parallel checkout, double verification
+(one extension), reuse of one actual settlement across two schools, customer claim
+versus verification, and cancellation versus verification. Every mutation locks
+School before Order to avoid an inverted FK/row-lock dependency. The original
+inverted deadlock was a structural review finding, not separately reproduced; the
+new PostgreSQL interleavings were actually run successfully.
 
 Other regressions cover tenant isolation, staff/superuser denial, false customer
 claims, price changes, quote expiry/cancellation, incorrect amounts, reference
