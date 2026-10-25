@@ -1,4 +1,8 @@
 import csv
+try:
+    from .spreadsheet_security import spreadsheet_row
+except ImportError:
+    from spreadsheet_security import spreadsheet_row
 import os
 import sys
 import time
@@ -6557,14 +6561,14 @@ class MainWindow(QMainWindow):
                 for row in range(self.report_events_table.rowCount()):
                     first = self.report_events_table.item(row, 0)
                     event_id = first.data(Qt.UserRole) if first else ""
-                    writer.writerow([
+                    writer.writerow(spreadsheet_row([
                         event_id,
                         *[
                             self.report_events_table.item(row, column).text()
                             if self.report_events_table.item(row, column) else ""
                             for column in range(self.report_events_table.columnCount())
                         ],
-                    ])
+                    ]))
             QMessageBox.information(
                 self,
                 "خروجی آماده شد",
@@ -6816,7 +6820,7 @@ class MainWindow(QMainWindow):
                     writer.writerow(student_headers)
                     for record in rows:
                         writer.writerow(
-                            [
+                            spreadsheet_row([
                                 record[1],
                                 record[2],
                                 record[3],
@@ -6827,7 +6831,7 @@ class MainWindow(QMainWindow):
                                 record[8],
                                 record[9],
                                 record[10],
-                            ]
+                            ])
                         )
             else:
                 from openpyxl import Workbook
@@ -6842,7 +6846,7 @@ class MainWindow(QMainWindow):
                 student_sheet.append(student_headers)
                 for record in rows:
                     student_sheet.append(
-                        [
+                        spreadsheet_row([
                             record[1],
                             record[2],
                             record[3],
@@ -6853,7 +6857,7 @@ class MainWindow(QMainWindow):
                             record[8],
                             record[9],
                             record[10],
-                        ]
+                        ])
                     )
 
                 daily_sheet = workbook.create_sheet("روزانه")
@@ -6868,7 +6872,7 @@ class MainWindow(QMainWindow):
                     ]
                 )
                 for record in daily:
-                    daily_sheet.append(list(record))
+                    daily_sheet.append(spreadsheet_row(record))
 
                 class_sheet = workbook.create_sheet("کلاس‌ها")
                 class_sheet.append(
@@ -6885,7 +6889,7 @@ class MainWindow(QMainWindow):
                 )
                 for record in classes:
                     class_sheet.append(
-                        [
+                        spreadsheet_row([
                             record[1],
                             record[2],
                             record[3],
@@ -6894,7 +6898,7 @@ class MainWindow(QMainWindow):
                             record[6],
                             record[7],
                             record[8],
-                        ]
+                        ])
                     )
 
                 summary_sheet = workbook.create_sheet("خلاصه")

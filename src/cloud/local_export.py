@@ -5,6 +5,11 @@ from pathlib import Path
 import sqlite3
 import uuid
 
+try:
+    from ..spreadsheet_security import spreadsheet_row
+except ImportError:
+    from spreadsheet_security import spreadsheet_row
+
 
 def bound_school(database):
     with closing(sqlite3.connect(f'{Path(database).resolve().as_uri()}?mode=ro', uri=True)) as connection:
@@ -25,4 +30,4 @@ def export_attendance(database, output):
             writer.writerow([column[0] for column in cursor.description])
             for row in cursor:
                 # Prevent spreadsheet formula injection from user-controlled fields.
-                writer.writerow([("'" + value) if isinstance(value, str) and value[:1] in ('=', '+', '-', '@', '\t', '\r') else value for value in row])
+                writer.writerow(spreadsheet_row(row))

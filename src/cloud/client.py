@@ -98,6 +98,8 @@ class CloudClient:
         self._backup_lock = threading.Lock()
         self._state_io_lock = threading.Lock()
         self._closed = False
+        self._closing = False
+        self._session_epoch = 0
         self.store = store or CredentialStore("FaceRecognition:" + config.url)
         self.state = {}
         damaged = False
@@ -143,6 +145,8 @@ class CloudClient:
 
     def _load_offline(self):
         try:
+            if self.state.get('signed_out'):
+                raise ValueError('Local session was explicitly signed out')
             saved = self._checkpoint.load()
             if not saved:
                 return  # Legacy online-only clients activate once with the new server.
@@ -215,7 +219,7 @@ class CloudClient:
     def _request(self, method, path, **kwargs):
         headers = dict(kwargs.pop("headers", {}))
         if self.credential and path != "/api/v1/login/":
-            headers["Authorization"] = "Bearer " + self.credential
+            headers.setdefault("Authorization", "Bearer " + self.credential)
         try:
             response = self.transport(method, self.config.url + path, headers=headers,
                                       timeout=(5, 30), allow_redirects=False, stream=True, **kwargs)
@@ -263,7 +267,17 @@ class CloudClient:
             except (ValueError, UnicodeError) as exc:
                 raise CloudError("پاسخ سرویس معتبر نیست.") from exc
 
-    def accept_lease(self, envelope, nonce, started):
+    def _auth_epoch(self):
+        with self._lock:
+            if self._closed or self._closing:
+                raise AccessDenied("نشست برنامه بسته شده است.")
+            return self._session_epoch
+
+    def _check_auth_epoch(self, epoch):
+        if self._closed or self._closing or (epoch is not None and epoch != self._session_epoch):
+            raise AccessDenied("نشست ورود تغییر کرده است؛ دوباره وارد شوید.")
+
+    def accept_lease(self, envelope, nonce, started, session_epoch=None):
         try:
             value = verify(envelope, self.config.public_key, self.installation,
                            self.state.get('school_id'), nonce)
@@ -274,8 +288,7 @@ class CloudClient:
             raise AccessDenied("امضا یا اعتبار مجوز سرویس تأیید نشد.") from exc
         with self._state_io_lock:
             with self._lock:
-                if self._closed:
-                    raise AccessDenied("نشست برنامه بسته شده است.")
+                self._check_auth_epoch(session_epoch)
                 generation = self._generation + 1
                 previous = {'hash': envelope_hash(self.state.get('signed_license')), 'generation': self.state.get('license_generation')}
                 self._mirror_pending = True
@@ -302,8 +315,7 @@ class CloudClient:
                 self._mirror_pending = False
                 raise CloudError(str(exc)) from exc
             with self._lock:
-                if self._closed:
-                    raise AccessDenied('نشست برنامه بسته شده است.')
+                self._check_auth_epoch(session_epoch)
                 self._generation = generation
                 self._anchor_time, self._anchor_tick = trusted, license_clock()
                 self._wall_anchor = time.time()
@@ -311,32 +323,48 @@ class CloudClient:
                 self._suspicious = False
                 self._lease, self._envelope = value, envelope
                 self.state.update(school_id=value['school_id'], signed_license=envelope, license_generation=generation)
+                self.state.pop('signed_out', None)
         self.save_state()
         with self._state_io_lock:
             if self._generation == generation:
                 self._checkpoint.finish()
                 self._mirror_pending = False
+        with self._lock:
+            self._check_auth_epoch(session_epoch)
         if value['status'] != 'active':
             raise AccessDenied("دسترسی مدرسه یا این نصب توسط سرویس لغو شده است.")
         return value
 
     def login(self, email, password):
+        epoch = self._auth_epoch()
         nonce, started = secrets.token_urlsafe(32), license_clock()
         result = self._json("POST", "/api/v1/login/", json={"email": email, "password": password,
             "device_id": self.installation, "label": "School desktop", "nonce": nonce, "license_version": 2})
-        lease = self.accept_lease(result["lease"], nonce, started)
-        self.credential = result["credential"]
-        self.remembered = self.store.set(self.installation, self.credential)
+        lease = self.accept_lease(result["lease"], nonce, started, session_epoch=epoch)
+        with self._state_io_lock:
+            with self._lock:
+                self._check_auth_epoch(epoch)
+                credential = result["credential"]
+            remembered = self.store.set(self.installation, credential)
+            with self._lock:
+                self._check_auth_epoch(epoch)
+                self.credential, self.remembered = credential, remembered
         return lease
 
     def renew(self):
+        epoch = self._auth_epoch()
         if not self.credential:
             raise AccessDenied("ابتدا وارد حساب مدرسه شوید.")
         nonce, started = secrets.token_urlsafe(32), license_clock()
         result = self._json("POST", "/api/v1/lease/", json={"nonce": nonce, "license_version": 2})
-        return self.accept_lease(result["lease"], nonce, started)
+        return self.accept_lease(result["lease"], nonce, started, session_epoch=epoch)
 
     def close(self):
+        with self._lock:
+            if self._closed or self._closing:
+                return
+            self._closing = True
+            self._session_epoch += 1
         try:
             self.checkpoint_time()
         except OSError:
@@ -344,13 +372,13 @@ class CloudClient:
         # A late network reply must never reactivate a session during shutdown.
         with self._lock:
             self._closed = True
-            self._lease, self._deadline = None, 0
+            self._lease, self._envelope, self._deadline = None, None, 0
 
     def allowed(self):
         with self._lock:
             if time.time() < self._wall_anchor + max(0, license_clock() - self._anchor_tick) - CLOCK_TOLERANCE:
                 self._suspicious = True
-            return (not self._closed and not self._suspicious and self._lease is not None
+            return (not self._closed and not self._closing and not self._suspicious and self._lease is not None
                     and self._lease.get('status') == 'active' and license_clock() < self._deadline
                     and self._anchor_time + max(0, license_clock() - self._anchor_tick, time.time() - self._wall_anchor) < self._lease['subscription_expires_at'])
 
@@ -361,17 +389,25 @@ class CloudClient:
             return dict(self._lease)
 
     def logout(self):
-        try:
-            if self.credential:
-                self._json("POST", "/api/v1/logout/", json={})
-        finally:
+        # Invalidate local admission before a slow/offline HTTP request. Serialize
+        # with checkpoint writes so shutdown cannot resurrect the old envelope.
+        with self._state_io_lock:
+            with self._lock:
+                credential = self.credential
+                self._session_epoch += 1
+                self.credential, self._lease, self._envelope = None, None, None
+                self._deadline = 0
+                self._mirror_pending = False
+                self.remembered = False
+                self.state.pop('signed_license', None)
+                self.state.pop('license_generation', None)
+                self.state['signed_out'] = True
             self.store.delete(self.installation)
             self.store.delete(self._checkpoint.key)
-            self.state.pop('signed_license', None)
-            self.state.pop('license_generation', None)
-            self.save_state()
-            with self._lock:
-                self.credential, self._lease, self._deadline = None, None, 0
+        self.save_state()
+        if credential:
+            self._json("POST", "/api/v1/logout/", json={},
+                       headers={"Authorization": "Bearer " + credential})
 
     def bind_database(self, path):
         lease = self.require_lease()

@@ -1,7 +1,12 @@
 import csv
 from pathlib import Path
 
-from database import init_db, get_today_attendance
+try:
+    from .database import init_db, get_today_attendance
+    from .spreadsheet_security import spreadsheet_row
+except ImportError:
+    from database import init_db, get_today_attendance
+    from spreadsheet_security import spreadsheet_row
 
 OUTPUT_DIR = Path("exports")
 
@@ -26,7 +31,7 @@ def main():
 
         writer.writerow(["student_code", "name", "timestamp", "camera_id"])
 
-        writer.writerows(rows)
+        writer.writerows(spreadsheet_row(row) for row in rows)
 
     print()
     print(f"Exported {len(rows)} attendance records.")

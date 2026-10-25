@@ -28,10 +28,10 @@ from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QImage
 
 try:
-    from ..database import add_event, get_setting, mark_attendance
+    from ..database import add_event, get_setting, get_student, mark_attendance
 except ImportError:
     # Supports direct execution where src/ is the import root.
-    from database import add_event, get_setting, mark_attendance
+    from database import add_event, get_setting, get_student, mark_attendance
 from .smart_events import AttendanceEventEngine, AttendancePresenceState
 from .smart_tracking import (
     LineCrossing,
@@ -1578,8 +1578,6 @@ class SmartCameraWorker(QThread):
         if inserted:
             student = None
             try:
-                from .database import get_student
-
                 row = get_student(student_id)
                 if row is not None:
                     student = {

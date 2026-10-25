@@ -70,7 +70,8 @@ def export_key(path, school, key):
 
 
 def import_key(path, school):
-    raw = Path(path).read_bytes()
+    with Path(path).open('rb') as stream:
+        raw = stream.read(4097)
     if len(raw) > 4096:
         raise ValueError('Invalid recovery key')
     value = json.loads(raw)

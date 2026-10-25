@@ -61,7 +61,7 @@ class Checkpoint:
         if raw.startswith('z2:'):
             decoder = zlib.decompressobj()
             decoded = decoder.decompress(base64.b64decode(raw[3:], validate=True), 65536)
-            if not decoder.eof or decoder.unconsumed_tail:
+            if not decoder.eof or decoder.unconsumed_tail or decoder.unused_data:
                 raise ValueError('Oversized/corrupt protected checkpoint')
             value = json.loads(decoded)
         else:
