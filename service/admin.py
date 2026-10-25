@@ -24,6 +24,15 @@ class SchoolAdminForm(forms.ModelForm):
         model = School
         fields = '__all__'
 
+    def clean_user(self):
+        from .owner_models import CompanyOwner
+        user = self.cleaned_data['user']
+        if CompanyOwner.objects.filter(user_id=user.pk).exists():
+            raise forms.ValidationError(
+                'حساب مالک شرکت باید از حساب مدرسه جدا بماند؛ یک حساب مستقل برای مدرسه انتخاب کنید.',
+                code='owner_cannot_be_school')
+        return user
+
     def clean(self):
         cleaned = super().clean()
         allowance = cleaned.get('device_limit')

@@ -105,3 +105,9 @@ school row as API admission before counting. It never silently revokes devices;
 explicit revocation/logout is required first. New schools' preassigned UUIDs are
 handled safely. Three regression cases cover reduction, explicit release and new
 school creation. Recorded focused suite after this follow-up: **17 tests passed**.
+
+Owner-account separation follow-up: school administration rejects selecting the
+reserved CompanyOwner user for either a new school or an existing school's user.
+This prevents accidental owner self-lockout while preserving the fail-closed
+runtime check for already misconfigured records. The focused owner suite now
+contains **18 tests, all passed** in the recorded follow-up run.

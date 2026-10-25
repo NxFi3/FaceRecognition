@@ -244,3 +244,14 @@ class SchoolAdminDeviceAllowanceTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         created = form.save()
         self.assertEqual(created.device_limit, 1)
+
+
+    def test_school_admin_rejects_owner_user_to_prevent_authority_self_lockout(self):
+        owner = get_user_model().objects.create_user('reserved-owner@example.com', password=PASSWORD, is_staff=True)
+        CompanyOwner.objects.create(id=1, user=owner)
+        for school in (School(), self.school):
+            form = self.form(school, user=owner.pk)
+            self.assertFalse(form.is_valid())
+            self.assertEqual(form.errors.as_data()['user'][0].code, 'owner_cannot_be_school')
+        self.assertTrue(is_company_owner(owner))
+        self.assertFalse(School.objects.filter(user=owner).exists())
