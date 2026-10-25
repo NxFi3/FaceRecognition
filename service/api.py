@@ -187,10 +187,12 @@ def lease(request):
 
 @csrf_exempt
 @require_POST
-@device_auth(entitlement=False)
+@device_auth(entitlement=False, synchronization=True)
 def logout(request):
     with transaction.atomic():
-        device = locked_authenticated_device(request)
+        # An expired/revoked current secret can still synchronize; it must also
+        # be able to invalidate itself. This grants no data/license access.
+        device = locked_authenticated_device(request, synchronization=True)
         if device is None:
             return error('invalid_device_credential', 401)
         Device.objects.filter(pk=device.pk).update(token_digest=None)

@@ -113,6 +113,26 @@ class DeviceAuthorizationRaceTests(TestCase):
             with self.assertRaises(RuntimeError):
                 api.locked_authenticated_device(request)
 
+    def test_expired_network_credential_can_be_logged_out_and_cannot_sync_again(self):
+        Device.objects.filter(pk=self.device.pk).update(credential_expires_at=timezone.now()-timedelta(days=1))
+        response = self.post('/api/v1/logout/', {}, self.token)
+        sync = self.post('/api/v1/lease/', {'nonce': 'e'*43, 'license_version': 2}, self.token)
+        # Previously logout rejected the expired token, while the sync route
+        # accepted that SAME secret and restored an active long-lived lease.
+        self.assertEqual(sync.status_code, 401)
+        self.assertEqual(response.status_code, 200)
+        self.device.refresh_from_db()
+        self.assertIsNone(self.device.token_digest)
+
+    def test_revoked_current_credential_can_invalidate_itself_without_granting_access(self):
+        Device.objects.filter(pk=self.device.pk).update(revoked=True)
+        response = self.post('/api/v1/logout/', {}, self.token)
+        self.assertEqual(response.status_code, 200)
+        self.device.refresh_from_db()
+        self.assertTrue(self.device.revoked)
+        self.assertIsNone(self.device.token_digest)
+        self.assertEqual(self.post('/api/v1/lease/', {'nonce': 'r'*43, 'license_version': 2}, self.token).status_code, 401)
+
 
 @skipUnless(connection.vendor == 'postgresql', 'Signing/revocation serialization requires PostgreSQL row locks')
 @override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])

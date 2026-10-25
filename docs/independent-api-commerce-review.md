@@ -81,3 +81,25 @@ Remaining limits: the parent must verify the final integrated PostgreSQL/Redis/
 HTTP stack and desktop contract. Actual Windows vault/camera operation, external
 security assessment, TLS certificate delivery and real bank settlement are not
 verified by these isolated synthetic regressions.
+
+
+## Follow-up: expired network credential logout (CWE-613, medium)
+
+A further lifecycle mismatch was reproduced: the logout endpoint rejected an
+expired current credential, but the synchronization endpoint intentionally accepted
+that same secret after a long offline period and could issue an active lease.
+The caller therefore could not actually invalidate that server credential through
+logout. A revoked current token similarly could not invalidate itself. Two new
+regressions failed before the fix (expired logout followed by successful sync;
+revoked logout returned 401).
+
+Logout now permits the same current-digest/password-stamp proof used for status
+synchronization solely for credential invalidation. It still refreshes under
+School -> Device locks and rejects stale/rotated credentials. This does not grant
+license or data access to expired/revoked credentials and does not alter valid
+paid offline admission. The final focused run after this change is recorded below.
+
+Follow-up focused validation: **34 discovered, 33 passed, one PostgreSQL-only
+case skipped**, 0.480 seconds. Both newly added regressions and all existing API
+core/stale-token tests passed. No actual PostgreSQL result is inferred from this
+SQLite run.
