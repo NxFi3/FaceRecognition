@@ -33,10 +33,12 @@ def main():
     values = {"DOMAIN": args.domain.lower(), "ACME_EMAIL": args.email, "PUBLIC_URL": "https://" + args.domain.lower(),
               "DJANGO_SECRET_KEY": secrets.token_urlsafe(64), "POSTGRES_PASSWORD": secrets.token_urlsafe(32), "POSTGRES_ADMIN_PASSWORD": secrets.token_urlsafe(32),
               "LICENSE_SIGNING_KEY": base64.b64encode(private).decode(), "BACKUP_MASTER_KEY": base64.b64encode(secrets.token_bytes(32)).decode(),
-              "SMTP_HOST": "", "SMTP_PORT": "587", "SMTP_USER": "", "SMTP_PASSWORD": "", "SMTP_FROM": args.email}
+              "SMTP_HOST": "", "SMTP_PORT": "587", "SMTP_USER": "", "SMTP_PASSWORD": "", "SMTP_FROM": args.email,
+              "RELEASE_ROOT": "/data/releases", "MANUAL_PAYMENT_INSTRUCTIONS": "", "CONTACT_RESPONSE_DAYS": "3"}
     fd = os.open(env_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w") as output:
         output.write("\n".join(f"{k}={v}" for k, v in values.items()) + "\n")
+    (root / "releases").mkdir(mode=0o755, exist_ok=True)
     generated = root / "generated"
     generated.mkdir(mode=0o700, exist_ok=True)
     (generated / "subscription-client.json").write_text(json.dumps({"service_url": values["PUBLIC_URL"], "public_key": base64.b64encode(public).decode()}, indent=2) + "\n")

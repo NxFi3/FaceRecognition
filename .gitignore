@@ -56,3 +56,6 @@ models/torch/
 
 .backup-*
 data/.local-restore-*/
+
+# Operator-installed signed desktop distribution files (metadata is in PostgreSQL).
+deploy/releases/

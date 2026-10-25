@@ -13,3 +13,7 @@ models
 *.frkey
 *.frbackup
 subscription-client.json
+
+# Alternate environment files and operator-managed release payloads stay outside images.
+**/.env.*
+deploy/releases

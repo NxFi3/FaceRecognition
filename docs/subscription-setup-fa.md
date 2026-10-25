@@ -1,5 +1,10 @@
 # راه‌اندازی حساب مدرسه، اشتراک و بکاپ آنلاین
 
+> برای پلتفرم تجاریِ شاخهٔ `feature/nxfi-commercial-platform`، ایجاد مالک،
+> خرید/صورتحساب و انتشار فایل ابتدا [راهنمای تجاری](commercial-deployment-fa.md)
+> را بخوانید. دستور قدیمی `createsuperuser` به‌تنهایی مجوز مالک ایجاد نمی‌کند.
+> بخش‌های مجوز آفلاین و بازیابی این راهنما همچنان کاربرد دارند.
+
 این نسخه روی شاخهٔ جداگانهٔ `hardening/offline-first-licensing` از مبنای تأییدشدهٔ `5f6bd20` ساخته شده است. ورود
 سایت، اشتراک و بکاپ از مسیر دوربین و مدل‌ها جدا هستند. منطق تطبیق چهره،
 تأیید هویت، Re-ID و آستانه‌های آن‌ها تغییر نکرده است.
@@ -135,7 +140,7 @@ sudo docker compose --env-file deploy/.env -f deploy/compose.yml exec web python
 هیچ مدل جدیدی برای تحویل جایگزین نکنید. مسیر TORCH_HOME موجود را بدهید:
 
 ```bat
-set FACE_REID_CACHE=C:\secure-build-assets	orch
+set FACE_REID_CACHE=C:\secure-build-assets\torch
 buildwindows.bat
 ```
 
