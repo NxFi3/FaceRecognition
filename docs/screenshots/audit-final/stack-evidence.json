@@ -1,0 +1,1 @@
+{"testing": false, "debug": false, "db_vendor": "postgresql", "db_privileges": [false, false, false], "redis_backend": "django.core.cache.backends.redis.RedisCache", "uid": 10001, "secure_cookies": true}
