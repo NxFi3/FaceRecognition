@@ -69,3 +69,13 @@ regressions then all passed (0.164 s), including a test-only handler proving tha
 an additional product can fulfill its own ledger without altering Face state.
 The parent integration run records the final full PostgreSQL results; no future
 product or external payment settlement is claimed as tested by this fixture.
+
+Product isolation also applies to bans: the legacy `School.status` is the
+FaceRecognition licensing status, not a universal company-product entitlement.
+Its banned state blocks Face checkout/fulfillment, while a future explicitly
+registered handler must enforce its own product policy and cannot clear that
+Face ban. Disabling the shared account (`user.is_active=False`) still blocks all
+new checkout and fulfillment. Test-only handler regressions verify these boundaries,
+including unchanged Face dates, limits, status and ledger records. After this
+scope correction, the combined commerce/product SQLite suite discovered 45 tests:
+39 passed and six PostgreSQL-only cases skipped (0.795 s).

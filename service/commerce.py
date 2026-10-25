@@ -135,7 +135,7 @@ def create_order(school, plan_id, idempotency_key, product_slug=FACE_PRODUCT_SLU
         raise CommerceError('شناسهٔ درخواست معتبر نیست؛ صفحهٔ خرید را دوباره باز کنید.') from exc
     with transaction.atomic():
         school = School.objects.select_for_update().select_related('user').get(pk=school.pk)
-        if not school.user.is_active or school.status == School.Status.BANNED:
+        if not school.user.is_active or (product_slug == FACE_PRODUCT_SLUG and school.status == School.Status.BANNED):
             raise CommerceError('حساب برای سفارش مجاز نیست؛ با پشتیبانی تماس بگیرید.')
         prior = Order.objects.filter(school=school, idempotency_key=key).first()
         if prior:
@@ -233,7 +233,7 @@ def _validate_product_binding(order):
 
 def _validate_fulfillment(school, order):
     handler = _validate_product_binding(order)
-    if not school.user.is_active or school.status == School.Status.BANNED:
+    if not school.user.is_active or (order.product_id == FACE_PRODUCT_SLUG and school.status == School.Status.BANNED):
         raise CommerceError('حساب غیرفعال یا مسدود است؛ پرداخت باعث رفع مسدودی نمی‌شود.')
     if order.status not in (Order.Status.AWAITING_PAYMENT, Order.Status.PAYMENT_SUBMITTED):
         raise CommerceError('سفارش برای فعال‌سازی باز نیست.')

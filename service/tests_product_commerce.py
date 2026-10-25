@@ -151,12 +151,29 @@ class ProductCommerceTests(TestCase):
                 ProductSubscription.objects.create(school=self.school, product=self.face)
 
     def test_explicit_test_handler_can_fulfill_its_own_product_without_face_changes(self):
-        """The registry is extensible; this fake SKU/handler exists only in this test."""
+        self.fulfill_test_only_product()
+
+    def test_face_ban_cannot_disable_or_be_cleared_by_another_product_handler(self):
+        self.fulfill_test_only_product(face_banned=True)
+
+    def test_disabled_company_account_blocks_other_product_checkout(self):
+        self.fulfill_test_only_product(face_banned=True, inactive_stage='checkout')
+
+    def test_disabled_company_account_blocks_other_product_fulfillment(self):
+        self.fulfill_test_only_product(face_banned=True, inactive_stage='fulfillment')
+
+    def fulfill_test_only_product(self, face_banned=False, inactive_stage=None):
+        """The registry is extensible; this fake SKU/handler exists only in tests."""
         from unittest.mock import patch
         from .commerce import Entitlement, PRODUCT_FULFILLMENT
         face_order = self.order()
         self.pay(face_order)
         self.school.refresh_from_db()
+        if face_banned:
+            self.school.status = School.Status.BANNED
+            self.school.save(update_fields=['status'])
+            sync_face_subscription(self.school)
+        face_ledger_before = ProductSubscription.objects.filter(school=self.school, product=self.face).values().get()
         before = (self.school.status, self.school.starts_at, self.school.expires_at,
                   self.school.student_limit, self.school.device_limit)
         self.other.is_published = True
@@ -175,13 +192,31 @@ class ProductCommerceTests(TestCase):
                     defaults={'starts_at': starts_at, 'expires_at': expires_at, 'student_limit': order.student_limit,
                               'device_limit': order.device_limit, 'status': 'active', 'source_order': order})
         with patch.dict(PRODUCT_FULFILLMENT, {self.other.pk: TestOnlyHandler()}):
-            order = create_order(self.school, plan.pk, uuid.uuid4(), product_slug=self.other.pk)
-            verify_manual_payment(order.pk, self.owner, 'BANK-EXTENSION-999', order.amount_irr)
+            if inactive_stage == 'checkout':
+                self.school.user.is_active = False
+                self.school.user.save(update_fields=['is_active'])
+                with self.assertRaises(CommerceError):
+                    create_order(self.school, plan.pk, uuid.uuid4(), product_slug=self.other.pk)
+                self.assertFalse(Order.objects.filter(product=self.other).exists())
+            else:
+                order = create_order(self.school, plan.pk, uuid.uuid4(), product_slug=self.other.pk)
+                if inactive_stage == 'fulfillment':
+                    self.school.user.is_active = False
+                    self.school.user.save(update_fields=['is_active'])
+                    with self.assertRaises(CommerceError):
+                        verify_manual_payment(order.pk, self.owner, 'BANK-EXTENSION-999', order.amount_irr)
+                    self.assertFalse(VerifiedPayment.objects.filter(order=order).exists())
+                else:
+                    verify_manual_payment(order.pk, self.owner, 'BANK-EXTENSION-999', order.amount_irr)
         self.school.refresh_from_db()
         self.assertEqual(before, (self.school.status, self.school.starts_at, self.school.expires_at,
                                   self.school.student_limit, self.school.device_limit))
-        sub = ProductSubscription.objects.get(school=self.school, product=self.other)
-        self.assertEqual(sub.student_limit, 10)
-        self.assertEqual(sub.device_limit, 2)
-        self.assertEqual(sub.source_order_id, order.pk)
+        self.assertEqual(ProductSubscription.objects.filter(school=self.school, product=self.face).values().get(), face_ledger_before)
+        if inactive_stage:
+            self.assertFalse(ProductSubscription.objects.filter(school=self.school, product=self.other).exists())
+        else:
+            sub = ProductSubscription.objects.get(school=self.school, product=self.other)
+            self.assertEqual(sub.student_limit, 10)
+            self.assertEqual(sub.device_limit, 2)
+            self.assertEqual(sub.source_order_id, order.pk)
         self.assertFalse(self.other.is_available)  # No handler persists after the test patch.
