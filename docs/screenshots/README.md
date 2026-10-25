@@ -1,3 +1,6 @@
+> Current company-first UI evidence is in [corporate-README.md](corporate-README.md).
+> The unprefixed images below document the earlier single-product layout.
+
 # Verified commercial UI evidence
 
 Captured locally on 2026-10-25 with Chromium 154.0.8037.57 using the actual Django
