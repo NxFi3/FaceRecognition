@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import secrets
 import sqlite3
+import sys
 import tempfile
 import threading
 import time
@@ -45,13 +46,28 @@ class ClientConfig:
     @classmethod
     def load(cls, path):
         value = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(value, dict) or set(value) != {"service_url", "public_key"}:
+            raise CloudError("Invalid public service configuration")
         url = value["service_url"].rstrip("/")
         parts = urlparse(url)
-        if parts.scheme != "https" or not parts.hostname or parts.username or parts.password or parts.path or parts.query or parts.fragment:
+        port = parts.port
+        if (parts.scheme != "https" or not parts.hostname or parts.username is not None
+                or parts.password is not None or parts.path or parts.query or parts.fragment
+                or (port is not None and not 1 <= port <= 65535)
+                or any(c.isspace() or ord(c) < 32 for c in url)):
             raise CloudError("نشانی سرویس باید HTTPS باشد.")
         key = base64.b64decode(value["public_key"], validate=True)
         Ed25519PublicKey.from_public_bytes(key)
         return cls(url, key)
+
+
+    @classmethod
+    def packaged(cls, source_root):
+        # Frozen builds trust only the packaged resource, never environment URL/key
+        # overrides or the current working directory. Source checkouts retain the
+        # existing operator configuration path for staging/development.
+        root = Path(sys._MEIPASS) if getattr(sys, 'frozen', False) else Path(source_root)
+        return cls.load(root / 'subscription-client.json')
 
 
 class CredentialStore:

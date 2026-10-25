@@ -18,7 +18,11 @@ def main():
     parser.add_argument('--allow-no-reid', action='store_true', help='Only if the validated pilot baseline did not use OSNet')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    ClientConfig.load(root / 'subscription-client.json')
+    from tools.package_client import stage
+    source = root / 'deploy/generated/subscription-client.json'
+    if not source.is_file():
+        source = root / 'subscription-client.json'  # CI's public repository variables
+    stage(source, root / 'build/public/subscription-client.json')
     files = [root / 'models' / name for name in ('yolo26n.onnx', 'face_detection_yunet_2023mar.onnx')]
     files += sorted(model_directory().glob('*.dat'))
     if len(files) != 6 or any(not path.is_file() for path in files):

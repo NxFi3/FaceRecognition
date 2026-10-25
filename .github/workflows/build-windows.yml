@@ -87,8 +87,8 @@ jobs:
       - name: Build Windows application
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --contents-directory . --name FaceRecognition --add-data 'models;models' --hidden-import face_recognition_models --hidden-import onnxruntime --additional-hooks-dir hooks --collect-all onnxruntime --collect-binaries dlib --collect-all keyring --collect-all cryptography src/app.py
-          Copy-Item subscription-client.json dist/FaceRecognition/subscription-client.json
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --contents-directory . --name FaceRecognition --add-data 'models;models' --add-data 'build/public/subscription-client.json;.' --add-data 'src/locales;locales' --hidden-import face_recognition_models --hidden-import onnxruntime --additional-hooks-dir hooks --collect-all onnxruntime --collect-binaries dlib --collect-all keyring --collect-all cryptography src/app.py
+          if (-not (Test-Path dist/FaceRecognition/subscription-client.json)) { throw "Bundled public configuration is missing" }
 
       - name: Verify packaged files
         shell: pwsh

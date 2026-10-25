@@ -7205,7 +7205,11 @@ def main():
             raise SystemExit(1)
 
     app = QApplication(qt_argv)
-    app.setLayoutDirection(Qt.RightToLeft)
+    try:
+        from .localization import configure, language
+    except ImportError:
+        from localization import configure, language
+    configure(app)
     app.setStyle("Fusion")
 
     # Load Qt's Persian translations when the local Qt installation provides them.
@@ -7213,7 +7217,7 @@ def main():
     translations_path = QLibraryInfo.path(
         QLibraryInfo.LibraryPath.TranslationsPath
     )
-    if translator.load("qtbase_fa", translations_path):
+    if language() == "fa" and translator.load("qtbase_fa", translations_path):
         app.installTranslator(translator)
 
     app.setStyleSheet(

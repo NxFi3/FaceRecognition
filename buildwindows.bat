@@ -25,11 +25,6 @@ if not exist "models\yolo26n.onnx" (
     goto :fail
 )
 
-if not exist "subscription-client.json" (
-    echo ERROR: Generate subscription-client.json with deploy.configure first.
-    goto :fail
-)
-
 REM ===== 2. Select Python =====
 set "PY=python"
 %PY% --version >nul 2>&1
@@ -41,6 +36,10 @@ if errorlevel 1 (
         goto :fail
     )
 )
+
+REM Public release configuration is supplied by the operator, never the customer.
+%PY% -m tools.package_client
+if errorlevel 1 goto :fail
 
 echo Python:
 %PY% --version
@@ -111,6 +110,8 @@ echo.
  %REID_ARGS% ^
  --exclude-module ultralytics ^
  --add-data "models;models" ^
+ --add-data "build\public\subscription-client.json;." ^
+ --add-data "src\locales;locales" ^
  src\app.py
 
 if errorlevel 1 (
@@ -119,7 +120,7 @@ if errorlevel 1 (
     goto :fail
 )
 
-copy /Y "subscription-client.json" "dist\FaceRecognition\subscription-client.json" >nul
+if not exist "dist\FaceRecognition\subscription-client.json" goto :fail
 
 REM ===== 6. Verify output =====
 if not exist "dist\FaceRecognition\FaceRecognition.exe" (

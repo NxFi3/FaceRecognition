@@ -8,9 +8,13 @@ import webbrowser
 from filelock import FileLock, Timeout
 from PySide6.QtCore import QObject, Signal, QTimer, Qt
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit, QLabel,
-    QPushButton, QMessageBox, QCheckBox, QListWidget, QDialogButtonBox, QFileDialog)
+    QPushButton, QMessageBox, QCheckBox, QListWidget, QDialogButtonBox, QFileDialog, QComboBox, QApplication)
 from .client import AccessDenied, ClientConfig, CloudClient, CloudError
 from .entitlement import bind_gate
+try:
+    from ..localization import text as tr, configure, language, error_text
+except ImportError:
+    from localization import text as tr, configure, language, error_text
 
 
 class Jobs(QObject):
@@ -45,54 +49,107 @@ class LoginDialog(QDialog):
     def __init__(self, client, parent=None, recovery=None):
         super().__init__(parent)
         self.client = client
-        self.setWindowTitle("ورود به حساب مدرسه")
-        self.setMinimumWidth(440)
+        self.setWindowTitle("NxFi Technologies · FaceRecognition")
+        self.setMinimumWidth(480)
+        self.setStyleSheet("""
+            QDialog { background: #f5f6fc; color: #17223b; }
+            QLabel { color: #17223b; font-size: 14px; }
+            QLabel#nxfi-brand { font-size: 25px; font-weight: 700; color: #5145cd; }
+            QLineEdit, QComboBox { background: white; border: 1px solid #d7dced;
+                border-radius: 8px; padding: 10px; min-height: 22px; }
+            QLineEdit:focus, QComboBox:focus { border: 2px solid #6554e8; }
+            QPushButton { background: white; color: #344161; border: 1px solid #d7dced;
+                border-radius: 8px; padding: 12px; font-weight: 600; }
+            QPushButton#nxfi-primary { background: #6554e8; color: white; border: none; }
+            QPushButton:disabled { background: #e3e5ef; color: #727b92; }
+            QLabel#nxfi-status { color: #9f3d31; }
+        """)
         layout = QVBoxLayout(self)
-        info = QLabel("برای استفاده از برنامه، حساب مدرسه و اشتراک فعال لازم است.\n" + client.config.url)
+        layout.setContentsMargins(30, 26, 30, 26)
+        layout.setSpacing(16)
+        brand = QLabel('NxFi Technologies')
+        brand.setObjectName('nxfi-brand')
+        layout.addWidget(brand)
+        self.language_box = QComboBox()
+        self.language_box.addItem('English', 'en')
+        self.language_box.addItem('فارسی', 'fa')
+        self.language_box.setCurrentIndex(1 if language() == 'fa' else 0)
+        layout.addWidget(self.language_box)
+        info = QLabel()
         info.setTextFormat(Qt.PlainText)
         info.setWordWrap(True)
         layout.addWidget(info)
         form = QFormLayout()
         self.email = QLineEdit()
         self.email.setMaxLength(150)
+        self.email.setLayoutDirection(Qt.LeftToRight)
         self.password = QLineEdit()
         self.password.setMaxLength(1024)
+        self.password.setLayoutDirection(Qt.LeftToRight)
         self.password.setEchoMode(QLineEdit.Password)
-        form.addRow("ایمیل مدرسه", self.email)
-        form.addRow("رمز حساب سایت", self.password)
+        self.email_label, self.password_label = QLabel(), QLabel()
+        form.addRow(self.email_label, self.email)
+        form.addRow(self.password_label, self.password)
         layout.addLayout(form)
         self.status = QLabel("")
+        self.status.setObjectName("nxfi-status")
         self.status.setTextFormat(Qt.PlainText)
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         self.login_button = QPushButton("ورود و دریافت اعتبار اشتراک")
+        self.login_button.setObjectName("nxfi-primary")
         self.login_button.clicked.connect(self.login)
         layout.addWidget(self.login_button)
-        website = QPushButton("ثبت‌نام / بازیابی رمز در سایت")
+        website = QPushButton()
         website.clicked.connect(lambda: webbrowser.open(client.config.url + "/login/"))
         layout.addWidget(website)
         if recovery:
-            export = QPushButton('خروجی / بازیابی محلی اطلاعات مدرسه (بدون اینترنت)')
+            export = QPushButton(tr('Offline export & recovery'))
             export.clicked.connect(recovery)
             layout.addWidget(export)
         self.jobs = Jobs(self)
         self.jobs.completed.connect(self.done_job, Qt.QueuedConnection)
         self.finished.connect(lambda _: self.jobs.close())
+        self.info, self.website, self.export = info, website, export if recovery else None
+        self._status_key = None
+        self.language_box.currentIndexChanged.connect(self.change_language)
+        self.retranslate()
         if client.credential:
             self.login_button.setEnabled(False)
-            self.status.setText("در حال بررسی اشتراک ذخیره‌شده…")
+            self.set_status("Checking saved subscription…")
             QTimer.singleShot(0, lambda: self.jobs.start("login", client.renew))
+    def retranslate(self):
+        self.info.setText(tr('Sign in with your NxFi account to activate FaceRecognition.') + '\n' + self.client.config.url)
+        self.email_label.setText(tr('NxFi account email'))
+        self.password_label.setText(tr('Password'))
+        self.login_button.setText(tr('Sign in and activate'))
+        self.website.setText(tr('Create an account / reset password'))
+        self.language_box.setAccessibleName(tr('Language'))
+        if self.export:
+            self.export.setText(tr('Offline export & recovery'))
+        if self._status_key:
+            self.status.setText(tr(self._status_key))
+
+    def set_status(self, key):
+        self._status_key = key
+        self.status.setText(tr(key))
+
+    def change_language(self):
+        configure(QApplication.instance(), self.language_box.currentData(), persist=True)
+        self.retranslate()
+
     def login(self):
         self.login_button.setEnabled(False)
         email, password = self.email.text().strip(), self.password.text()
         self.password.clear()
-        self.status.setText("در حال ارتباط با سرویس…")
+        self.set_status("Connecting securely…")
         self.jobs.start("login", lambda: self.client.login(email, password))
     def done_job(self, name, result, error):
         self.jobs.finished(name)
         self.login_button.setEnabled(True)
         if error:
-            self.status.setText(str(error) if isinstance(error, Exception) else "ورود انجام نشد.")
+            self._status_key = None
+            self.status.setText(error_text(error))
         else:
             self.accept()
 
@@ -313,16 +370,14 @@ def run_application(app, window_class, init_db, ensure_local_admin, database_pat
     client, window = None, None
     try:
         try:
-            config = ClientConfig.load(Path(base_dir) / "subscription-client.json")
+            config = ClientConfig.packaged(base_dir)
             client = CloudClient(config, database_path.parent / "cloud-state.json")
         except Exception:
-            QMessageBox.critical(None, "تنظیم سرویس", "فایل معتبر subscription-client.json کنار برنامه نصب نشده است. بستهٔ کامل را از پشتیبانی دریافت کنید.")
+            QMessageBox.critical(None, tr("Incomplete installation"), tr("The trusted service configuration is missing or invalid. Reinstall the official package or contact NxFi support."))
             return 1
         from .recovery import recover_interrupted_restore
         recover_interrupted_restore(database_path)
         init_db()
-        if not ensure_local_admin():
-            return 0
         recovered = []
         def local_recovery():
             dialog = RecoveryDialog(database_path)
@@ -333,8 +388,8 @@ def run_application(app, window_class, init_db, ensure_local_admin, database_pat
             return 0
         if recovered:
             init_db()
-            if not ensure_local_admin():
-                return 0
+        if not ensure_local_admin():
+            return 0
         try:
             import sqlite3
             from contextlib import closing
