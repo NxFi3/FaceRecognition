@@ -410,3 +410,55 @@ class PortalTests(TestCase):
         response = self.client.get(reverse('business-export'), secure=True)
         self.assertEqual(response.status_code, 429)
         self.assertIn('Retry-After', response)
+
+    def test_payment_rejection_requires_explicit_owner_fresh_auth_and_post(self):
+        order = self.make_order()
+        url = reverse('owner-reject-payment', args=[order.pk])
+        for user in (self.user, self.other):
+            self.login(user)
+            self.assertEqual(self.client.post(url, {'reason': 'Bank settlement not found.'}, secure=True).status_code, 403)
+        self.owner_login()
+        response = self.client.post(url, {'reason': 'Bank settlement not found.'}, secure=True)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/owner/reauth/', response['Location'])
+        self.assertEqual(self.client.post(reverse('owner-reauth'), {'password': PASSWORD}, secure=True).status_code, 302)
+        self.assertEqual(self.client.get(url, secure=True).status_code, 405)
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.AWAITING_PAYMENT)
+        self.assertFalse(VerifiedPayment.objects.exists())
+
+    def test_rejected_claim_preserves_entitlement_and_displays_reason_without_verifying_payment(self):
+        self.login()
+        order = self.make_order()
+        expiry = self.school.expires_at
+        self.assertEqual(self.client.post(reverse('checkout', args=[order.pk]),
+            {'reference': 'BANK-NOT-SETTLED', 'acknowledge': 'on'}, secure=True).status_code, 302)
+        self.owner_login(recent=True)
+        reason = 'Independent bank review found no settled payment.'
+        url = reverse('owner-reject-payment', args=[order.pk])
+        for _ in range(2):
+            self.assertEqual(self.client.post(url, {'reason': reason}, secure=True).status_code, 302)
+        order.refresh_from_db()
+        self.school.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.REJECTED)
+        self.assertEqual(order.rejection_reason, reason)
+        self.assertEqual(self.school.expires_at, expiry)
+        self.assertFalse(VerifiedPayment.objects.exists())
+        self.assertEqual(self.client.get(reverse('owner'), secure=True).context['revenue'], 0)
+        self.login()
+        self.assertContains(self.client.get(reverse('checkout', args=[order.pk]), secure=True), reason)
+
+    def test_payment_rejection_validates_reason_and_requires_csrf(self):
+        order = self.make_order()
+        owner = self.owner_login(recent=True)
+        url = reverse('owner-reject-payment', args=[order.pk])
+        self.assertEqual(self.client.post(url, {'reason': '   '}, secure=True).status_code, 302)
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.AWAITING_PAYMENT)
+        self.assertEqual(order.rejection_reason, '')
+        strict = Client(enforce_csrf_checks=True)
+        strict.force_login(owner)
+        self.assertEqual(strict.post(url, {'reason': 'Bank settlement not found.'}, secure=True).status_code, 403)
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.AWAITING_PAYMENT)
+        self.assertFalse(VerifiedPayment.objects.exists())
