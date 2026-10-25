@@ -1,6 +1,6 @@
 """Safe editable drafts, not advertised prices or auto-activated trials."""
 from django.core.management.base import BaseCommand
-from service.commerce_models import Plan
+from service.commerce_models import Plan, FACE_PRODUCT_SLUG
 
 
 class Command(BaseCommand):
@@ -14,7 +14,7 @@ class Command(BaseCommand):
         ]
         created = 0
         for slug, name, days, students, devices, trial in samples:
-            _, fresh = Plan.objects.get_or_create(slug=slug, defaults={'name': name,
+            _, fresh = Plan.objects.get_or_create(product_id=FACE_PRODUCT_SLUG, slug=slug, defaults={'name': name,
                 'description': 'پیش‌نویس؛ پیش از انتشار، قیمت و شرایط واقعی توسط مالک تعیین شود.',
                 'duration_days': days, 'student_limit': students, 'device_limit': devices,
                 'is_trial': trial, 'price_irr': 0, 'is_active': False, 'is_public': False})

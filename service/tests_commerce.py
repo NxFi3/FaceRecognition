@@ -19,13 +19,16 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from .commerce import (CommerceError, approve_trial, cancel_order, create_order,
                        submit_manual_payment, verify_manual_payment, reject_manual_payment)
-from .commerce_models import Plan, Order, VerifiedPayment
+from .commerce_models import Plan, Order, VerifiedPayment, Product, FACE_PRODUCT_SLUG
 from .models import School, EmailOutbox, Device
 from .owner_models import CompanyOwner
 
 
 class Fixtures:
     def make_fixtures(self):
+        # TransactionTestCase flushes data-migration catalog rows between races.
+        Product.objects.get_or_create(slug=FACE_PRODUCT_SLUG, defaults={'name': 'FaceRecognition',
+            'summary': 'Synthetic FaceRecognition product fixture', 'is_published': True})
         users = get_user_model()
         self.owner = users.objects.create_user('owner@example.com', password='Owner-test-password!445')
         CompanyOwner.objects.create(id=1, user=self.owner)

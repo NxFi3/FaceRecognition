@@ -9,8 +9,55 @@ from django.db.models import Q
 from django.utils import timezone
 
 
+FACE_PRODUCT_SLUG = 'facerecognition'
+
+
+class Product(models.Model):
+    """Company catalog identity; publishing metadata cannot enable a new runtime."""
+    slug = models.SlugField(primary_key=True, max_length=60)
+    name = models.CharField(max_length=120)
+    summary = models.CharField(max_length=400)
+    description = models.TextField(max_length=2500, blank=True)
+    is_published = models.BooleanField(default=False)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ['sort_order', 'name']
+
+    @property
+    def is_available(self):
+        from .commerce import supported_product_slugs
+        return self.is_published and self.pk in supported_product_slugs()
+
+    def __str__(self):
+        return self.name
+
+
+class ProductSubscription(models.Model):
+    """Product-scoped commercial ledger; School remains the legacy Face authority."""
+    school = models.ForeignKey('service.School', on_delete=models.PROTECT, related_name='product_subscriptions')
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name='subscriptions')
+    status = models.CharField(max_length=16, choices=[('active', 'فعال'), ('suspended', 'تعلیق'), ('banned', 'مسدود')], default='suspended')
+    starts_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    student_limit = models.PositiveIntegerField(default=0, validators=[MaxValueValidator(1000000)])
+    device_limit = models.PositiveSmallIntegerField(default=1, validators=[MinValueValidator(1), MaxValueValidator(100)])
+    source_order = models.ForeignKey('service.Order', null=True, blank=True, on_delete=models.PROTECT, related_name='resulting_subscriptions')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['school', 'product'], name='school_product_subscription_unique')]
+
+    @property
+    def entitled(self):
+        now = timezone.now()
+        return bool(self.school.user.is_active and self.status == 'active' and self.starts_at
+                    and self.expires_at and self.starts_at <= now < self.expires_at and self.student_limit > 0)
+
+
 class Plan(models.Model):
-    slug = models.SlugField(unique=True, max_length=60)
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, default=FACE_PRODUCT_SLUG, related_name='plans')
+    slug = models.SlugField(max_length=60)
     name = models.CharField(max_length=100)
     description = models.CharField(max_length=400, blank=True)
     price_irr = models.PositiveBigIntegerField(default=0, validators=[MaxValueValidator(10**12)])
@@ -26,6 +73,7 @@ class Plan(models.Model):
     class Meta:
         ordering = ['sort_order', 'price_irr', 'pk']
         constraints = [
+            models.UniqueConstraint(fields=['product', 'slug'], name='product_plan_slug_unique'),
             models.CheckConstraint(condition=Q(price_irr__lte=10**12), name='plan_price_bounded'),
             models.CheckConstraint(condition=Q(duration_days__gte=1, duration_days__lte=1098), name='plan_duration_bounded'),
             models.CheckConstraint(condition=Q(student_limit__gte=1, student_limit__lte=1000000), name='plan_students_bounded'),
@@ -39,6 +87,13 @@ class Plan(models.Model):
             raise ValidationError('طرح آزمایشی باید رایگان و حداکثر ۳۰ روزه باشد.')
         if self.is_active and not self.is_trial and self.price_irr <= 0:
             raise ValidationError('پیش از فعال‌کردن طرح پولی، قیمت واقعی را وارد کنید.')
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            previous = type(self).objects.filter(pk=self.pk).values_list('product_id', flat=True).first()
+            if previous is not None and previous != self.product_id:
+                raise ValidationError('محصولِ طرح ثبت‌شده قابل جابه‌جایی نیست؛ طرح تازه بسازید.')
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
@@ -59,6 +114,8 @@ class Order(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     school = models.ForeignKey('service.School', on_delete=models.PROTECT, related_name='orders')
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, default=FACE_PRODUCT_SLUG, related_name='orders')
+    product_name = models.CharField(max_length=120, default='FaceRecognition')
     plan = models.ForeignKey(Plan, on_delete=models.PROTECT, related_name='orders')
     idempotency_key = models.UUIDField(default=uuid.uuid4, editable=False)
     purpose = models.CharField(max_length=16, choices=Purpose.choices)
@@ -81,7 +138,7 @@ class Order(models.Model):
     subscription_expires_at = models.DateTimeField(null=True, blank=True, editable=False)
     approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='approved_commercial_orders')
 
-    SNAPSHOT_FIELDS = ('school_id', 'plan_id', 'idempotency_key', 'purpose', 'plan_name', 'school_name', 'billing_email', 'amount_irr', 'duration_days', 'student_limit', 'device_limit', 'is_trial', 'created_at', 'expires_at')
+    SNAPSHOT_FIELDS = ('school_id', 'product_id', 'product_name', 'plan_id', 'idempotency_key', 'purpose', 'plan_name', 'school_name', 'billing_email', 'amount_irr', 'duration_days', 'student_limit', 'device_limit', 'is_trial', 'created_at', 'expires_at')
 
     class Meta:
         ordering = ['-created_at']
