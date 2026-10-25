@@ -2,7 +2,7 @@
 import base64
 import os
 from pathlib import Path
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, parse_qsl
 
 BASE_DIR = Path(__file__).resolve().parent
 TESTING = os.environ.get("SERVICE_TESTING") == "1"
@@ -11,10 +11,16 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "test-only-secret-" * 5 if TEST
 if len(SECRET_KEY) < 50:
     raise RuntimeError("Generate deployment secrets with deploy.configure before starting the service")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "https://testserver" if TESTING else "").rstrip("/")
-parsed = urlparse(PUBLIC_URL)
-if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password
-        or parsed.path or parsed.query or parsed.fragment):
-    raise RuntimeError("PUBLIC_URL must be an HTTPS origin")
+try:
+    parsed = urlparse(PUBLIC_URL)
+    origin_port = parsed.port  # Validate malformed/out-of-range ports before serving.
+    if (parsed.scheme != "https" or not parsed.hostname or parsed.username is not None
+            or parsed.password is not None or parsed.path or parsed.query or parsed.fragment
+            or (origin_port is not None and not 1 <= origin_port <= 65535)
+            or any(character.isspace() or ord(character) < 32 for character in PUBLIC_URL)):
+        raise ValueError()
+except ValueError:
+    raise RuntimeError("PUBLIC_URL must be a valid HTTPS origin without credentials, path, query or fragment") from None
 ALLOWED_HOSTS = [parsed.hostname]
 CSRF_TRUSTED_ORIGINS = [PUBLIC_URL]
 ROOT_URLCONF = "service.urls"
@@ -29,19 +35,62 @@ MIDDLEWARE = ["django.middleware.security.SecurityMiddleware", "whitenoise.middl
 TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [BASE_DIR / "templates"],
               "APP_DIRS": True, "OPTIONS": {"context_processors": ["django.template.context_processors.request",
                "django.contrib.auth.context_processors.auth", "django.contrib.messages.context_processors.messages", "service.context_processors.company_navigation"]}}]
-if TESTING and not os.environ.get("SERVICE_TEST_DATABASE_URL"):
+test_database_url = os.environ.get("SERVICE_TEST_DATABASE_URL", "")
+if test_database_url and not TESTING:
+    raise RuntimeError("SERVICE_TEST_DATABASE_URL is forbidden outside isolated SERVICE_TESTING mode")
+
+
+def postgres_configuration(value):
+    """Preserve explicit TLS intent; never silently discard connection options."""
+    try:
+        db = urlparse(value)
+        port = db.port if db.port is not None else 5432
+        if (db.scheme not in {"postgres", "postgresql"} or not db.hostname or not db.username
+                or not db.password or not db.path.startswith('/') or not db.path[1:]
+                or '/' in db.path[1:] or db.fragment or not 1 <= port <= 65535):
+            raise ValueError()
+        pairs = parse_qsl(db.query, strict_parsing=True, keep_blank_values=True)
+        options = dict(pairs)
+        allowed = {'sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'connect_timeout'}
+        if len(options) != len(pairs) or set(options) - allowed or any(not v for v in options.values()):
+            raise ValueError()
+        if options.get('sslmode', 'prefer') not in {'disable', 'allow', 'prefer', 'require', 'verify-ca', 'verify-full'}:
+            raise ValueError()
+        if 'connect_timeout' in options:
+            timeout = int(options['connect_timeout'])
+            if not 1 <= timeout <= 120:
+                raise ValueError()
+            options['connect_timeout'] = timeout
+        return {"ENGINE": "django.db.backends.postgresql", "NAME": unquote(db.path[1:]),
+                "USER": unquote(db.username), "PASSWORD": unquote(db.password), "HOST": db.hostname,
+                "PORT": port, "CONN_MAX_AGE": 60, "CONN_HEALTH_CHECKS": True, "OPTIONS": options}
+    except (ValueError, TypeError):
+        raise RuntimeError("Configure a valid PostgreSQL DATABASE_URL with host, database, credentials and supported TLS/connect options") from None
+
+
+def redis_location(value):
+    try:
+        location = urlparse(value)
+        port = location.port if location.port is not None else 6379
+        if (location.scheme not in {'redis', 'rediss'} or not location.hostname
+                or location.fragment or not 1 <= port <= 65535
+                or (location.path not in ('', '/') and not location.path[1:].isdigit())):
+            raise ValueError()
+        return value
+    except (ValueError, TypeError):
+        raise RuntimeError("Configure a valid REDIS_URL for the shared cache and rate limiter") from None
+
+
+if TESTING and not test_database_url:
     DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}}
     CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 else:
-    db = urlparse(os.environ.get("SERVICE_TEST_DATABASE_URL") or os.environ["DATABASE_URL"])
-    if db.scheme not in {"postgres", "postgresql"}:
-        raise RuntimeError("Production service requires PostgreSQL")
-    DATABASES = {"default": {"ENGINE": "django.db.backends.postgresql", "NAME": db.path.lstrip("/"),
-                "USER": unquote(db.username or ""), "PASSWORD": unquote(db.password or ""), "HOST": db.hostname,
-                "PORT": db.port or 5432, "CONN_MAX_AGE": 60, "CONN_HEALTH_CHECKS": True}}
-    CACHES = {"default": {"BACKEND": "django.core.cache.backends.redis.RedisCache", "LOCATION": os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0")}}
+    DATABASES = {"default": postgres_configuration(test_database_url or os.environ.get("DATABASE_URL", ""))}
     if TESTING:
         CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+    else:
+        CACHES = {"default": {"BACKEND": "django.core.cache.backends.redis.RedisCache",
+                              "LOCATION": redis_location(os.environ.get("REDIS_URL", ""))}}
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 12}},
