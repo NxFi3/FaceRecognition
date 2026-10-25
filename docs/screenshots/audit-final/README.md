@@ -31,6 +31,12 @@ interactive synthetic demo/empty-state behavior. It then executed:
 9. Actual owner expiration → denied admission → online renewal → valid offline restart.
 10. Customer device revocation → signed denial → denied subsequent offline restart.
 
+The latest harness also checks an explicit HTTPS logout after revocation: the
+current revoked credential can invalidate itself, the old bearer then receives
+401 from signed-status synchronization, and a new offline client remains denied.
+Count this additional case as passed only when its dedicated check appears in the
+regenerated machine-readable workflow report.
+
 The desktop vault used an explicitly labelled **memory test double**. This does
 not verify Windows Credential Manager, real cameras, biometric accuracy or a
 Windows build. Synthetic event-file bytes are not images of real students. The

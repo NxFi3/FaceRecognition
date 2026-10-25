@@ -379,6 +379,19 @@ def run(args):
             require(not client.allowed(), 'Signed revocation did not stop current admission')
         require(not CloudClient(config, root/'cloud-state.json', store=vault, transport=unavailable).allowed(), 'Revocation not durable across offline restart')
         report['checks'].append('customer device revocation becomes durable after next successful authenticated sync')
+        stage('revoked credential logout and stale bearer rejection')
+        old_credential = client.credential
+        require(isinstance(old_credential, str) and bool(old_credential), 'Revoked installation credential unavailable for logout test')
+        client.logout()
+        require(not client.allowed(), 'Local logout did not clear admission')
+        with transport('POST', origin+'/api/v1/lease/',
+                       headers={'Authorization': 'Bearer '+old_credential},
+                       json={'nonce': secrets.token_urlsafe(32), 'license_version': 2},
+                       timeout=(3,10), allow_redirects=False, stream=True) as old_response:
+            require(old_response.status_code == 401, 'Signed-status credential remained usable after logout')
+        require(not CloudClient(config, root/'cloud-state.json', store=vault, transport=unavailable).allowed(),
+                'Logout after revocation was not durable across offline restart')
+        report['checks'].append('actual HTTPS logout accepts the current revoked bearer solely for invalidation; old bearer lease sync returns 401 and offline restart stays denied')
         require(db.exists(), 'License lifecycle deleted school-owned local data')
         require(not browser_errors, 'Page-level browser exception')
         owner_context.close()
