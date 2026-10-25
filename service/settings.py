@@ -20,7 +20,7 @@ try:
             or any(character.isspace() or ord(character) < 32 for character in PUBLIC_URL)):
         raise ValueError()
 except ValueError:
-    raise RuntimeError("PUBLIC_URL must be a valid HTTPS origin without credentials, path, query or fragment") from None
+    raise RuntimeError("PUBLIC_URL must be an HTTPS origin with valid port and without credentials, path, query or fragment") from None
 ALLOWED_HOSTS = [parsed.hostname]
 CSRF_TRUSTED_ORIGINS = [PUBLIC_URL]
 ROOT_URLCONF = "service.urls"
