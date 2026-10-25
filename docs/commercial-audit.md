@@ -119,3 +119,21 @@ invoicing remain release responsibilities. Password-based owner step-up is not
 phishing-resistant MFA. Dependency advisory scans cannot establish absence of all
 vulnerabilities, and neither anti-spoofing/liveness nor perfect offline DRM is
 claimed.
+
+
+## Follow-up privacy review
+
+The message-retention command originally selected closed ticket IDs without
+locking their parent rows. A synthetic interleaving actually reproduced fresh
+reply deletion after a customer reopened the ticket. The fix serializes retention
+and both reply paths on the parent ticket. A PostgreSQL 17 regression verifies
+that the older reply is scrubbed and the fresh customer reply survives while the
+ticket reopens. A second regression covers a later retention cycle after a
+previously anonymized ticket receives new replies; the parent marker must not
+exclude fresh reply content forever. No production data was used in reproducing
+or testing these cases.
+
+During dependency review, advisories were identified against the old filelock
+3.x dependency. The commercial branch raises the requirement to the corrected
+4.2.1+ series; the final security report records the resolved dependency audit
+rather than treating a version bump as proof of zero vulnerabilities.
