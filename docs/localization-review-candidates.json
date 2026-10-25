@@ -1,0 +1,4655 @@
+{
+  "scope": "static review candidates, not percentage translated or runtime findings",
+  "files": [
+    {
+      "file": "service/admin.py",
+      "candidates": [
+        {
+          "line": 32,
+          "text": "حساب مالک شرکت باید از حساب مدرسه جدا بماند؛ یک حساب مستقل برای مدرسه انتخاب کنید."
+        },
+        {
+          "line": 48,
+          "text": "ابتدا دستگاه‌های اضافی را صریحاً لغو کنید؛ کاهش ظرفیت دستگاه، نصب آفلاین را بی‌صدا لغو نمی‌کند."
+        }
+      ]
+    },
+    {
+      "file": "service/admin_site.py",
+      "candidates": [
+        {
+          "line": 20,
+          "text": "NxFi Technologies — مدیریت"
+        },
+        {
+          "line": 21,
+          "text": "مدیریت NxFi"
+        },
+        {
+          "line": 22,
+          "text": "مدیریت فنی"
+        },
+        {
+          "line": 15,
+          "text": "ورود به مدیریت فقط برای مالک مجاز شرکت ممکن است."
+        }
+      ]
+    },
+    {
+      "file": "service/commerce.py",
+      "candidates": [
+        {
+          "line": 92,
+          "text": "این محصول برای خرید یا فعال‌سازی عرضه نشده است."
+        },
+        {
+          "line": 111,
+          "text": "این عملیات فقط برای مالک تعیین‌شده مجاز است."
+        },
+        {
+          "line": 116,
+          "text": "شناسهٔ پرداخت معتبر نیست."
+        },
+        {
+          "line": 120,
+          "text": "شناسهٔ پرداخت باید ۶ تا ۸۰ حرف لاتین یا رقم باشد؛ پیشوند بانک را نیز وارد کنید."
+        },
+        {
+          "line": 230,
+          "text": "محصول سفارش و طرح ثبت‌شده مطابقت ندارد؛ پشتیبانی باید بررسی کند."
+        },
+        {
+          "line": 237,
+          "text": "حساب غیرفعال یا مسدود است؛ پرداخت باعث رفع مسدودی نمی‌شود."
+        },
+        {
+          "line": 239,
+          "text": "سفارش برای فعال‌سازی باز نیست."
+        },
+        {
+          "line": 241,
+          "text": "اعتبار قیمت سفارش پایان یافته؛ سفارش تازه یا بررسی پشتیبانی لازم است."
+        },
+        {
+          "line": 259,
+          "text": "اشتراک "
+        },
+        {
+          "line": 259,
+          "text": " فعال شد"
+        },
+        {
+          "line": 259,
+          "text": "سفارش "
+        },
+        {
+          "line": 259,
+          "text": " تأیید شد. اعتبار اشتراک: "
+        },
+        {
+          "line": 259,
+          "text": ". ظرفیت: "
+        },
+        {
+          "line": 259,
+          "text": " دانش‌آموز و "
+        },
+        {
+          "line": 259,
+          "text": " دستگاه. برای دریافت مجوز امضاشده، در برنامه بررسی آنلاین انجام دهید."
+        },
+        {
+          "line": 268,
+          "text": "مبلغ تأییدشده باید عدد صحیح مثبت به ریال باشد."
+        },
+        {
+          "line": 270,
+          "text": "یادداشت تأیید بیش از حد طولانی است."
+        },
+        {
+          "line": 315,
+          "text": "دلیل رد باید بین ۱ تا ۱۰۰۰ نویسه و فاقد اطلاعات محرمانهٔ بانکی باشد."
+        },
+        {
+          "line": 47,
+          "text": "سفارش و مدرسه برای استحقاق این محصول یکسان نیستند."
+        },
+        {
+          "line": 68,
+          "text": "ابتدا نصب‌های اضافه را صریحاً لغو کنید؛ تعداد دستگاه‌های سفارش کافی نیست."
+        },
+        {
+          "line": 70,
+          "text": "کاهش ظرفیت در میانهٔ دوره نیازمند بررسی پشتیبانی است."
+        },
+        {
+          "line": 135,
+          "text": "شناسهٔ درخواست معتبر نیست؛ صفحهٔ خرید را دوباره باز کنید."
+        },
+        {
+          "line": 139,
+          "text": "حساب برای سفارش مجاز نیست؛ با پشتیبانی تماس بگیرید."
+        },
+        {
+          "line": 166,
+          "text": "دورهٔ آزمایشی این مدرسه قبلاً استفاده شده است."
+        },
+        {
+          "line": 175,
+          "text": "سفارش "
+        },
+        {
+          "line": 175,
+          "text": " ثبت شد"
+        },
+        {
+          "line": 175,
+          "text": "سفارش "
+        },
+        {
+          "line": 175,
+          "text": " ثبت شد. تا تأیید مستقل پرداخت یا تأیید آزمایش، اشتراک فعال نمی‌شود. مبلغ: "
+        },
+        {
+          "line": 175,
+          "text": " ریال. اعتبار سفارش: "
+        },
+        {
+          "line": 187,
+          "text": "سفارش متعلق به این حساب نیست."
+        },
+        {
+          "line": 189,
+          "text": "طرح آزمایشی پرداخت ندارد؛ منتظر تأیید پشتیبانی بمانید."
+        },
+        {
+          "line": 191,
+          "text": "این سفارش برای ثبت پرداخت باز نیست."
+        },
+        {
+          "line": 209,
+          "text": "سفارش متعلق به این حساب نیست."
+        },
+        {
+          "line": 213,
+          "text": "سفارش فعال‌شده قابل لغو خودکار نیست؛ درخواست پشتیبانی ثبت کنید."
+        },
+        {
+          "line": 280,
+          "text": "مبلغ واقعیِ واریز باید دقیقاً با مبلغ ثبت‌شدهٔ سفارش برابر باشد."
+        },
+        {
+          "line": 283,
+          "text": "این شناسهٔ پرداخت قبلاً برای سفارش دیگری استفاده شده است."
+        },
+        {
+          "line": 302,
+          "text": "این سفارش، درخواست آزمایشی نیست."
+        },
+        {
+          "line": 305,
+          "text": "دورهٔ آزمایشی قبلاً استفاده شده است."
+        },
+        {
+          "line": 320,
+          "text": "درخواست آزمایشی پرداختی ندارد؛ رد یا لغو درخواست را از مسیر پشتیبانی پیگیری کنید."
+        },
+        {
+          "line": 326,
+          "text": "سفارش پرداخت‌شده، بسته یا لغوشده قابل رد پرداخت نیست؛ رسیدگی را از پشتیبانی پیگیری کنید."
+        },
+        {
+          "line": 330,
+          "text": "نتیجهٔ بررسی پرداخت "
+        },
+        {
+          "line": 330,
+          "text": "پرداخت سفارش "
+        },
+        {
+          "line": 330,
+          "text": " تأیید نشد. دلیل: "
+        },
+        {
+          "line": 330,
+          "text": "\nهیچ اشتراک جدیدی فعال نشده است. برای پیگیری با پشتیبانی تماس بگیرید؛ در صورت نیاز سفارش تازه بسازید."
+        },
+        {
+          "line": 143,
+          "text": "شناسهٔ درخواست قبلاً برای طرح دیگری استفاده شده است."
+        },
+        {
+          "line": 149,
+          "text": "طرح انتخاب‌شده در حال حاضر قابل سفارش نیست."
+        },
+        {
+          "line": 153,
+          "text": "تنظیمات این طرح کامل نیست؛ با پشتیبانی تماس بگیرید."
+        },
+        {
+          "line": 194,
+          "text": "شناسهٔ دیگری برای این سفارش ثبت شده است؛ اصلاح را از پشتیبانی بخواهید."
+        },
+        {
+          "line": 277,
+          "text": "این سفارش قبلاً با اطلاعات پرداخت دیگری تأیید شده است."
+        },
+        {
+          "line": 289,
+          "text": "این پرداخت هم‌زمان برای سفارش دیگری تأیید شده است؛ وضعیت را دوباره بررسی کنید."
+        },
+        {
+          "line": 323,
+          "text": "این سفارش قبلاً با دلیل دیگری رد شده است؛ تصمیم ثبت‌شده بی‌صدا تغییر نمی‌کند."
+        }
+      ]
+    },
+    {
+      "file": "service/commerce_models.py",
+      "candidates": [
+        {
+          "line": 32,
+          "text": "حضور و غیاب تصویری مدارس با پردازش محلی و مجوز آفلاین"
+        },
+        {
+          "line": 113,
+          "text": "در انتظار پرداخت"
+        },
+        {
+          "line": 114,
+          "text": "در انتظار بررسی پرداخت"
+        },
+        {
+          "line": 115,
+          "text": "فعال‌شده"
+        },
+        {
+          "line": 116,
+          "text": "لغوشده"
+        },
+        {
+          "line": 117,
+          "text": "پرداخت ردشده"
+        },
+        {
+          "line": 118,
+          "text": "مهلت سفارش پایان یافته"
+        },
+        {
+          "line": 120,
+          "text": "خرید"
+        },
+        {
+          "line": 121,
+          "text": "تمدید"
+        },
+        {
+          "line": 122,
+          "text": "درخواست آزمایش"
+        },
+        {
+          "line": 96,
+          "text": "طرح آزمایشی باید رایگان و حداکثر ۳۰ روزه باشد."
+        },
+        {
+          "line": 98,
+          "text": "پیش از فعال‌کردن طرح پولی، قیمت واقعی را وارد کنید."
+        },
+        {
+          "line": 49,
+          "text": "فعال"
+        },
+        {
+          "line": 49,
+          "text": "تعلیق"
+        },
+        {
+          "line": 49,
+          "text": "مسدود"
+        },
+        {
+          "line": 104,
+          "text": "محصولِ طرح ثبت‌شده قابل جابه‌جایی نیست؛ طرح تازه بسازید."
+        },
+        {
+          "line": 178,
+          "text": "جزئیات مالی سفارش ثبت‌شده قابل تغییر نیست؛ سفارش جدید بسازید."
+        },
+        {
+          "line": 180,
+          "text": "دلیل ردِ ثبت‌شده قابل بازنویسی نیست؛ توضیح تکمیلی را در پشتیبانی ثبت کنید."
+        }
+      ]
+    },
+    {
+      "file": "service/customer_models.py",
+      "candidates": [
+        {
+          "line": 9,
+          "text": "فارسی"
+        }
+      ]
+    },
+    {
+      "file": "service/errors.py",
+      "candidates": [
+        {
+          "line": 5,
+          "text": "درخواست معتبر نیست؛ صفحه را دوباره باز کنید."
+        },
+        {
+          "line": 9,
+          "text": "اجازهٔ این عملیات را ندارید یا بررسی امنیتی فرم لازم است."
+        },
+        {
+          "line": 13,
+          "text": "صفحه یا رکورد در دسترس این حساب نیست."
+        },
+        {
+          "line": 17,
+          "text": "سرویس موقتاً با مشکل روبه‌رو شد؛ دوباره تلاش کنید."
+        }
+      ]
+    },
+    {
+      "file": "service/models.py",
+      "candidates": [
+        {
+          "line": 16,
+          "text": "نام مدرسه"
+        },
+        {
+          "line": 17,
+          "text": "وضعیت اشتراک"
+        },
+        {
+          "line": 18,
+          "text": "شروع اشتراک (UTC)"
+        },
+        {
+          "line": 19,
+          "text": "پایان اشتراک (UTC)"
+        },
+        {
+          "line": 20,
+          "text": "ظرفیت رکورد دانش‌آموز"
+        },
+        {
+          "line": 21,
+          "text": "تعداد دستگاه مجاز"
+        },
+        {
+          "line": 23,
+          "text": "تعداد بکاپ نگهداری‌شده"
+        },
+        {
+          "line": 24,
+          "text": "اجازهٔ بکاپ آنلاین"
+        },
+        {
+          "line": 41,
+          "text": "مدرسه"
+        },
+        {
+          "line": 42,
+          "text": "مدارس"
+        },
+        {
+          "line": 11,
+          "text": "فعال"
+        },
+        {
+          "line": 12,
+          "text": "تعلیق"
+        },
+        {
+          "line": 13,
+          "text": "مسدود"
+        },
+        {
+          "line": 20,
+          "text": "رکوردهای فعال برای ظرفیت شمرده می‌شوند؛ آرشیو داده‌ها را حذف نمی‌کند. صفر یعنی بدون دسترسی."
+        },
+        {
+          "line": 30,
+          "text": "پایان اشتراک باید بعد از شروع آن باشد."
+        },
+        {
+          "line": 32,
+          "text": "تعداد دستگاه حداقل یک و تعداد بکاپ بین ۱ تا ۱۰۰ است."
+        }
+      ]
+    },
+    {
+      "file": "service/owner_auth.py",
+      "candidates": [
+        {
+          "line": 77,
+          "text": "رمز فعلی حساب مالک"
+        },
+        {
+          "line": 107,
+          "text": "رمز حساب درست نیست."
+        },
+        {
+          "line": 97,
+          "text": "بررسی امنیتی موقتاً در دسترس نیست؛ دوباره تلاش کنید."
+        },
+        {
+          "line": 67,
+          "text": "این بخش فقط برای مالک مجاز شرکت است."
+        }
+      ]
+    },
+    {
+      "file": "service/owner_models.py",
+      "candidates": [
+        {
+          "line": 15,
+          "text": "مالک صریح شرکت"
+        }
+      ]
+    },
+    {
+      "file": "service/platform.py",
+      "candidates": [
+        {
+          "line": 277,
+          "text": "محصول"
+        },
+        {
+          "line": 49,
+          "text": "تماس و درخواست نمایش"
+        },
+        {
+          "line": 49,
+          "text": "گفت‌وگو دربارهٔ پایلوت و نیازهای مدرسه"
+        },
+        {
+          "line": 49,
+          "text": "تماس و درخواست نمایش"
+        },
+        {
+          "line": 49,
+          "text": "ارتباط با تیم NxFi برای بررسی پایلوت مدرسه"
+        },
+        {
+          "line": 73,
+          "text": "نام مدرسه به‌روز شد؛ تغییر ایمیل از مسیر پشتیبانی انجام می‌شود."
+        },
+        {
+          "line": 75,
+          "text": "مشخصات مدرسه"
+        },
+        {
+          "line": 176,
+          "text": "مسیر فایل انتشار مجاز نیست."
+        },
+        {
+          "line": 282,
+          "text": "طرح ذخیره شد؛ سفارش‌های قبلی مبلغ ثبت‌شدهٔ خود را نگه می‌دارند."
+        },
+        {
+          "line": 284,
+          "text": "تعریف / ویرایش طرح"
+        },
+        {
+          "line": 303,
+          "text": "ثبت انتشار — فایل باید توسط اپراتور روی سرور نصب شده باشد"
+        },
+        {
+          "line": 374,
+          "text": "ادعای پرداخت رد شد؛ هیچ پرداخت یا اشتراکی فعال نشد."
+        },
+        {
+          "line": 420,
+          "text": "حساب NxFi Technologies"
+        },
+        {
+          "line": 47,
+          "text": "درخواست ثبت شد. پاسخ از طریق ایمیل پیگیری می‌شود."
+        },
+        {
+          "line": 184,
+          "text": "حجم یا SHA-256 فایل با ثبت انتشار مطابقت ندارد."
+        },
+        {
+          "line": 253,
+          "text": "پرداخت تأیید و اشتراک به‌صورت اتمی اعمال شد."
+        },
+        {
+          "line": 327,
+          "text": "پاسخ تیکت NxFi"
+        },
+        {
+          "line": 327,
+          "text": "پاسخ درخواست شما در پرتال امن مدرسه قابل مشاهده است."
+        },
+        {
+          "line": 46,
+          "text": "درخواست شما در NxFi ثبت شد"
+        },
+        {
+          "line": 46,
+          "text": "درخواست شما ثبت شده است. این پیام به معنی تأیید خرید یا فعال‌سازی اشتراک نیست. لطفاً اطلاعات دانش‌آموز یا چهره ارسال نکنید."
+        },
+        {
+          "line": 111,
+          "text": "شناسه ثبت شد؛ اشتراک فقط پس از تأیید مستقل مالک فعال می‌شود."
+        },
+        {
+          "line": 394,
+          "text": "تنظیم مدرسه ذخیره شد؛ این تغییر دستی، پرداخت یا درآمدی ثبت نمی‌کند."
+        }
+      ]
+    },
+    {
+      "file": "service/platform_forms.py",
+      "candidates": [
+        {
+          "line": 6,
+          "text": "با استفاده از اطلاعات تماس برای پاسخ به همین درخواست موافقم."
+        },
+        {
+          "line": 10,
+          "text": "نام شما"
+        },
+        {
+          "line": 10,
+          "text": "ایمیل"
+        },
+        {
+          "line": 10,
+          "text": "نام مدرسه"
+        },
+        {
+          "line": 10,
+          "text": "نوع درخواست"
+        },
+        {
+          "line": 10,
+          "text": "پیام — بدون اطلاعات دانش‌آموز یا تصویر چهره"
+        },
+        {
+          "line": 14,
+          "text": "نام مدرسه"
+        },
+        {
+          "line": 21,
+          "text": "موضوع"
+        },
+        {
+          "line": 21,
+          "text": "دسته‌بندی"
+        },
+        {
+          "line": 21,
+          "text": "توضیحات — اطلاعات یا تصاویر چهره ارسال نکنید"
+        },
+        {
+          "line": 25,
+          "text": "پاسخ — بدون اطلاعات دانش‌آموز"
+        },
+        {
+          "line": 29,
+          "text": "شناسهٔ پیگیری پرداخت بانکی"
+        },
+        {
+          "line": 30,
+          "text": "می‌دانم ارسال شناسه به معنی تأیید پرداخت یا فعال‌شدن اشتراک نیست."
+        },
+        {
+          "line": 34,
+          "text": "شناسهٔ قطعی و یکتای تراکنش بانکی"
+        },
+        {
+          "line": 35,
+          "text": "مبلغ دریافت‌شده — ریال"
+        },
+        {
+          "line": 36,
+          "text": "مبلغ و شناسه را مستقلاً در حساب بانکی کنترل کردم."
+        },
+        {
+          "line": 43,
+          "text": "محصول"
+        },
+        {
+          "line": 43,
+          "text": "نسخه"
+        },
+        {
+          "line": 43,
+          "text": "سکو"
+        },
+        {
+          "line": 43,
+          "text": "نام فایلِ از قبل نصب‌شده روی سرور"
+        },
+        {
+          "line": 43,
+          "text": "حجم بایت"
+        },
+        {
+          "line": 43,
+          "text": "یادداشت انتشار"
+        },
+        {
+          "line": 43,
+          "text": "انتشار در بخش دریافت"
+        }
+      ]
+    },
+    {
+      "file": "service/portal_models.py",
+      "candidates": [
+        {
+          "line": 13,
+          "text": "درخواست نمایش"
+        },
+        {
+          "line": 13,
+          "text": "تماس"
+        },
+        {
+          "line": 25,
+          "text": "پشتیبانی"
+        },
+        {
+          "line": 25,
+          "text": "تمدید"
+        },
+        {
+          "line": 25,
+          "text": "ارتقا"
+        },
+        {
+          "line": 25,
+          "text": "لغو قرارداد"
+        },
+        {
+          "line": 25,
+          "text": "خروجی / حذف اطلاعات تجاری"
+        },
+        {
+          "line": 27,
+          "text": "باز"
+        },
+        {
+          "line": 27,
+          "text": "بسته"
+        },
+        {
+          "line": 48,
+          "text": "نام فایل فقط حروف لاتین، عدد و ._- و پسوند zip/exe باشد."
+        }
+      ]
+    },
+    {
+      "file": "service/security.py",
+      "candidates": [
+        {
+          "line": 67,
+          "text": "تعداد درخواست زیاد است؛ چند دقیقه بعد تلاش کنید."
+        },
+        {
+          "line": 27,
+          "text": "بررسی امنیتی موقتاً در دسترس نیست؛ دوباره تلاش کنید."
+        }
+      ]
+    },
+    {
+      "file": "service/settings.py",
+      "candidates": [
+        {
+          "line": 100,
+          "text": "فارسی"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/accounts/account.html",
+      "candidates": [
+        {
+          "line": 1,
+          "text": "{% extends 'base.html' %}{% block content %}<h1>{{ school.name }}</h1><dl><dt>وضعیت</dt><dd>{{ school.get_status_display }}</dd><dt>شروع اشتراک (UTC)</dt><dd>{{"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/base.html",
+      "candidates": [
+        {
+          "line": 29,
+          "text": "      <form class=\"language-picker\" method=\"post\" action=\"{% url 'set_language' %}\">{% csrf_token %}<input type=\"hidden\" name=\"next\" value=\"{{ request.get_full_"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/error.html",
+      "candidates": [
+        {
+          "line": 1,
+          "text": "{% extends 'base.html' %}{% block content %}<section class=\"section container\"><div class=\"form-card\"><span class=\"eyebrow\">{{ code }} / NXFI</span><h1>{{ messa"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/marketing/compare.html",
+      "candidates": [
+        {
+          "line": 2,
+          "text": "{% include 'marketing/page_header.html' with eyebrow='انتخاب بر اساس نیاز، نه وعده' heading='یک گردش‌کار متفاوت برای ثبت تردد.' intro='این مقایسه دربارهٔ روش ان"
+        },
+        {
+          "line": 3,
+          "text": "<section class=\"section-tight container\"><div class=\"table-wrap\"><table class=\"comparison-table\"><caption class=\"sr-only\">مقایسهٔ ثبت دستی با گردش‌کار FaceRecog"
+        },
+        {
+          "line": 4,
+          "text": "<section class=\"section container\"><div class=\"callout\"><div><h2>اگر هنوز مطمئن نیستید، ابتدا بررسی کنیم.</h2><p>دمو و پایلوت، برای شناخت تناسب محصول با مدرسهٔ "
+        }
+      ]
+    },
+    {
+      "file": "service/templates/marketing/contact.html",
+      "candidates": [
+        {
+          "line": 2,
+          "text": "{% include 'marketing/page_header.html' with eyebrow='یک گفت‌وگوی هدفمند' heading='گفت‌وگو با NxFi Technologies.' intro='برای ارتباط با تیم NxFi، آشنایی با محصو"
+        },
+        {
+          "line": 3,
+          "text": "<section class=\"section-tight container\"><div class=\"contact-grid\"><div class=\"form-card\"><h2>درخواست معرفی یا ارتباط</h2><p>درخواست در سامانه ثبت می‌شود. پیگیر"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/marketing/demo.html",
+      "candidates": [
+        {
+          "line": 2,
+          "text": "{% include 'marketing/page_header.html' with eyebrow='بدون نصب، بدون دادهٔ واقعی' heading='یک روزِ فرضی در مدرسهٔ نمونه.' intro='این پیش‌نمایش، گزارش نمونه را ن"
+        },
+        {
+          "line": 3,
+          "text": "<section class=\"section-tight container\"><div class=\"demo-shell\" data-synthetic-demo><div class=\"demo-head\"><div><h2>مرور حضور و غیاب</h2><p>مدرسهٔ نمونه · داده"
+        },
+        {
+          "line": 4,
+          "text": "<section class=\"section container\"><div class=\"callout\"><div><h2>حالا شرایط مدرسهٔ خودتان را بررسی کنید.</h2><p>برای نمایش محصول و گفت‌وگو دربارهٔ استقرار، درخو"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/marketing/faq.html",
+      "candidates": [
+        {
+          "line": 2,
+          "text": "{% include 'marketing/page_header.html' with eyebrow='پاسخ‌های روشن، پیش از شروع' heading='پرسش‌های متداول.' intro='شرایط اشتراک، اینترنت، حفاظت از داده و بازیا"
+        },
+        {
+          "line": 3,
+          "text": "<section class=\"section-tight container\"><div class=\"faq-list\"><details open><summary>بدون اینترنت هم می‌توان از برنامه استفاده کرد؟</summary><p>بله. فعال‌سازی "
+        },
+        {
+          "line": 4,
+          "text": "<section class=\"section container\"><div class=\"callout\"><div><h2>سؤال مربوط به مدرسهٔ شماست؟</h2><p>برای موارد فنی و قراردادی درخواست ثبت کنید؛ اطلاعات حساس دان"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/marketing/features.html",
+      "candidates": [
+        {
+          "line": 2,
+          "text": "{% include 'marketing/page_header.html' with eyebrow='یک گردش‌کار یکپارچه' heading='از ثبت چهره، تا گزارشِ قابل بررسی.' intro='ابزارهای روزمرهٔ حضور و غیاب، در "
+        },
+        {
+          "line": 3,
+          "text": "<section class=\"section-tight container\"><div class=\"grid grid-3\"><article class=\"card\" id=\"attendance\"><div class=\"card-icon\">⌗</div><h2>ورود و خروج تصویری</h2"
+        },
+        {
+          "line": 4,
+          "text": "<section class=\"section container\"><div class=\"notice\">این محصول تصمیم‌یار مسئول مدرسه است. هیچ ادعای تشخیص بی‌خطا، جایگزینی نظارت انسانی یا عملکرد یکسان روی هم"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/marketing/how_it_works.html",
+      "candidates": [
+        {
+          "line": 2,
+          "text": "{% include 'marketing/page_header.html' with eyebrow='استقرار، با قدم‌های روشن' heading='شروعِ حساب‌شده، استفادهٔ آسوده‌تر.' intro='پیش از آغاز استفادهٔ روزمره،"
+        },
+        {
+          "line": 3,
+          "text": "<section class=\"section-tight container\"><div class=\"grid grid-2\"><article class=\"card\"><span class=\"card-number\">01</span><h2>بررسی محیط و انتخاب طرح</h2><p>تع"
+        },
+        {
+          "line": 4,
+          "text": "<section class=\"section container\"><div class=\"callout\"><div><h2>از شرایط مدرسهٔ شما شروع کنیم.</h2><p>نیاز و سخت‌افزار را در درخواست دمو بنویسید؛ اطلاعات واقعی"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/marketing/page_header.html",
+      "candidates": [
+        {
+          "line": 1,
+          "text": "<section class=\"page-header\"><div class=\"container\"><div class=\"breadcrumb\"><a href=\"{% url 'home' %}\">NxFi</a><span aria-hidden=\"true\">/</span>{% if product_sc"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/marketing/privacy.html",
+      "candidates": [
+        {
+          "line": 2,
+          "text": "{% include 'marketing/page_header.html' with eyebrow='شفافیت دربارهٔ اطلاعات' heading='حریم خصوصی در NxFi Technologies.' intro='این سیاست، حساب تجاری NxFi و بخش"
+        },
+        {
+          "line": 3,
+          "text": "<section class=\"section-tight container\"><article class=\"content-width card prose\"><span class=\"badge badge-neutral\">نسخهٔ اولیه برای آماده‌سازی پایلوت · بازبین"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/marketing/requirements.html",
+      "candidates": [
+        {
+          "line": 2,
+          "text": "{% include 'marketing/page_header.html' with eyebrow='پیش از نصب بررسی کنید' heading='آمادگی سخت‌افزار، بخشی از استقرار است.' intro='این مشخصات نقطهٔ شروع پیشنه"
+        },
+        {
+          "line": 3,
+          "text": "<section class=\"section-tight container\"><div class=\"table-wrap\"><table class=\"requirements-table\"><caption class=\"sr-only\">پیشنهاد اولیهٔ نصب و موارد نیازمند ب"
+        },
+        {
+          "line": 4,
+          "text": "<section class=\"section container\"><div class=\"callout\"><div><h2>مشخصات کامپیوتر مدرسه را دارید؟</h2><p>در درخواست معرفی بنویسید؛ نام یا تصویر دانش‌آموزان لازم "
+        }
+      ]
+    },
+    {
+      "file": "service/templates/marketing/support.html",
+      "candidates": [
+        {
+          "line": 2,
+          "text": "{% include 'marketing/page_header.html' with eyebrow='راهنما و پیگیری، در یک مسیر' heading='مرکز راهنمای NxFi.' intro='حساب و پشتیبانی از یک مسیر شرکتی مدیریت م"
+        },
+        {
+          "line": 3,
+          "text": "<section class=\"section-tight container\"><div class=\"grid grid-3\"><article class=\"card support-category\"><div class=\"card-icon\">↗</div><span class=\"badge badge-"
+        },
+        {
+          "line": 4,
+          "text": "<section class=\"section container\" id=\"backup-guide\"><div class=\"content-width card prose\"><span class=\"eyebrow\">راهنمای کوتاه مدرسه</span><h2>بکاپی که بتوانید "
+        },
+        {
+          "line": 5,
+          "text": "<section class=\"section-tight container\"><div class=\"callout\"><div><h2>نیاز به بررسی اختصاصی دارید؟</h2><p>در تیکت، نسخهٔ برنامه و متن خطا را بنویسید؛ بدون داده"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/marketing/terms.html",
+      "candidates": [
+        {
+          "line": 2,
+          "text": "{% include 'marketing/page_header.html' with eyebrow='شرایط روشن، پیش از شروع' heading='شرایط استفاده از وب‌سایت و محصولات NxFi.' intro='این متن حساب تجاری شرکت"
+        },
+        {
+          "line": 3,
+          "text": "<section class=\"section-tight container\"><article class=\"content-width card prose\"><span class=\"badge badge-neutral\">متن اولیهٔ پایلوت · بازبینی حقوقی پیش از فر"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/owner/dashboard.html",
+      "candidates": [
+        {
+          "line": 1,
+          "text": "{% extends 'base.html' %}{% load nxfi i18n %}{% block content %}<section class=\"section container\"><div class=\"page-header\"><span class=\"eyebrow\">NXFI / OWNER C"
+        },
+        {
+          "line": 2,
+          "text": "<article class=\"card\"><h2>سفارش‌ها و بررسی پرداخت</h2><div class=\"table-wrap\"><table><thead><tr><th>مشتری / محصول / طرح</th><th>مبلغ ریال</th><th>وضعیت</th><th>"
+        },
+        {
+          "line": 3,
+          "text": "<div class=\"grid grid-2\"><article class=\"card\"><h2>طرح‌ها و قیمت‌ها</h2>{% for plan in plans %}<p><a href=\"{% url 'owner-plan' plan.pk %}\">{{ plan.product.name "
+        },
+        {
+          "line": 4,
+          "text": "<article class=\"card\"><h2>{% translate \"NxFi accounts without a product workspace\" %}</h2>{% for customer in unassigned_customers %}<p><bdi>{{ customer.user.ema"
+        },
+        {
+          "line": 5,
+          "text": "<article class=\"card\"><h2>تماس و درخواست نمایش</h2>{% for contact in contacts %}<details><summary>{{ contact.name }} · {{ contact.school_name }} · {{ contact.ge"
+        },
+        {
+          "line": 6,
+          "text": "<article class=\"card\"><h2>نسخه‌های نرم‌افزار</h2>{% for release in releases %}<div class=\"record-row\"><p>{{ release.product.name }} / {{ release.version }} · {{"
+        },
+        {
+          "line": 7,
+          "text": "<article class=\"card\"><h2>آخرین رویدادهای ممیزی</h2><div class=\"table-wrap\"><table><thead><tr><th>زمان UTC</th><th>اقدام</th><th>شناسهٔ رکورد</th></tr></thead><"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/owner/health.html",
+      "candidates": [
+        {
+          "line": 1,
+          "text": "{% extends 'base.html' %}{% block content %}<section class=\"section container\"><article class=\"card\"><h1>وضعیت عملیاتی</h1><dl><dt>دیتابیس</dt><dd>{{ health.dat"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/owner/payment.html",
+      "candidates": [
+        {
+          "line": 1,
+          "text": "{% extends 'base.html' %}{% load nxfi %}{% block content %}<section class=\"section container\"><div class=\"form-card\"><span class=\"eyebrow\">OWNER / PAYMENT VERIF"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/owner/reauth.html",
+      "candidates": [
+        {
+          "line": 2,
+          "text": "{% block title %}تأیید امنیتی مالک | NxFi Technologies{% endblock %}"
+        },
+        {
+          "line": 6,
+          "text": "    <span class=\"eyebrow\">حفاظت از حساب مالک</span>"
+        },
+        {
+          "line": 7,
+          "text": "    <h1>تأیید دوبارهٔ هویت</h1>"
+        },
+        {
+          "line": 8,
+          "text": "    <p>برای عملیات مدیریتی حساس، رمز فعلی حساب خود را وارد کنید. اعتبار این تأیید کوتاه است و مجوز مالکیت به حساب مدرسه منتقل نمی‌شود.</p>"
+        },
+        {
+          "line": 13,
+          "text": "      <button class=\"button button-primary\" type=\"submit\">تأیید و ادامه</button>"
+        },
+        {
+          "line": 15,
+          "text": "    <a href=\"/owner/\">بازگشت به نمای شرکت</a>"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/owner/school.html",
+      "candidates": [
+        {
+          "line": 1,
+          "text": "{% extends 'base.html' %}{% block content %}<section class=\"section container\"><div class=\"page-header\"><span class=\"eyebrow\">OWNER / CUSTOMER</span><h1>{{ scho"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/portal/checkout.html",
+      "candidates": [
+        {
+          "line": 1,
+          "text": "{% extends 'base.html' %}{% load nxfi %}{% block content %}<section class=\"section container\"><div class=\"page-header\"><span class=\"eyebrow\">SECURE MANUAL CHECK"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/portal/dashboard.html",
+      "candidates": [
+        {
+          "line": 1,
+          "text": "{% extends 'base.html' %}{% block title %}پرتال مدرسه | NxFi Technologies{% endblock %}{% block content %}"
+        },
+        {
+          "line": 2,
+          "text": "<section class=\"section container\"><div class=\"page-header\"><span class=\"eyebrow\">FACE RECOGNITION / WORKSPACE</span><h1>{{ school.name }}</h1><p>اشتراک، دستگاه"
+        },
+        {
+          "line": 3,
+          "text": "<div class=\"grid grid-3\"><article class=\"card\"><span class=\"badge\">{{ school.get_status_display }}</span><h2>اعتبار اشتراک</h2><p>{{ school.expires_at|date:'Y/m"
+        },
+        {
+          "line": 4,
+          "text": "{% if not school.entitled %}<div class=\"notice\">اشتراک عملیاتی فعال نیست. اطلاعات محلی حذف نمی‌شود. برای فعال‌سازی یا تمدید، طرح را انتخاب و پرداخت را برای تأیی"
+        },
+        {
+          "line": 5,
+          "text": "<article class=\"card\"><h2>گام بعدی مدرسه</h2><p>۱. طرح را انتخاب کنید. ۲. منتظر تأیید پرداخت بمانید. ۳. برنامه را دریافت و یک بار آنلاین فعال کنید؛ سپس تا تاریخ"
+        },
+        {
+          "line": 6,
+          "text": "<article class=\"card\"><h2>دستگاه‌های مجاز</h2>{% for device in devices %}<div class=\"record-row\"><div><strong>{{ device.label }}</strong><p>آخرین ارتباط: {{ dev"
+        },
+        {
+          "line": 7,
+          "text": "<article class=\"card\"><h2>بکاپ‌های مدرسه</h2><p>ارسال خودکار فقط با رضایت در برنامه فعال می‌شود. نسخهٔ جدید به کلید بازیابی مدرسه نیاز دارد؛ این کلید را برای پش"
+        },
+        {
+          "line": 8,
+          "text": "<article class=\"card\"><h2>آخرین سفارش‌ها</h2>{% for order in orders %}<p><a href=\"{% url 'checkout' order.pk %}\">{{ order.plan_name }}</a> · {{ order.get_status"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/portal/invoice.html",
+      "candidates": [
+        {
+          "line": 1,
+          "text": "{% extends 'base.html' %}{% load nxfi %}{% block content %}<section class=\"section container\"><article class=\"card invoice\"><span class=\"eyebrow\">NXFI TECHNOLOG"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/portal/nav.html",
+      "candidates": [
+        {
+          "line": 1,
+          "text": "<nav class=\"side-nav\" aria-label=\"پرتال مدرسه\"><strong>FaceRecognition</strong><a href=\"{% url 'workspace' %}\">حساب NxFi Technologies</a><a href=\"{% url 'accoun"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/portal/orders.html",
+      "candidates": [
+        {
+          "line": 1,
+          "text": "{% extends 'base.html' %}{% load nxfi %}{% block content %}<section class=\"section container\"><div class=\"page-header\"><span class=\"eyebrow\">BILLING</span><h1>س"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/portal/password_change.html",
+      "candidates": [
+        {
+          "line": 1,
+          "text": "{% extends 'base.html' %}{% block content %}<section class=\"section container\"><div class=\"form-card\"><h1>تغییر رمز حساب</h1><p>پس از تغییر رمز، دستگاه‌های قبلی"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/portal/password_done.html",
+      "candidates": [
+        {
+          "line": 1,
+          "text": "{% extends 'base.html' %}{% block content %}<section class=\"section container\"><div class=\"form-card\"><h1>رمز تغییر کرد</h1><p>برای ادامهٔ مدیریت حساس، مالک دوب"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/portal/ticket.html",
+      "candidates": [
+        {
+          "line": 1,
+          "text": "{% extends 'base.html' %}{% block content %}<section class=\"section container\"><article class=\"card\"><span class=\"badge\">{{ ticket.get_status_display }}</span><"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/portal/tickets.html",
+      "candidates": [
+        {
+          "line": 1,
+          "text": "{% extends 'base.html' %}{% block content %}<section class=\"section container\"><div class=\"page-header\"><span class=\"eyebrow\">SUPPORT WORKSPACE</span><h1>درخواس"
+        }
+      ]
+    },
+    {
+      "file": "service/templates/portal/unavailable.html",
+      "candidates": [
+        {
+          "line": 1,
+          "text": "{% extends 'base.html' %}{% block content %}<section class=\"section container\"><div class=\"form-card\"><h1>فایل انتشار در دسترس نیست</h1><p>برای حفاظت از نصب، فا"
+        }
+      ]
+    },
+    {
+      "file": "service/urls.py",
+      "candidates": [
+        {
+          "line": 34,
+          "text": "مدیریت اشتراک مدارس"
+        },
+        {
+          "line": 35,
+          "text": "مدیریت اشتراک"
+        }
+      ]
+    },
+    {
+      "file": "service/views.py",
+      "candidates": [
+        {
+          "line": 197,
+          "text": "بکاپ انتخاب‌شده حذف شد؛ نسخه‌های جداگانهٔ بازیابی سرور تابع سیاست نگهداری خود هستند."
+        },
+        {
+          "line": 150,
+          "text": "فایل پشتیبان در دسترس نیست؛ با پشتیبانی تماس بگیرید."
+        }
+      ]
+    },
+    {
+      "file": "src/app.py",
+      "candidates": [
+        {
+          "line": 1749,
+          "text": "تأیید"
+        },
+        {
+          "line": 1749,
+          "text": "لغو"
+        },
+        {
+          "line": 1518,
+          "text": "دوربین ثبت چهره"
+        },
+        {
+          "line": 1521,
+          "text": "بازخوانی"
+        },
+        {
+          "line": 1542,
+          "text": "پیش‌نمایش دوربین"
+        },
+        {
+          "line": 1551,
+          "text": "آماده ثبت ۱۲ نمونه."
+        },
+        {
+          "line": 1557,
+          "text": "شروع ثبت"
+        },
+        {
+          "line": 1558,
+          "text": "لغو"
+        },
+        {
+          "line": 1674,
+          "text": "در حال آماده‌سازی دوربین برای ثبت..."
+        },
+        {
+          "line": 1683,
+          "text": "دوربین فعال شد؛ روبه‌روی دوربین بایستید و کمی حرکت طبیعی داشته باشید."
+        },
+        {
+          "line": 1723,
+          "text": "خطای ثبت"
+        },
+        {
+          "line": 1737,
+          "text": "ثبت چهره با موفقیت تمام شد."
+        },
+        {
+          "line": 1779,
+          "text": "ورود مدیر"
+        },
+        {
+          "line": 1780,
+          "text": "تنظیم رمز مدیر"
+        },
+        {
+          "line": 1781,
+          "text": "تغییر رمز مدیر"
+        },
+        {
+          "line": 1849,
+          "text": "لغو"
+        },
+        {
+          "line": 1958,
+          "text": "شنبه"
+        },
+        {
+          "line": 1959,
+          "text": "یکشنبه"
+        },
+        {
+          "line": 1960,
+          "text": "دوشنبه"
+        },
+        {
+          "line": 1961,
+          "text": "سه‌شنبه"
+        },
+        {
+          "line": 1962,
+          "text": "چهارشنبه"
+        },
+        {
+          "line": 1963,
+          "text": "پنجشنبه"
+        },
+        {
+          "line": 1964,
+          "text": "جمعه"
+        },
+        {
+          "line": 1970,
+          "text": "تقویم مدرسه"
+        },
+        {
+          "line": 1978,
+          "text": "تقویم مدرسه"
+        },
+        {
+          "line": 2008,
+          "text": "روزهای عادی مدرسه را یک‌بار برای کل سال تحصیلی تنظیم کنید؛ تعطیلی یا روز جبرانی فقط از طریق استثناها تغییر می‌کند."
+        },
+        {
+          "line": 2021,
+          "text": "روزهای عادی هفته"
+        },
+        {
+          "line": 2065,
+          "text": "ذخیره روزهای هفتگی"
+        },
+        {
+          "line": 2072,
+          "text": "استثناهای تقویم"
+        },
+        {
+          "line": 2086,
+          "text": "ثبت استثنا"
+        },
+        {
+          "line": 2091,
+          "text": "برای یک تاریخ خاص مشخص کنید مدرسه تعطیل است یا آن روز باید روز مدرسه محسوب شود."
+        },
+        {
+          "line": 2105,
+          "text": "تاریخ"
+        },
+        {
+          "line": 2108,
+          "text": "وضعیت این تاریخ"
+        },
+        {
+          "line": 2118,
+          "text": "تعطیل"
+        },
+        {
+          "line": 2119,
+          "text": "روز مدرسه"
+        },
+        {
+          "line": 2154,
+          "text": "توضیح"
+        },
+        {
+          "line": 2161,
+          "text": "مثلاً تعطیلی رسمی، آلودگی هوا یا روز جبرانی"
+        },
+        {
+          "line": 2167,
+          "text": "ثبت یا به‌روزرسانی استثنا"
+        },
+        {
+          "line": 2171,
+          "text": "پاک‌کردن فرم"
+        },
+        {
+          "line": 2186,
+          "text": "استثناهای ثبت‌شده"
+        },
+        {
+          "line": 2211,
+          "text": "حذف استثنای انتخاب‌شده"
+        },
+        {
+          "line": 2222,
+          "text": "بستن"
+        },
+        {
+          "line": 2312,
+          "text": "روز مدرسه"
+        },
+        {
+          "line": 2407,
+          "text": "سال تحصیلی را با تاریخ واقعی شروع و پایان تعریف کنید."
+        },
+        {
+          "line": 2447,
+          "text": "تاریخ شروع"
+        },
+        {
+          "line": 2448,
+          "text": "تاریخ پایان"
+        },
+        {
+          "line": 2452,
+          "text": "عنوان سال"
+        },
+        {
+          "line": 2464,
+          "text": "لغو"
+        },
+        {
+          "line": 2465,
+          "text": "ذخیره"
+        },
+        {
+          "line": 2554,
+          "text": "مثلاً کلاس ۱۰۱"
+        },
+        {
+          "line": 2557,
+          "text": "مثلاً دهم"
+        },
+        {
+          "line": 2560,
+          "text": "بدون رشته"
+        },
+        {
+          "line": 2565,
+          "text": "انتخاب سال تحصیلی"
+        },
+        {
+          "line": 2584,
+          "text": "نام کلاس"
+        },
+        {
+          "line": 2585,
+          "text": "پایه"
+        },
+        {
+          "line": 2586,
+          "text": "رشته"
+        },
+        {
+          "line": 2587,
+          "text": "سال تحصیلی"
+        },
+        {
+          "line": 2591,
+          "text": "نام کلاس، پایه و سال تحصیلی الزامی هستند. یک کلاس با نام تکراری در یک سال دوباره ساخته نمی‌شود."
+        },
+        {
+          "line": 2601,
+          "text": "لغو"
+        },
+        {
+          "line": 2672,
+          "text": "حاضر"
+        },
+        {
+          "line": 2673,
+          "text": "دیرکرد"
+        },
+        {
+          "line": 2674,
+          "text": "موجه"
+        },
+        {
+          "line": 2675,
+          "text": "غایب"
+        },
+        {
+          "line": 2682,
+          "text": "ویرایش وضعیت حضور"
+        },
+        {
+          "line": 2699,
+          "text": "توضیح اختیاری"
+        },
+        {
+          "line": 2701,
+          "text": "وضعیت"
+        },
+        {
+          "line": 2702,
+          "text": "توضیح"
+        },
+        {
+          "line": 2707,
+          "text": "لغو"
+        },
+        {
+          "line": 2708,
+          "text": "ذخیره"
+        },
+        {
+          "line": 2951,
+          "text": "حاضر"
+        },
+        {
+          "line": 2952,
+          "text": "دیرکرد"
+        },
+        {
+          "line": 2953,
+          "text": "غایب"
+        },
+        {
+          "line": 2954,
+          "text": "موجه"
+        },
+        {
+          "line": 3245,
+          "text": "۱) خط را روی تصویر بکش.  ۲) سمت داخل مدرسه را انتخاب کن."
+        },
+        {
+          "line": 3249,
+          "text": "با ماوس خط را بکش؛ سپس «انتخاب سمت داخل» را بزن و داخل مدرسه را کلیک کن. سمت دیگر خودکار خارج حساب می‌شود."
+        },
+        {
+          "line": 3254,
+          "text": "کشیدن خط"
+        },
+        {
+          "line": 3255,
+          "text": "انتخاب سمت داخل"
+        },
+        {
+          "line": 3256,
+          "text": "پاک کردن"
+        },
+        {
+          "line": 3269,
+          "text": "انصراف"
+        },
+        {
+          "line": 3270,
+          "text": "تأیید خط"
+        },
+        {
+          "line": 3316,
+          "text": "سامانه حضور و غیاب مدرسه"
+        },
+        {
+          "line": 3381,
+          "text": "حضور و غیاب"
+        },
+        {
+          "line": 3385,
+          "text": "سامانه مدیریت مدرسه"
+        },
+        {
+          "line": 3413,
+          "text": "تغییر رمز مدیر"
+        },
+        {
+          "line": 3417,
+          "text": "دوربین در حال راه‌اندازی..."
+        },
+        {
+          "line": 3447,
+          "text": "مشاهده گزارش‌ها"
+        },
+        {
+          "line": 3496,
+          "text": "داشبورد"
+        },
+        {
+          "line": 3497,
+          "text": "دانش‌آموزان"
+        },
+        {
+          "line": 3498,
+          "text": "کلاس‌ها"
+        },
+        {
+          "line": 3499,
+          "text": "رشته‌ها"
+        },
+        {
+          "line": 3500,
+          "text": "حضور و غیاب"
+        },
+        {
+          "line": 3501,
+          "text": "گزارش‌ها"
+        },
+        {
+          "line": 3502,
+          "text": "تنظیمات"
+        },
+        {
+          "line": 3528,
+          "text": "کل دانش‌آموزان"
+        },
+        {
+          "line": 3531,
+          "text": "حاضر امروز"
+        },
+        {
+          "line": 3534,
+          "text": "غایب امروز"
+        },
+        {
+          "line": 3537,
+          "text": "دیرکرد امروز"
+        },
+        {
+          "line": 3548,
+          "text": "نمای زنده دوربین‌ها"
+        },
+        {
+          "line": 3582,
+          "text": "آخرین ورودها"
+        },
+        {
+          "line": 3600,
+          "text": "وضعیت کلاس‌ها"
+        },
+        {
+          "line": 3615,
+          "text": "غایبان امروز"
+        },
+        {
+          "line": 3636,
+          "text": "جست‌وجو بر اساس نام یا کد..."
+        },
+        {
+          "line": 3763,
+          "text": "ویرایش وضعیت"
+        },
+        {
+          "line": 3767,
+          "text": "بازخوانی"
+        },
+        {
+          "line": 3852,
+          "text": "به‌روزرسانی"
+        },
+        {
+          "line": 3857,
+          "text": "خروجی دانش‌آموزان CSV"
+        },
+        {
+          "line": 3859,
+          "text": "خروجی دانش‌آموزان Excel"
+        },
+        {
+          "line": 3885,
+          "text": "دانش‌آموزان در فیلتر"
+        },
+        {
+          "line": 3887,
+          "text": "میانگین حضور"
+        },
+        {
+          "line": 3889,
+          "text": "کل غیبت‌ها"
+        },
+        {
+          "line": 3891,
+          "text": "کل دیرکردها"
+        },
+        {
+          "line": 3909,
+          "text": "روند درصد حضور روزانه"
+        },
+        {
+          "line": 3922,
+          "text": "مقایسه کلاس‌ها"
+        },
+        {
+          "line": 3935,
+          "text": "توزیع وضعیت"
+        },
+        {
+          "line": 3946,
+          "text": "نمای کلی"
+        },
+        {
+          "line": 3957,
+          "text": "همه رویدادهای مهم"
+        },
+        {
+          "line": 3958,
+          "text": "خروج زودهنگام"
+        },
+        {
+          "line": 3959,
+          "text": "خروج غیرمنتظره"
+        },
+        {
+          "line": 3960,
+          "text": "ورود"
+        },
+        {
+          "line": 3961,
+          "text": "خروج"
+        },
+        {
+          "line": 3962,
+          "text": "دیرکرد"
+        },
+        {
+          "line": 3963,
+          "text": "اختلاف هویت"
+        },
+        {
+          "line": 3968,
+          "text": "رویدادها بر اساس بازه و فیلترهای بالا"
+        },
+        {
+          "line": 3991,
+          "text": "بازبینی تصویر / نتیجه"
+        },
+        {
+          "line": 3995,
+          "text": "خروجی رویدادها CSV"
+        },
+        {
+          "line": 4002,
+          "text": "تصویر فریم کامل و حاشیه‌نویسی‌شده دوربین به‌صورت محلی در پوشه data/early_exit_review ذخیره می‌شود؛ ممکن است افراد دیگری هم در کادر باشند. بعد از بررسی می‌توانید"
+        },
+        {
+          "line": 4009,
+          "text": "رویدادها و بازبینی"
+        },
+        {
+          "line": 4016,
+          "text": "جزئیات تجمیعی دانش‌آموزان"
+        },
+        {
+          "line": 4020,
+          "text": "تعدادهای حاضر، دیرکرد، غیبت و موجه در بازه انتخابی"
+        },
+        {
+          "line": 4043,
+          "text": "جزئیات دانش‌آموزان"
+        },
+        {
+          "line": 4067,
+          "text": "تنظیمات دوربین"
+        },
+        {
+          "line": 4073,
+          "text": "فعال"
+        },
+        {
+          "line": 4077,
+          "text": "فعال"
+        },
+        {
+          "line": 4082,
+          "text": "بازخوانی دوربین‌ها"
+        },
+        {
+          "line": 4099,
+          "text": "60 FPS (در صورت پشتیبانی دوربین)"
+        },
+        {
+          "line": 4103,
+          "text": "دوربین ۱"
+        },
+        {
+          "line": 4104,
+          "text": "دوربین ۲"
+        },
+        {
+          "line": 4105,
+          "text": "نرخ هدف هر دوربین"
+        },
+        {
+          "line": 4109,
+          "text": "رزولوشن 1280×720 درخواست می‌شود. نرخ 60 فقط وقتی واقعی است که خود دوربین و درایور آن این حالت را پشتیبانی کنند."
+        },
+        {
+          "line": 4121,
+          "text": "ورودی / خروجی و خط مجازی هر دوربین"
+        },
+        {
+          "line": 4219,
+          "text": "دوربین ۱"
+        },
+        {
+          "line": 4220,
+          "text": "دوربین ۲"
+        },
+        {
+          "line": 4223,
+          "text": "«فقط ثبت ورود» فقط عبور ورود را ثبت می‌کند؛ «فقط ثبت خروج» فقط عبور خروج را ثبت می‌کند. در حالت «بدون خط / فقط تصویر»، هیچ رویداد ورود‌وخروجی از آن دوربین ثبت ن"
+        },
+        {
+          "line": 4238,
+          "text": "Identity Link بین دوربین‌ها"
+        },
+        {
+          "line": 4242,
+          "text": "فعال بودن اتصال بین دوربین‌ها"
+        },
+        {
+          "line": 4250,
+          "text": " ثانیه"
+        },
+        {
+          "line": 4265,
+          "text": "پنجره Hand-off"
+        },
+        {
+          "line": 4270,
+          "text": "حداقل شباهت Re-ID"
+        },
+        {
+          "line": 4281,
+          "text": "اگر دانش‌آموز قبلاً با چهره شناسایی شده باشد، ظاهر ثبت‌شده‌اش به یک حافظه مشترک می‌رود. Track ناشناس دوربین دیگر فقط وقتی به او وصل می‌شود که شباهت کافی باشد و "
+        },
+        {
+          "line": 4294,
+          "text": "قوانین حضور و غیاب"
+        },
+        {
+          "line": 4304,
+          "text": "ثبت دیرکرد هنگام ورود بعد از زمان شروع"
+        },
+        {
+          "line": 4307,
+          "text": "ثبت خروج زودهنگام قبل از زمان پایان"
+        },
+        {
+          "line": 4312,
+          "text": "شروع مدرسه"
+        },
+        {
+          "line": 4313,
+          "text": "پایان مدرسه"
+        },
+        {
+          "line": 4314,
+          "text": "دیرکرد"
+        },
+        {
+          "line": 4315,
+          "text": "خروج زودهنگام"
+        },
+        {
+          "line": 4325,
+          "text": "برنامه هفتگی مدرسه"
+        },
+        {
+          "line": 4329,
+          "text": "روزهای فعال و تاریخ‌های استثنا در تقویم سال تحصیلی ذخیره می‌شوند. ساعت شروع و پایان فعلی مشترک است؛ هشدار خروج زودهنگام در این نسخه بر اساس ساعت پایان عمومی است"
+        },
+        {
+          "line": 4353,
+          "text": "ذخیره برنامه هفتگی"
+        },
+        {
+          "line": 4358,
+          "text": "تعطیلات و روزهای جبرانی…"
+        },
+        {
+          "line": 4370,
+          "text": "Tracking و Re-ID"
+        },
+        {
+          "line": 4375,
+          "text": "فعال باشد"
+        },
+        {
+          "line": 4380,
+          "text": "خودکار (GPU در صورت وجود)"
+        },
+        {
+          "line": 4388,
+          "text": " فریم"
+        },
+        {
+          "line": 4390,
+          "text": "در CPU حداقل فاصله 10 فریم اعمال می‌شود تا سیستم مدرسه سبک‌تر بماند."
+        },
+        {
+          "line": 4394,
+          "text": "دستگاه"
+        },
+        {
+          "line": 4396,
+          "text": "فاصله به‌روزرسانی ظاهر"
+        },
+        {
+          "line": 4406,
+          "text": "ذخیره و راه‌اندازی مجدد دوربین"
+        },
+        {
+          "line": 5007,
+          "text": "فقط ورود"
+        },
+        {
+          "line": 5008,
+          "text": "فقط خروج"
+        },
+        {
+          "line": 5009,
+          "text": "بدون خط / فقط تصویر"
+        },
+        {
+          "line": 5014,
+          "text": "بدون دوربین"
+        },
+        {
+          "line": 5384,
+          "text": "بازبینی انسانی رویداد"
+        },
+        {
+          "line": 5419,
+          "text": "این تصویر فریم کامل دوربین در حوالی زمان رویداد است و ممکن است چند نفر را نشان دهد؛ به‌تنهایی اثبات هویت نیست. نتیجه را بر اساس تصویر و اطلاعات مدرسه با احتیاط "
+        },
+        {
+          "line": 5429,
+          "text": "در انتظار بررسی"
+        },
+        {
+          "line": 5430,
+          "text": "هویت درست تأیید شد"
+        },
+        {
+          "line": 5431,
+          "text": "تشخیص/انتساب اشتباه بود"
+        },
+        {
+          "line": 5432,
+          "text": "اشتباه بود؛ اصلاح دستی انجام شد"
+        },
+        {
+          "line": 5433,
+          "text": "از تصویر قابل‌تشخیص نیست"
+        },
+        {
+          "line": 5442,
+          "text": "ذخیره نتیجه بازبینی"
+        },
+        {
+          "line": 5444,
+          "text": "حذف تصویر"
+        },
+        {
+          "line": 5445,
+          "text": "تصویر محلی این رویداد را پس از بررسی حذف می‌کند."
+        },
+        {
+          "line": 5446,
+          "text": "بستن"
+        },
+        {
+          "line": 5535,
+          "text": "دانش‌آموز شناسایی‌شده"
+        },
+        {
+          "line": 5536,
+          "text": "زمان نامشخص"
+        },
+        {
+          "line": 5639,
+          "text": "غایب"
+        },
+        {
+          "line": 5736,
+          "text": "ویرایش دانش‌آموز"
+        },
+        {
+          "line": 5745,
+          "text": "بدون کلاس"
+        },
+        {
+          "line": 5763,
+          "text": "کد دانش‌آموزی"
+        },
+        {
+          "line": 5764,
+          "text": "نام"
+        },
+        {
+          "line": 5765,
+          "text": "کلاس"
+        },
+        {
+          "line": 5770,
+          "text": "ذخیره"
+        },
+        {
+          "line": 5771,
+          "text": "لغو"
+        },
+        {
+          "line": 5933,
+          "text": "فعال‌سازی سال تحصیلی"
+        },
+        {
+          "line": 5935,
+          "text": "فعال کن"
+        },
+        {
+          "line": 5936,
+          "text": "فعلاً نه"
+        },
+        {
+          "line": 6187,
+          "text": "افزودن رشته"
+        },
+        {
+          "line": 6187,
+          "text": "نام رشته:"
+        },
+        {
+          "line": 6209,
+          "text": "ویرایش رشته"
+        },
+        {
+          "line": 6210,
+          "text": "نام رشته:"
+        },
+        {
+          "line": 6255,
+          "text": "همه رشته‌ها"
+        },
+        {
+          "line": 6268,
+          "text": "همه کلاس‌ها"
+        },
+        {
+          "line": 6528,
+          "text": " • در این بازه هیچ ثبت حضوری وجود ندارد"
+        },
+        {
+          "line": 6548,
+          "text": "ذخیره رویدادهای دوربین"
+        },
+        {
+          "line": 6651,
+          "text": "⚠ خروج زودهنگام"
+        },
+        {
+          "line": 6652,
+          "text": "دیرکرد"
+        },
+        {
+          "line": 6653,
+          "text": "ورود"
+        },
+        {
+          "line": 6654,
+          "text": "خروج"
+        },
+        {
+          "line": 6655,
+          "text": "خروج غیرمنتظره"
+        },
+        {
+          "line": 6656,
+          "text": "اختلاف هویت"
+        },
+        {
+          "line": 6659,
+          "text": "در انتظار بررسی"
+        },
+        {
+          "line": 6660,
+          "text": "تأیید شد"
+        },
+        {
+          "line": 6661,
+          "text": "اشتباه — نیازمند اصلاح"
+        },
+        {
+          "line": 6662,
+          "text": "اصلاح شد"
+        },
+        {
+          "line": 6663,
+          "text": "نامشخص"
+        },
+        {
+          "line": 6728,
+          "text": "فقط ۹۰ روز پایانی نمایش داده می‌شود • "
+        },
+        {
+          "line": 6736,
+          "text": " • همه کلاس‌ها و رشته‌ها"
+        },
+        {
+          "line": 6784,
+          "text": "گزارش_حضور_"
+        },
+        {
+          "line": 6788,
+          "text": "ذخیره گزارش"
+        },
+        {
+          "line": 6799,
+          "text": "کد دانش‌آموزی"
+        },
+        {
+          "line": 6800,
+          "text": "نام"
+        },
+        {
+          "line": 6801,
+          "text": "پایه"
+        },
+        {
+          "line": 6802,
+          "text": "رشته"
+        },
+        {
+          "line": 6803,
+          "text": "کلاس"
+        },
+        {
+          "line": 6804,
+          "text": "حاضر"
+        },
+        {
+          "line": 6805,
+          "text": "دیرکرد"
+        },
+        {
+          "line": 6806,
+          "text": "غیبت"
+        },
+        {
+          "line": 6807,
+          "text": "موجه"
+        },
+        {
+          "line": 6808,
+          "text": "درصد حضور"
+        },
+        {
+          "line": 6972,
+          "text": "انتخاب فایل دانش‌آموزان"
+        },
+        {
+          "line": 1295,
+          "text": "دوربین آماده است؛ روبه‌روی دوربین قرار بگیرید."
+        },
+        {
+          "line": 1425,
+          "text": "در حال اتصال به دوربین ثبت..."
+        },
+        {
+          "line": 1460,
+          "text": "افزودن دانش‌آموز"
+        },
+        {
+          "line": 1460,
+          "text": "ثبت دوباره چهره"
+        },
+        {
+          "line": 1490,
+          "text": "کد دانش‌آموزی"
+        },
+        {
+          "line": 1491,
+          "text": "نام و نام خانوادگی"
+        },
+        {
+          "line": 1494,
+          "text": "بدون کلاس"
+        },
+        {
+          "line": 1512,
+          "text": "کد دانش‌آموزی"
+        },
+        {
+          "line": 1513,
+          "text": "نام"
+        },
+        {
+          "line": 1514,
+          "text": "کلاس"
+        },
+        {
+          "line": 1537,
+          "text": "۱۲ نمونه جدید ثبت می‌شود. بین نمونه‌ها کمی حرکت طبیعی داشته باشید."
+        },
+        {
+          "line": 1578,
+          "text": "دوربین معتبری برای پیش‌نمایش پیدا نشد؛ «بازخوانی» را بزنید."
+        },
+        {
+          "line": 1610,
+          "text": "پیش‌نمایش دوربین فعال نشد: "
+        },
+        {
+          "line": 1637,
+          "text": "هیچ دوربینی پیدا نشد"
+        },
+        {
+          "line": 1641,
+          "text": "هیچ دوربینی در دسترس نیست. اتصال دوربین را بررسی کنید و «بازخوانی» را بزنید."
+        },
+        {
+          "line": 1651,
+          "text": "دوربین یافت نشد"
+        },
+        {
+          "line": 1652,
+          "text": "ابتدا یک دوربین معتبر برای ثبت چهره انتخاب کنید."
+        },
+        {
+          "line": 1677,
+          "text": "دوربین هنوز در حال آزادشدن است؛ چند ثانیه صبر کنید و دوباره بزنید."
+        },
+        {
+          "line": 1717,
+          "text": "ثبت شد: "
+        },
+        {
+          "line": 1717,
+          "text": " از "
+        },
+        {
+          "line": 1722,
+          "text": "ثبت انجام نشد: "
+        },
+        {
+          "line": 1728,
+          "text": "ثبت لغو شد یا کامل نشد."
+        },
+        {
+          "line": 1790,
+          "text": "سامانه حضور و غیاب مدرسه"
+        },
+        {
+          "line": 1802,
+          "text": "برای ورود به سامانه، رمز مدیر لازم است."
+        },
+        {
+          "line": 1809,
+          "text": "رمز مدیر"
+        },
+        {
+          "line": 1854,
+          "text": "ورود"
+        },
+        {
+          "line": 1882,
+          "text": "دسترسی رد شد"
+        },
+        {
+          "line": 1883,
+          "text": "تعداد تلاش‌های ناموفق بیش از حد مجاز شد."
+        },
+        {
+          "line": 1889,
+          "text": "رمز نادرست"
+        },
+        {
+          "line": 1900,
+          "text": "رمز کوتاه است"
+        },
+        {
+          "line": 1901,
+          "text": "رمز باید حداقل ۸ کاراکتر باشد."
+        },
+        {
+          "line": 1908,
+          "text": "عدم تطابق"
+        },
+        {
+          "line": 1909,
+          "text": "دو رمز یکسان نیستند."
+        },
+        {
+          "line": 1924,
+          "text": "رمز کوتاه است"
+        },
+        {
+          "line": 1925,
+          "text": "رمز جدید باید حداقل ۸ کاراکتر باشد."
+        },
+        {
+          "line": 1932,
+          "text": "عدم تطابق"
+        },
+        {
+          "line": 1933,
+          "text": "دو رمز جدید یکسان نیستند."
+        },
+        {
+          "line": 1946,
+          "text": "رمز نادرست"
+        },
+        {
+          "line": 1947,
+          "text": "رمز فعلی اشتباه است."
+        },
+        {
+          "line": 1985,
+          "text": "سال تحصیلی"
+        },
+        {
+          "line": 2192,
+          "text": "شناسه"
+        },
+        {
+          "line": 2192,
+          "text": "تاریخ"
+        },
+        {
+          "line": 2192,
+          "text": "وضعیت"
+        },
+        {
+          "line": 2192,
+          "text": "توضیح"
+        },
+        {
+          "line": 2267,
+          "text": "تقویم مدرسه"
+        },
+        {
+          "line": 2268,
+          "text": "روزهای عادی هفته ذخیره شد."
+        },
+        {
+          "line": 2364,
+          "text": "انتخاب استثنا"
+        },
+        {
+          "line": 2365,
+          "text": "ابتدا یک استثنا را از جدول انتخاب کنید."
+        },
+        {
+          "line": 2375,
+          "text": "حذف استثنا"
+        },
+        {
+          "line": 2376,
+          "text": "استثنای انتخاب‌شده حذف شود؟"
+        },
+        {
+          "line": 2377,
+          "text": "حذف"
+        },
+        {
+          "line": 2378,
+          "text": "لغو"
+        },
+        {
+          "line": 2402,
+          "text": "ویرایش سال تحصیلی"
+        },
+        {
+          "line": 2402,
+          "text": "افزودن سال تحصیلی"
+        },
+        {
+          "line": 2499,
+          "text": "تاریخ پایان باید بعد از شروع باشد."
+        },
+        {
+          "line": 2508,
+          "text": "تاریخ نامعتبر"
+        },
+        {
+          "line": 2509,
+          "text": "هر دو تاریخ را به‌درستی انتخاب کنید."
+        },
+        {
+          "line": 2516,
+          "text": "بازه نامعتبر"
+        },
+        {
+          "line": 2517,
+          "text": "تاریخ پایان باید بعد از تاریخ شروع باشد."
+        },
+        {
+          "line": 2536,
+          "text": "ویرایش کلاس"
+        },
+        {
+          "line": 2536,
+          "text": "افزودن کلاس"
+        },
+        {
+          "line": 2542,
+          "text": "اطلاعات کلاس را وارد کنید."
+        },
+        {
+          "line": 2544,
+          "text": "اطلاعات کلاس را ویرایش کنید."
+        },
+        {
+          "line": 2574,
+          "text": " • فعال"
+        },
+        {
+          "line": 2602,
+          "text": "افزودن کلاس"
+        },
+        {
+          "line": 2602,
+          "text": "ذخیره تغییرات"
+        },
+        {
+          "line": 2635,
+          "text": "اطلاعات ناقص"
+        },
+        {
+          "line": 2636,
+          "text": "نام کلاس را وارد کنید."
+        },
+        {
+          "line": 2644,
+          "text": "اطلاعات ناقص"
+        },
+        {
+          "line": 2645,
+          "text": "پایه را وارد کنید."
+        },
+        {
+          "line": 2653,
+          "text": "سال تحصیلی"
+        },
+        {
+          "line": 2654,
+          "text": "یک سال تحصیلی انتخاب کنید."
+        },
+        {
+          "line": 2754,
+          "text": "داده‌ای برای نمایش وجود ندارد"
+        },
+        {
+          "line": 2855,
+          "text": "داده‌ای برای نمایش وجود ندارد"
+        },
+        {
+          "line": 2940,
+          "text": "داده‌ای برای نمایش وجود ندارد"
+        },
+        {
+          "line": 3142,
+          "text": "تصویر دوربین در دسترس نیست"
+        },
+        {
+          "line": 3184,
+          "text": "روی سمت داخل کلیک کن"
+        },
+        {
+          "line": 3242,
+          "text": "تنظیم خط دوربین "
+        },
+        {
+          "line": 3285,
+          "text": "با نگه‌داشتن کلیک چپ، خط را روی تصویر بکش."
+        },
+        {
+          "line": 3285,
+          "text": "داخل مدرسه را روی یکی از دو سمت خط کلیک کن."
+        },
+        {
+          "line": 3291,
+          "text": "ابتدا خط را رسم کن."
+        },
+        {
+          "line": 3302,
+          "text": "تنظیم ناقص"
+        },
+        {
+          "line": 3302,
+          "text": "خط را رسم کن و سمت داخل را هم مشخص کن."
+        },
+        {
+          "line": 3393,
+          "text": "داشبورد"
+        },
+        {
+          "line": 3394,
+          "text": "دانش‌آموزان"
+        },
+        {
+          "line": 3395,
+          "text": "کلاس‌ها"
+        },
+        {
+          "line": 3396,
+          "text": "رشته‌ها"
+        },
+        {
+          "line": 3397,
+          "text": "حضور و غیاب"
+        },
+        {
+          "line": 3398,
+          "text": "گزارش‌ها"
+        },
+        {
+          "line": 3399,
+          "text": "تنظیمات"
+        },
+        {
+          "line": 3588,
+          "text": "دانش‌آموز"
+        },
+        {
+          "line": 3588,
+          "text": "کلاس"
+        },
+        {
+          "line": 3588,
+          "text": "زمان"
+        },
+        {
+          "line": 3588,
+          "text": "وضعیت"
+        },
+        {
+          "line": 3606,
+          "text": "کلاس"
+        },
+        {
+          "line": 3606,
+          "text": "رشته"
+        },
+        {
+          "line": 3606,
+          "text": "کل"
+        },
+        {
+          "line": 3606,
+          "text": "حاضر"
+        },
+        {
+          "line": 3606,
+          "text": "درصد"
+        },
+        {
+          "line": 3621,
+          "text": "نام"
+        },
+        {
+          "line": 3621,
+          "text": "کلاس"
+        },
+        {
+          "line": 3621,
+          "text": "رشته"
+        },
+        {
+          "line": 3640,
+          "text": "افزودن دانش‌آموز"
+        },
+        {
+          "line": 3641,
+          "text": "ویرایش"
+        },
+        {
+          "line": 3642,
+          "text": "ثبت دوباره چهره"
+        },
+        {
+          "line": 3643,
+          "text": "حذف"
+        },
+        {
+          "line": 3644,
+          "text": "ورود Excel/CSV"
+        },
+        {
+          "line": 3645,
+          "text": "بازخوانی"
+        },
+        {
+          "line": 3658,
+          "text": "شناسه"
+        },
+        {
+          "line": 3658,
+          "text": "کد"
+        },
+        {
+          "line": 3658,
+          "text": "نام"
+        },
+        {
+          "line": 3658,
+          "text": "پایه"
+        },
+        {
+          "line": 3658,
+          "text": "رشته"
+        },
+        {
+          "line": 3658,
+          "text": "کلاس"
+        },
+        {
+          "line": 3658,
+          "text": "چهره"
+        },
+        {
+          "line": 3658,
+          "text": "ایجاد"
+        },
+        {
+          "line": 3675,
+          "text": "سال تحصیلی"
+        },
+        {
+          "line": 3683,
+          "text": "افزودن سال"
+        },
+        {
+          "line": 3684,
+          "text": "ویرایش سال"
+        },
+        {
+          "line": 3685,
+          "text": "فعال‌کردن سال"
+        },
+        {
+          "line": 3686,
+          "text": "تقویم مدرسه"
+        },
+        {
+          "line": 3687,
+          "text": "افزودن کلاس"
+        },
+        {
+          "line": 3688,
+          "text": "ویرایش"
+        },
+        {
+          "line": 3689,
+          "text": "حذف"
+        },
+        {
+          "line": 3699,
+          "text": "شناسه"
+        },
+        {
+          "line": 3699,
+          "text": "کلاس"
+        },
+        {
+          "line": 3699,
+          "text": "پایه"
+        },
+        {
+          "line": 3699,
+          "text": "رشته"
+        },
+        {
+          "line": 3699,
+          "text": "سال تحصیلی"
+        },
+        {
+          "line": 3699,
+          "text": "دانش‌آموز"
+        },
+        {
+          "line": 3699,
+          "text": "وضعیت"
+        },
+        {
+          "line": 3713,
+          "text": "افزودن رشته"
+        },
+        {
+          "line": 3714,
+          "text": "ویرایش"
+        },
+        {
+          "line": 3715,
+          "text": "حذف"
+        },
+        {
+          "line": 3716,
+          "text": "بازخوانی"
+        },
+        {
+          "line": 3726,
+          "text": "شناسه"
+        },
+        {
+          "line": 3726,
+          "text": "رشته"
+        },
+        {
+          "line": 3726,
+          "text": "ایجاد"
+        },
+        {
+          "line": 3756,
+          "text": "تاریخ"
+        },
+        {
+          "line": 3758,
+          "text": "رشته"
+        },
+        {
+          "line": 3760,
+          "text": "کلاس"
+        },
+        {
+          "line": 3780,
+          "text": "شناسه"
+        },
+        {
+          "line": 3781,
+          "text": "کد"
+        },
+        {
+          "line": 3782,
+          "text": "نام"
+        },
+        {
+          "line": 3783,
+          "text": "کلاس"
+        },
+        {
+          "line": 3784,
+          "text": "وضعیت"
+        },
+        {
+          "line": 3785,
+          "text": "زمان"
+        },
+        {
+          "line": 3786,
+          "text": "دوربین"
+        },
+        {
+          "line": 3787,
+          "text": "توضیح"
+        },
+        {
+          "line": 3788,
+          "text": "منبع"
+        },
+        {
+          "line": 3836,
+          "text": "از تاریخ"
+        },
+        {
+          "line": 3838,
+          "text": "تا تاریخ"
+        },
+        {
+          "line": 3840,
+          "text": "رشته"
+        },
+        {
+          "line": 3842,
+          "text": "کلاس"
+        },
+        {
+          "line": 3846,
+          "text": "امروز"
+        },
+        {
+          "line": 3846,
+          "text": "۷ روز"
+        },
+        {
+          "line": 3846,
+          "text": "۳۰ روز"
+        },
+        {
+          "line": 3955,
+          "text": "نوع رویداد"
+        },
+        {
+          "line": 3975,
+          "text": "تاریخ و ساعت"
+        },
+        {
+          "line": 3975,
+          "text": "دانش‌آموز"
+        },
+        {
+          "line": 3975,
+          "text": "رویداد"
+        },
+        {
+          "line": 3975,
+          "text": "دوربین"
+        },
+        {
+          "line": 3975,
+          "text": "اطمینان"
+        },
+        {
+          "line": 3975,
+          "text": "جزئیات"
+        },
+        {
+          "line": 3975,
+          "text": "تصویر دوربین"
+        },
+        {
+          "line": 3975,
+          "text": "بازبینی انسانی"
+        },
+        {
+          "line": 4027,
+          "text": "شناسه"
+        },
+        {
+          "line": 4027,
+          "text": "کد"
+        },
+        {
+          "line": 4027,
+          "text": "نام"
+        },
+        {
+          "line": 4027,
+          "text": "پایه"
+        },
+        {
+          "line": 4027,
+          "text": "رشته"
+        },
+        {
+          "line": 4027,
+          "text": "کلاس"
+        },
+        {
+          "line": 4027,
+          "text": "حاضر"
+        },
+        {
+          "line": 4027,
+          "text": "دیرکرد"
+        },
+        {
+          "line": 4027,
+          "text": "غیبت"
+        },
+        {
+          "line": 4027,
+          "text": "موجه"
+        },
+        {
+          "line": 4027,
+          "text": "درصد حضور"
+        },
+        {
+          "line": 4140,
+          "text": "فقط ثبت ورود"
+        },
+        {
+          "line": 4141,
+          "text": "فقط ثبت خروج"
+        },
+        {
+          "line": 4142,
+          "text": "بدون خط / فقط تصویر"
+        },
+        {
+          "line": 4145,
+          "text": "عمودی — چپ / راست"
+        },
+        {
+          "line": 4146,
+          "text": "افقی — بالا / پایین"
+        },
+        {
+          "line": 4155,
+          "text": "مثبت"
+        },
+        {
+          "line": 4156,
+          "text": "منفی"
+        },
+        {
+          "line": 4160,
+          "text": " فریم"
+        },
+        {
+          "line": 4186,
+          "text": "رسم خط روی تصویر…"
+        },
+        {
+          "line": 4190,
+          "text": "استفاده از خط ساده"
+        },
+        {
+          "line": 4203,
+          "text": "خط ساده فعال است؛ برای رسم خط دلخواه روی تصویر کلیک کن."
+        },
+        {
+          "line": 4419,
+          "text": "تقویم مدرسه"
+        },
+        {
+          "line": 4420,
+          "text": "ابتدا از بخش کلاس‌ها یک سال تحصیلی ایجاد و فعال کنید."
+        },
+        {
+          "line": 4447,
+          "text": "بازه زمانی نامعتبر"
+        },
+        {
+          "line": 4448,
+          "text": "ساعت پایان باید بعد از ساعت شروع باشد."
+        },
+        {
+          "line": 4456,
+          "text": "سال تحصیلی"
+        },
+        {
+          "line": 4457,
+          "text": "برای ذخیره روزهای هفته، ابتدا یک سال تحصیلی را فعال کنید."
+        },
+        {
+          "line": 4468,
+          "text": "روزهای مدرسه"
+        },
+        {
+          "line": 4469,
+          "text": "حداقل یک روز مدرسه را انتخاب کنید."
+        },
+        {
+          "line": 4486,
+          "text": "برنامه مدرسه"
+        },
+        {
+          "line": 4487,
+          "text": "روزهای فعال، ساعت مدرسه و قوانین دیرکرد/خروج زودهنگام ذخیره شدند."
+        },
+        {
+          "line": 4713,
+          "text": " دوربین پیدا شد • دوربین ۲ در صورت فعال‌سازی باید Device جدا داشته باشد."
+        },
+        {
+          "line": 4749,
+          "text": "خط و ثبت ورود‌وخروج برای این دوربین غیرفعال است؛ فقط تصویر و رهگیری نمایش داده می‌شود."
+        },
+        {
+          "line": 4765,
+          "text": "تصویر دوربین موجود نیست"
+        },
+        {
+          "line": 4766,
+          "text": "ابتدا دوربین را فعال کن و صبر کن تصویر زنده در برنامه نمایش داده شود؛ سپس خط را رسم کن."
+        },
+        {
+          "line": 4797,
+          "text": "دوربین ۱ یافت نشد"
+        },
+        {
+          "line": 4798,
+          "text": "برای فعال بودن دوربین ۱ یک Device معتبر انتخاب کنید."
+        },
+        {
+          "line": 4805,
+          "text": "دوربین ۲ یافت نشد"
+        },
+        {
+          "line": 4806,
+          "text": "برای فعال بودن دوربین ۲ یک Device معتبر انتخاب کنید."
+        },
+        {
+          "line": 4869,
+          "text": "دوربین تکراری"
+        },
+        {
+          "line": 4870,
+          "text": "دوربین ۱ و دوربین ۲ نمی‌توانند یک Device یکسان داشته باشند."
+        },
+        {
+          "line": 5016,
+          "text": "تنظیمات ذخیره شد • "
+        },
+        {
+          "line": 5016,
+          "text": " دوربین فعال • "
+        },
+        {
+          "line": 5180,
+          "text": "Camera 2 غیرفعال است."
+        },
+        {
+          "line": 5275,
+          "text": "خطای دوربین: "
+        },
+        {
+          "line": 5284,
+          "text": "ثبت شد: "
+        },
+        {
+          "line": 5359,
+          "text": "انتخاب رویداد"
+        },
+        {
+          "line": 5360,
+          "text": "ابتدا یک رویداد را از جدول انتخاب کنید."
+        },
+        {
+          "line": 5366,
+          "text": "رویداد نامعتبر"
+        },
+        {
+          "line": 5366,
+          "text": "شناسه‌ی این رویداد در دسترس نیست."
+        },
+        {
+          "line": 5377,
+          "text": "بازبینی تصویر"
+        },
+        {
+          "line": 5378,
+          "text": "تصویر و بازبینی انسانی در این نسخه فقط برای رویداد خروج زودهنگام تعریف شده است."
+        },
+        {
+          "line": 5412,
+          "text": "برای این رویداد تصویری ذخیره نشده است.\nتصویر فقط برای رویدادهای جدیدی که بعد از بازشدن برنامه ثبت شوند و فریم تازه‌ی دوربین در دسترس باشد ذخیره می‌شود."
+        },
+        {
+          "line": 5427,
+          "text": "نتیجه بازبینی"
+        },
+        {
+          "line": 5456,
+          "text": "حذف تصویر"
+        },
+        {
+          "line": 5457,
+          "text": "تصویر محلی این رویداد حذف شود؟ این کار قابل بازگشت نیست."
+        },
+        {
+          "line": 5541,
+          "text": "نیازمند اصلاح دستی: انتساب هویت "
+        },
+        {
+          "line": 5541,
+          "text": " اشتباه گزارش شده است • "
+        },
+        {
+          "line": 5547,
+          "text": " (پایان برنامه مدرسه: "
+        },
+        {
+          "line": 5549,
+          "text": " مورد بررسی‌نشده امروز"
+        },
+        {
+          "line": 5717,
+          "text": "انجام شد"
+        },
+        {
+          "line": 5727,
+          "text": "انتخاب دانش‌آموز"
+        },
+        {
+          "line": 5727,
+          "text": "ابتدا یک دانش‌آموز را انتخاب کنید."
+        },
+        {
+          "line": 5782,
+          "text": "اطلاعات ناقص"
+        },
+        {
+          "line": 5782,
+          "text": "کد و نام الزامی هستند."
+        },
+        {
+          "line": 5807,
+          "text": "انتخاب دانش‌آموز"
+        },
+        {
+          "line": 5807,
+          "text": "ابتدا یک دانش‌آموز را انتخاب کنید."
+        },
+        {
+          "line": 5817,
+          "text": "ثبت دوباره چهره"
+        },
+        {
+          "line": 5819,
+          "text": "جایگزین کن"
+        },
+        {
+          "line": 5820,
+          "text": "لغو"
+        },
+        {
+          "line": 5841,
+          "text": "انجام شد"
+        },
+        {
+          "line": 5851,
+          "text": "انتخاب دانش‌آموز"
+        },
+        {
+          "line": 5851,
+          "text": "ابتدا یک دانش‌آموز را انتخاب کنید."
+        },
+        {
+          "line": 5862,
+          "text": "حذف دانش‌آموز"
+        },
+        {
+          "line": 5864,
+          "text": "حذف"
+        },
+        {
+          "line": 5865,
+          "text": "لغو"
+        },
+        {
+          "line": 5888,
+          "text": " • فعال"
+        },
+        {
+          "line": 5911,
+          "text": "تقویم مدرسه"
+        },
+        {
+          "line": 5912,
+          "text": "ابتدا یک سال تحصیلی بسازید."
+        },
+        {
+          "line": 5934,
+          "text": "سال "
+        },
+        {
+          "line": 5934,
+          "text": " به‌عنوان سال فعال انتخاب شود؟"
+        },
+        {
+          "line": 5964,
+          "text": "انتخاب سال"
+        },
+        {
+          "line": 5965,
+          "text": "ابتدا یک سال تحصیلی را انتخاب کنید."
+        },
+        {
+          "line": 6021,
+          "text": "تقویم مدرسه"
+        },
+        {
+          "line": 6022,
+          "text": "ابتدا یک سال تحصیلی بسازید."
+        },
+        {
+          "line": 6044,
+          "text": "سال تحصیلی"
+        },
+        {
+          "line": 6044,
+          "text": "ابتدا یک سال تحصیلی بسازید."
+        },
+        {
+          "line": 6053,
+          "text": "اطلاعات ناقص"
+        },
+        {
+          "line": 6053,
+          "text": "نام کلاس الزامی است."
+        },
+        {
+          "line": 6085,
+          "text": "کلاس اضافه شد"
+        },
+        {
+          "line": 6115,
+          "text": "انتخاب کلاس"
+        },
+        {
+          "line": 6115,
+          "text": "ابتدا یک کلاس را انتخاب کنید."
+        },
+        {
+          "line": 6137,
+          "text": "انتخاب کلاس"
+        },
+        {
+          "line": 6137,
+          "text": "ابتدا یک کلاس را انتخاب کنید."
+        },
+        {
+          "line": 6142,
+          "text": "حذف کلاس"
+        },
+        {
+          "line": 6143,
+          "text": "کلاس حذف شود؟ فقط کلاس‌های خالی قابل حذف هستند."
+        },
+        {
+          "line": 6144,
+          "text": "حذف"
+        },
+        {
+          "line": 6145,
+          "text": "لغو"
+        },
+        {
+          "line": 6166,
+          "text": "فعال"
+        },
+        {
+          "line": 6199,
+          "text": "انتخاب رشته"
+        },
+        {
+          "line": 6199,
+          "text": "ابتدا یک رشته را انتخاب کنید."
+        },
+        {
+          "line": 6225,
+          "text": "انتخاب رشته"
+        },
+        {
+          "line": 6225,
+          "text": "ابتدا یک رشته را انتخاب کنید."
+        },
+        {
+          "line": 6230,
+          "text": "حذف رشته"
+        },
+        {
+          "line": 6231,
+          "text": "رشته حذف شود؟ اگر به کلاسی متصل باشد حذف نمی‌شود."
+        },
+        {
+          "line": 6232,
+          "text": "حذف"
+        },
+        {
+          "line": 6233,
+          "text": "لغو"
+        },
+        {
+          "line": 6340,
+          "text": "کل: "
+        },
+        {
+          "line": 6340,
+          "text": " • حاضر: "
+        },
+        {
+          "line": 6340,
+          "text": " • دیرکرد: "
+        },
+        {
+          "line": 6340,
+          "text": " • موجه: "
+        },
+        {
+          "line": 6340,
+          "text": " • غایب: "
+        },
+        {
+          "line": 6353,
+          "text": "انتخاب دانش‌آموز"
+        },
+        {
+          "line": 6353,
+          "text": "ابتدا یک دانش‌آموز را انتخاب کنید."
+        },
+        {
+          "line": 6419,
+          "text": "بازه نامعتبر"
+        },
+        {
+          "line": 6420,
+          "text": "تاریخ شروع باید قبل از تاریخ پایان باشد."
+        },
+        {
+          "line": 6520,
+          "text": "٪"
+        },
+        {
+          "line": 6526,
+          "text": " روز دارای ثبت حضور"
+        },
+        {
+          "line": 6532,
+          "text": "بازه "
+        },
+        {
+          "line": 6532,
+          "text": " تا "
+        },
+        {
+          "line": 6532,
+          "text": " • حاضر: "
+        },
+        {
+          "line": 6533,
+          "text": " • دیرکرد: "
+        },
+        {
+          "line": 6534,
+          "text": " • غیبت: "
+        },
+        {
+          "line": 6535,
+          "text": " • موجه: "
+        },
+        {
+          "line": 6545,
+          "text": "رویدادها_"
+        },
+        {
+          "line": 6574,
+          "text": "خروجی آماده شد"
+        },
+        {
+          "line": 6690,
+          "text": "در انتظار بررسی"
+        },
+        {
+          "line": 6692,
+          "text": "⚠ بازبینی لازم"
+        },
+        {
+          "line": 6693,
+          "text": "ناشناس"
+        },
+        {
+          "line": 6738,
+          "text": " رویداد"
+        },
+        {
+          "line": 6748,
+          "text": "بازه نامعتبر"
+        },
+        {
+          "line": 6749,
+          "text": "تاریخ شروع باید قبل از تاریخ پایان باشد."
+        },
+        {
+          "line": 6778,
+          "text": "گزارش خالی است"
+        },
+        {
+          "line": 6779,
+          "text": "داده‌ای برای این فیلتر وجود ندارد."
+        },
+        {
+          "line": 6844,
+          "text": "دانش‌آموزان"
+        },
+        {
+          "line": 6957,
+          "text": "گزارش آماده شد"
+        },
+        {
+          "line": 7115,
+          "text": "ورود اطلاعات کامل شد"
+        },
+        {
+          "line": 7127,
+          "text": "انجام شد"
+        },
+        {
+          "line": 7128,
+          "text": "رمز مدیر با موفقیت تغییر کرد."
+        },
+        {
+          "line": 1430,
+          "text": "پیش‌نمایش زنده فعال است • "
+        },
+        {
+          "line": 1430,
+          "text": " • برای ثبت آماده‌اید."
+        },
+        {
+          "line": 1634,
+          "text": " دوربین پیدا شد • دوربین انتخاب‌شده برای همین ثبت استفاده می‌شود."
+        },
+        {
+          "line": 1660,
+          "text": "اطلاعات ناقص"
+        },
+        {
+          "line": 1661,
+          "text": "کد دانش‌آموزی الزامی است."
+        },
+        {
+          "line": 1668,
+          "text": "اطلاعات ناقص"
+        },
+        {
+          "line": 1669,
+          "text": "نام دانش‌آموز الزامی است."
+        },
+        {
+          "line": 1793,
+          "text": "برای شروع یک رمز مدیریتی تعیین کنید."
+        },
+        {
+          "line": 1795,
+          "text": "رمز مدیریتی را به‌روزرسانی کنید."
+        },
+        {
+          "line": 1814,
+          "text": "رمز باید حداقل ۸ کاراکتر داشته باشد."
+        },
+        {
+          "line": 1820,
+          "text": "رمز جدید"
+        },
+        {
+          "line": 1825,
+          "text": "تکرار رمز"
+        },
+        {
+          "line": 1832,
+          "text": "رمز فعلی"
+        },
+        {
+          "line": 1837,
+          "text": "رمز جدید"
+        },
+        {
+          "line": 1842,
+          "text": "تکرار رمز جدید"
+        },
+        {
+          "line": 1856,
+          "text": "ثبت رمز"
+        },
+        {
+          "line": 1856,
+          "text": "تغییر رمز"
+        },
+        {
+          "line": 1890,
+          "text": "رمز اشتباه است. "
+        },
+        {
+          "line": 1890,
+          "text": " تلاش باقی مانده."
+        },
+        {
+          "line": 1940,
+          "text": "خطا"
+        },
+        {
+          "line": 1989,
+          "text": " — فعال"
+        },
+        {
+          "line": 2273,
+          "text": "ذخیره برنامه ناموفق بود"
+        },
+        {
+          "line": 2286,
+          "text": "روز مدرسه"
+        },
+        {
+          "line": 2286,
+          "text": "تعطیل"
+        },
+        {
+          "line": 2355,
+          "text": "ثبت استثنا ناموفق بود"
+        },
+        {
+          "line": 2389,
+          "text": "حذف استثنا ناموفق بود"
+        },
+        {
+          "line": 2496,
+          "text": "بازه انتخاب‌شده: "
+        },
+        {
+          "line": 2496,
+          "text": " روز"
+        },
+        {
+          "line": 2570,
+          "text": " تا "
+        },
+        {
+          "line": 2767,
+          "text": "٪"
+        },
+        {
+          "line": 2907,
+          "text": "٪"
+        },
+        {
+          "line": 3151,
+          "text": "داخل"
+        },
+        {
+          "line": 3152,
+          "text": "خارج"
+        },
+        {
+          "line": 3294,
+          "text": "خط رسم شد؛ حالا سمت داخل را انتخاب کن."
+        },
+        {
+          "line": 3297,
+          "text": "سبز = داخل مدرسه • نارنجی = خارج • تأیید کن و سپس تنظیمات دوربین را ذخیره کن."
+        },
+        {
+          "line": 3565,
+          "text": "Camera 2 غیرفعال است."
+        },
+        {
+          "line": 3565,
+          "text": "در انتظار دوربین..."
+        },
+        {
+          "line": 4163,
+          "text": "نقش دوربین"
+        },
+        {
+          "line": 4164,
+          "text": "جهت خط"
+        },
+        {
+          "line": 4165,
+          "text": "موقعیت خط"
+        },
+        {
+          "line": 4166,
+          "text": "جهت عبور اصلی"
+        },
+        {
+          "line": 4167,
+          "text": "فاصله ضدتکرار"
+        },
+        {
+          "line": 4440,
+          "text": "ساعت نامعتبر"
+        },
+        {
+          "line": 4441,
+          "text": "ساعت شروع و پایان را به‌شکل 08:00 وارد کنید."
+        },
+        {
+          "line": 4480,
+          "text": "برنامه هفتگی ذخیره شد • "
+        },
+        {
+          "line": 4480,
+          "text": " روز فعال • "
+        },
+        {
+          "line": 4481,
+          "text": " تا "
+        },
+        {
+          "line": 4492,
+          "text": "ذخیره برنامه ناموفق بود"
+        },
+        {
+          "line": 4702,
+          "text": "هیچ دوربینی پیدا نشد"
+        },
+        {
+          "line": 4751,
+          "text": "خط تصویری تنظیم شده است؛ سبز = داخل و نارنجی = خارج. برای اعمال، تنظیمات دوربین را ذخیره کن."
+        },
+        {
+          "line": 4753,
+          "text": "خط ساده فعال است؛ برای رسم خط دلخواه روی تصویر کلیک کن."
+        },
+        {
+          "line": 4857,
+          "text": "تنظیمات نامعتبر"
+        },
+        {
+          "line": 4858,
+          "text": "زمان‌ها باید به شکل HH:MM باشند و مقادیر انتخاب‌شده معتبر باشند."
+        },
+        {
+          "line": 4935,
+          "text": "ذخیره خط ناموفق بود"
+        },
+        {
+          "line": 4993,
+          "text": "راه‌اندازی دوربین ناموفق بود"
+        },
+        {
+          "line": 5409,
+          "text": "فایل تصویر قابل‌خواندن نیست."
+        },
+        {
+          "line": 5452,
+          "text": "تصویر"
+        },
+        {
+          "line": 5452,
+          "text": "برای این رویداد تصویری ذخیره نشده است."
+        },
+        {
+          "line": 5466,
+          "text": "تصویر این رویداد حذف شد."
+        },
+        {
+          "line": 5484,
+          "text": "بازبینی ذخیره شد"
+        },
+        {
+          "line": 5485,
+          "text": "نتیجه‌ی بازبینی ذخیره شد. این کار به‌تنهایی هیچ رکورد حضور و غیابی را تغییر نمی‌دهد."
+        },
+        {
+          "line": 5543,
+          "text": "خروج زودهنگام احتمالی — امتیاز تطبیق پایین؛ تصویر را بررسی کنید: "
+        },
+        {
+          "line": 5545,
+          "text": "خروج زودهنگام ثبت‌شده — نیازمند بازبینی: "
+        },
+        {
+          "line": 5545,
+          "text": " • ساعت "
+        },
+        {
+          "line": 5625,
+          "text": "بدون کلاس"
+        },
+        {
+          "line": 5635,
+          "text": "حاضر"
+        },
+        {
+          "line": 5636,
+          "text": "دیرکرد"
+        },
+        {
+          "line": 5637,
+          "text": "موجه"
+        },
+        {
+          "line": 5638,
+          "text": "غایب"
+        },
+        {
+          "line": 5661,
+          "text": "بدون کلاس"
+        },
+        {
+          "line": 5718,
+          "text": " با "
+        },
+        {
+          "line": 5718,
+          "text": " نمونه چهره ثبت شد."
+        },
+        {
+          "line": 5753,
+          "text": " — پایه "
+        },
+        {
+          "line": 5802,
+          "text": "ویرایش ناموفق بود"
+        },
+        {
+          "line": 5818,
+          "text": "نمونه‌های چهره "
+        },
+        {
+          "line": 5818,
+          "text": " جایگزین شوند؟"
+        },
+        {
+          "line": 5842,
+          "text": " نمونه جدید برای "
+        },
+        {
+          "line": 5842,
+          "text": " ذخیره شد."
+        },
+        {
+          "line": 5863,
+          "text": ") حذف شود؟\n\nسوابق چهره و حضور او نیز حذف می‌شود."
+        },
+        {
+          "line": 5874,
+          "text": "حذف ناموفق بود"
+        },
+        {
+          "line": 5886,
+          "text": " تا "
+        },
+        {
+          "line": 5955,
+          "text": "افزودن سال ناموفق بود"
+        },
+        {
+          "line": 5997,
+          "text": "ویرایش سال ناموفق بود"
+        },
+        {
+          "line": 6009,
+          "text": "تغییر سال ناموفق بود"
+        },
+        {
+          "line": 6069,
+          "text": "کلاس تکراری"
+        },
+        {
+          "line": 6086,
+          "text": "» با موفقیت ثبت شد."
+        },
+        {
+          "line": 6104,
+          "text": "این نام کلاس برای این سال تحصیلی قبلاً ثبت شده است."
+        },
+        {
+          "line": 6108,
+          "text": "افزودن کلاس ناموفق بود"
+        },
+        {
+          "line": 6132,
+          "text": "ویرایش کلاس ناموفق بود"
+        },
+        {
+          "line": 6153,
+          "text": "حذف کلاس ناموفق بود"
+        },
+        {
+          "line": 6194,
+          "text": "افزودن رشته ناموفق بود"
+        },
+        {
+          "line": 6220,
+          "text": "ویرایش رشته ناموفق بود"
+        },
+        {
+          "line": 6241,
+          "text": "حذف رشته ناموفق بود"
+        },
+        {
+          "line": 6276,
+          "text": " — پایه "
+        },
+        {
+          "line": 6324,
+          "text": "بدون کلاس"
+        },
+        {
+          "line": 6329,
+          "text": "ثبت دستی"
+        },
+        {
+          "line": 6329,
+          "text": "دوربین"
+        },
+        {
+          "line": 6358,
+          "text": "حاضر"
+        },
+        {
+          "line": 6359,
+          "text": "دیرکرد"
+        },
+        {
+          "line": 6360,
+          "text": "موجه"
+        },
+        {
+          "line": 6361,
+          "text": "غایب"
+        },
+        {
+          "line": 6383,
+          "text": "ویرایش حضور ناموفق بود"
+        },
+        {
+          "line": 6467,
+          "text": "بدون کلاس"
+        },
+        {
+          "line": 6472,
+          "text": "٪"
+        },
+        {
+          "line": 6575,
+          "text": " رویداد در فایل ذخیره شد.\\n"
+        },
+        {
+          "line": 6578,
+          "text": "ذخیره خروجی ناموفق بود"
+        },
+        {
+          "line": 6686,
+          "text": " • پایین"
+        },
+        {
+          "line": 6695,
+          "text": " — هویت نامطمئن"
+        },
+        {
+          "line": 6703,
+          "text": "تصویر موجود"
+        },
+        {
+          "line": 6733,
+          "text": "کلاس: "
+        },
+        {
+          "line": 6735,
+          "text": "رشته: "
+        },
+        {
+          "line": 6863,
+          "text": "روزانه"
+        },
+        {
+          "line": 6877,
+          "text": "کلاس‌ها"
+        },
+        {
+          "line": 6904,
+          "text": "خلاصه"
+        },
+        {
+          "line": 6958,
+          "text": "گزارش با موفقیت ذخیره شد.\n"
+        },
+        {
+          "line": 6964,
+          "text": "ذخیره گزارش ناموفق بود"
+        },
+        {
+          "line": 7002,
+          "text": "هیچ ردیفی برای ورود پیدا نشد."
+        },
+        {
+          "line": 7014,
+          "text": "کد"
+        },
+        {
+          "line": 7014,
+          "text": "کد_دانش_آموزی"
+        },
+        {
+          "line": 7015,
+          "text": "نام"
+        },
+        {
+          "line": 7015,
+          "text": "نام_دانش_آموز"
+        },
+        {
+          "line": 7016,
+          "text": "پایه"
+        },
+        {
+          "line": 7017,
+          "text": "رشته"
+        },
+        {
+          "line": 7018,
+          "text": "کلاس"
+        },
+        {
+          "line": 7019,
+          "text": "سال_تحصیلی"
+        },
+        {
+          "line": 7116,
+          "text": "جدید: "
+        },
+        {
+          "line": 7116,
+          "text": "\nبه‌روزرسانی: "
+        },
+        {
+          "line": 7116,
+          "text": "\nردشده: "
+        },
+        {
+          "line": 7120,
+          "text": "ورود اطلاعات ناموفق بود"
+        },
+        {
+          "line": 1259,
+          "text": "مدل YuNet پیدا نشد: "
+        },
+        {
+          "line": 1300,
+          "text": "دریافت تصویر از دوربین ناموفق بود."
+        },
+        {
+          "line": 1436,
+          "text": "دریافت تصویر از دوربین ثبت ناموفق بود."
+        },
+        {
+          "line": 1507,
+          "text": " — پایه "
+        },
+        {
+          "line": 4936,
+          "text": "خط دوربین "
+        },
+        {
+          "line": 4936,
+          "text": " درست از پایگاه داده بازخوانی نشد؛ دوربین راه‌اندازی مجدد نشد."
+        },
+        {
+          "line": 5012,
+          "text": "دوربین "
+        },
+        {
+          "line": 5017,
+          "text": "فعال"
+        },
+        {
+          "line": 5017,
+          "text": "خاموش"
+        },
+        {
+          "line": 5469,
+          "text": "حذف تصویر ناموفق بود"
+        },
+        {
+          "line": 5488,
+          "text": "ذخیره بازبینی ناموفق بود"
+        },
+        {
+          "line": 5575,
+          "text": "بدون کلاس"
+        },
+        {
+          "line": 5710,
+          "text": "افزودن دانش‌آموز ناموفق بود"
+        },
+        {
+          "line": 6070,
+          "text": "کلاس «"
+        },
+        {
+          "line": 6070,
+          "text": "» در این سال تحصیلی از قبل وجود دارد."
+        },
+        {
+          "line": 6560,
+          "text": "شناسه رویداد"
+        },
+        {
+          "line": 6560,
+          "text": "تاریخ و ساعت"
+        },
+        {
+          "line": 6560,
+          "text": "دانش‌آموز"
+        },
+        {
+          "line": 6560,
+          "text": "رویداد"
+        },
+        {
+          "line": 6560,
+          "text": "دوربین"
+        },
+        {
+          "line": 6560,
+          "text": "اطمینان"
+        },
+        {
+          "line": 6560,
+          "text": "جزئیات"
+        },
+        {
+          "line": 6560,
+          "text": "تصویر دوربین"
+        },
+        {
+          "line": 6560,
+          "text": "بازبینی انسانی"
+        },
+        {
+          "line": 6703,
+          "text": "بدون تصویر"
+        },
+        {
+          "line": 6715,
+          "text": "امتیاز تطبیق پایین است و احتمال انتساب اشتباه وجود دارد. این عدد احتمال آماریِ کالیبره‌شده نیست؛ تصویر را بازبینی کنید."
+        },
+        {
+          "line": 6736,
+          "text": "، "
+        },
+        {
+          "line": 6866,
+          "text": "تاریخ"
+        },
+        {
+          "line": 6867,
+          "text": "حاضر"
+        },
+        {
+          "line": 6868,
+          "text": "دیرکرد"
+        },
+        {
+          "line": 6869,
+          "text": "غیبت"
+        },
+        {
+          "line": 6870,
+          "text": "موجه"
+        },
+        {
+          "line": 6871,
+          "text": "درصد حضور"
+        },
+        {
+          "line": 6880,
+          "text": "کلاس"
+        },
+        {
+          "line": 6881,
+          "text": "رشته"
+        },
+        {
+          "line": 6882,
+          "text": "دانش‌آموز"
+        },
+        {
+          "line": 6883,
+          "text": "حاضر"
+        },
+        {
+          "line": 6884,
+          "text": "دیرکرد"
+        },
+        {
+          "line": 6885,
+          "text": "غیبت"
+        },
+        {
+          "line": 6886,
+          "text": "موجه"
+        },
+        {
+          "line": 6887,
+          "text": "درصد حضور"
+        },
+        {
+          "line": 6905,
+          "text": "شاخص"
+        },
+        {
+          "line": 6905,
+          "text": "مقدار"
+        },
+        {
+          "line": 6912,
+          "text": "دانش‌آموزان"
+        },
+        {
+          "line": 6913,
+          "text": "میانگین حضور"
+        },
+        {
+          "line": 6916,
+          "text": "کل حضور"
+        },
+        {
+          "line": 6922,
+          "text": "کل دیرکرد"
+        },
+        {
+          "line": 6928,
+          "text": "کل غیبت"
+        },
+        {
+          "line": 6934,
+          "text": "کل موجه"
+        },
+        {
+          "line": 6990,
+          "text": "فایل خالی است."
+        },
+        {
+          "line": 1327,
+          "text": "چهره پیدا شد؛ نمونه‌های ثبت‌شده: "
+        },
+        {
+          "line": 1327,
+          "text": " از "
+        },
+        {
+          "line": 1331,
+          "text": "چهره پیدا شد؛ در حال استخراج ویژگی و ثبت نمونه..."
+        },
+        {
+          "line": 1374,
+          "text": "بیش از یک چهره دیده شد؛ فقط یک نفر جلوی دوربین بماند."
+        },
+        {
+          "line": 1359,
+          "text": "صورت پیدا شده اما خیلی کوچک است؛ نزدیک‌تر به دوربین بنشینید."
+        },
+        {
+          "line": 1363,
+          "text": "چهره پیدا نشد؛ نور را بهتر کنید و صورت را روبه‌روی دوربین بگیرید."
+        },
+        {
+          "line": 1345,
+          "text": "نمونه ثبت شد: "
+        },
+        {
+          "line": 1345,
+          "text": " از "
+        },
+        {
+          "line": 1345,
+          "text": "؛ کمی سرتان را حرکت دهید."
+        }
+      ]
+    },
+    {
+      "file": "src/cloud/client.py",
+      "candidates": [
+        {
+          "line": 58,
+          "text": "نشانی سرویس باید HTTPS باشد."
+        },
+        {
+          "line": 262,
+          "text": "ایمیل یا رمز درست نیست، یا ایمیل هنوز تأیید نشده است."
+        },
+        {
+          "line": 263,
+          "text": "اشتراک مدرسه فعال نیست یا پایان یافته است؛ حساب سایت را بررسی کنید."
+        },
+        {
+          "line": 264,
+          "text": "ظرفیت دستگاه‌ها تکمیل شده است؛ دستگاه قبلی را از سایت لغو کنید یا با پشتیبانی تماس بگیرید."
+        },
+        {
+          "line": 265,
+          "text": "دسترسی این دستگاه لغو شده است؛ با پشتیبانی تماس بگیرید."
+        },
+        {
+          "line": 266,
+          "text": "ورود ذخیره‌شده معتبر نیست؛ دوباره با ایمیل و رمز وارد شوید."
+        },
+        {
+          "line": 295,
+          "text": "نشست ورود تغییر کرده است؛ دوباره وارد شوید."
+        },
+        {
+          "line": 352,
+          "text": "دسترسی مدرسه یا این نصب توسط سرویس لغو شده است."
+        },
+        {
+          "line": 450,
+          "text": "یک بکاپ دیگر در حال ارسال است."
+        },
+        {
+          "line": 459,
+          "text": "بکاپ برای این اشتراک غیرفعال است."
+        },
+        {
+          "line": 482,
+          "text": "ابتدا کلید بازیابی مدرسه را در یک محل امنِ جداگانه ذخیره یا وارد کنید."
+        },
+        {
+          "line": 485,
+          "text": "کلید بازیابی معتبر نیست."
+        },
+        {
+          "line": 502,
+          "text": "ذخیرهٔ امن کلید بازیابی انجام نشد؛ فایل کلید را نگه دارید."
+        },
+        {
+          "line": 573,
+          "text": "ساختار دیتابیس پشتیبان سازگار نیست."
+        },
+        {
+          "line": 575,
+          "text": "دیتابیس پشتیبان سالم نیست."
+        },
+        {
+          "line": 577,
+          "text": "ارتباط رکوردهای دیتابیس معتبر نیست."
+        },
+        {
+          "line": 580,
+          "text": "فایل پشتیبان به این مدرسه تعلق ندارد."
+        },
+        {
+          "line": 244,
+          "text": "ارتباط امن با سرویس برقرار نشد؛ اینترنت را بررسی کنید."
+        },
+        {
+          "line": 260,
+          "text": "بکاپ توسط مدیر سرویس غیرفعال شده است."
+        },
+        {
+          "line": 268,
+          "text": "ورود یا اشتراک معتبر نیست، یا دسترسی دستگاه لغو شده است."
+        },
+        {
+          "line": 272,
+          "text": "سرویس درخواست را نپذیرفت (کد "
+        },
+        {
+          "line": 290,
+          "text": "نشست برنامه بسته شده است."
+        },
+        {
+          "line": 305,
+          "text": "امضا یا اعتبار مجوز سرویس تأیید نشد."
+        },
+        {
+          "line": 414,
+          "text": "اشتراک پایان یافته یا بررسی آنلاینِ اعتبار و ساعت لازم است؛ اطلاعات مدرسه حفظ شده است."
+        },
+        {
+          "line": 444,
+          "text": "دیتابیس متعلق به مدرسهٔ دیگری است."
+        },
+        {
+          "line": 495,
+          "text": "کلید واردشده با کلید فعلی متفاوت است؛ برای جلوگیری از از دست رفتن بازیابی، جایگزین نشد."
+        },
+        {
+          "line": 529,
+          "text": "صحت فایل بازیابی تأیید نشد؛ دیتابیس فعلی حفظ شد."
+        },
+        {
+          "line": 281,
+          "text": "پاسخ سرویس بیش از حد مجاز است."
+        },
+        {
+          "line": 285,
+          "text": "پاسخ سرویس معتبر نیست."
+        },
+        {
+          "line": 322,
+          "text": "ذخیره‌سازی امن شناسهٔ نصب انجام نشد."
+        },
+        {
+          "line": 383,
+          "text": "ابتدا وارد حساب مدرسه شوید."
+        },
+        {
+          "line": 467,
+          "text": "حجم بکاپ رمزگذاری‌شده "
+        },
+        {
+          "line": 467,
+          "text": " بایت است و از سقف ۱۲۸ مگابایت بیشتر است؛ خروجی کامل محلی بگیرید و با پشتیبانی تماس بگیرید."
+        },
+        {
+          "line": 331,
+          "text": "دسترسی لغو شده است؛ ذخیرهٔ وضعیت امن هم در دسترس نیست."
+        },
+        {
+          "line": 523,
+          "text": "فایل بازیابی بیش از حد بزرگ است."
+        },
+        {
+          "line": 550,
+          "text": "دیتابیس در حال استفاده است؛ بازیابی متوقف شد."
+        }
+      ]
+    },
+    {
+      "file": "src/cloud/entitlement.py",
+      "candidates": [
+        {
+          "line": 20,
+          "text": "ظرفیت دانش‌آموز اشتراک تکمیل شده است؛ برای افزایش ظرفیت با پشتیبانی تماس بگیرید."
+        }
+      ]
+    },
+    {
+      "file": "src/cloud/local_export.py",
+      "candidates": [
+        {
+          "line": 18,
+          "text": "ابتدا اتصال دیتابیس به مدرسه در فعال‌سازی اولیه لازم است."
+        }
+      ]
+    },
+    {
+      "file": "src/cloud/offline.py",
+      "candidates": [
+        {
+          "line": 83,
+          "text": "ذخیره‌سازی امن سیستم‌عامل در دسترس نیست؛ فعال‌سازی آفلاین ممکن نیست."
+        }
+      ]
+    },
+    {
+      "file": "src/cloud/ui.py",
+      "candidates": [
+        {
+          "line": 75,
+          "text": "فارسی"
+        },
+        {
+          "line": 99,
+          "text": "ورود و دریافت اعتبار اشتراک"
+        },
+        {
+          "line": 162,
+          "text": "اشتراک و پشتیبان مدرسه"
+        },
+        {
+          "line": 171,
+          "text": "بررسی / تمدید آنلاین و ورود دوباره به حساب سایت"
+        },
+        {
+          "line": 176,
+          "text": "بکاپ شامل تمام دیتابیس، اطلاعات دانش‌آموزان، حضور و غیاب و داده‌های ثبت‌شدهٔ چهره است. پیش از ارسال، با کلید مدرسه در همین دستگاه رمزگذاری می‌شود و تصاویر رویدا"
+        },
+        {
+          "line": 179,
+          "text": "با ارسال خودکار روزانهٔ بکاپ رمزگذاری‌شدهٔ اطلاعات چهره و تصاویر به سرور موافقم"
+        },
+        {
+          "line": 184,
+          "text": "ذخیرهٔ کلید بازیابی مدرسه در محل امن"
+        },
+        {
+          "line": 187,
+          "text": "واردکردن کلید بازیابی موجود مدرسه"
+        },
+        {
+          "line": 190,
+          "text": "مدیریت فهرست فعال / آرشیو ظرفیت"
+        },
+        {
+          "line": 193,
+          "text": "ساخت و ارسال بکاپ اکنون"
+        },
+        {
+          "line": 197,
+          "text": "دریافت فهرست بکاپ‌ها"
+        },
+        {
+          "line": 203,
+          "text": "بازیابی بکاپ انتخاب‌شده"
+        },
+        {
+          "line": 216,
+          "text": "ادامه"
+        },
+        {
+          "line": 217,
+          "text": "بستن صفحه"
+        },
+        {
+          "line": 248,
+          "text": "در حال ساخت و ارسال بکاپ…"
+        },
+        {
+          "line": 304,
+          "text": "اشتراک و پشتیبان"
+        },
+        {
+          "line": 305,
+          "text": "اعتبار اشتراک و بکاپ"
+        },
+        {
+          "line": 306,
+          "text": "حساب مدرسه در سایت"
+        },
+        {
+          "line": 307,
+          "text": "خروج از حساب مدرسه"
+        },
+        {
+          "line": 444,
+          "text": "فهرست فعال / آرشیو ظرفیت"
+        },
+        {
+          "line": 446,
+          "text": "آرشیو فقط طبقه‌بندی فهرست ظرفیت است؛ سوابق و چهره حذف نمی‌شوند و منطق تشخیص و حضور و غیاب تغییر نمی‌کند. این گزینه ابزار قطع تشخیص فرد نیست."
+        },
+        {
+          "line": 451,
+          "text": "تغییر وضعیت دانش‌آموز انتخاب‌شده"
+        },
+        {
+          "line": 485,
+          "text": "خروجی و بازیابی محلی — بدون نیاز به اشتراک فعال"
+        },
+        {
+          "line": 487,
+          "text": "دوربین‌ها در این حالت اجرا نمی‌شوند. خروجی CSV سوابق، یا بکاپ کامل رمزگذاری‌شده با کلید مدرسه بگیرید. بازیابی فقط از بکاپ همین مدرسه و با کلید درست انجام می‌شود"
+        },
+        {
+          "line": 504,
+          "text": "خروجی محرمانهٔ حضور و غیاب"
+        },
+        {
+          "line": 167,
+          "text": "مدرسه: "
+        },
+        {
+          "line": 167,
+          "text": "\nپایان اشتراک به وقت این سیستم: "
+        },
+        {
+          "line": 167,
+          "text": "\nظرفیت ثبت دانش‌آموز: "
+        },
+        {
+          "line": 208,
+          "text": "برای بازیابی، برنامه را ببندید و در اجرای بعد، پیش از ورود به محیط دوربین از همین صفحه استفاده کنید."
+        },
+        {
+          "line": 234,
+          "text": "کلید بازیابی مدرسه"
+        },
+        {
+          "line": 236,
+          "text": "کلید محرمانهٔ مدرسه"
+        },
+        {
+          "line": 236,
+          "text": "کلید را روی حافظهٔ جداگانه در محل امن نگه دارید؛ همراه بکاپ روی سرور بارگذاری نکنید. گم‌شدن همهٔ نسخه‌های کلید یعنی از دست رفتن امکان بازیابی. فایل کلید بدون رم"
+        },
+        {
+          "line": 237,
+          "text": "کلید جدید یا خروجی دوبارهٔ کلید فعلی"
+        },
+        {
+          "line": 245,
+          "text": "ارسال بکاپ"
+        },
+        {
+          "line": 245,
+          "text": "دیتابیس کامل این مدرسه به سرور ارسال شود؟"
+        },
+        {
+          "line": 254,
+          "text": "بازیابی دیتابیس"
+        },
+        {
+          "line": 254,
+          "text": "دیتابیس فعلی با بکاپ انتخاب‌شده جایگزین می‌شود. یک نسخهٔ محلی از وضعیت قبلی نگه داشته خواهد شد. ادامه می‌دهید؟"
+        },
+        {
+          "line": 277,
+          "text": "تا پایان بازیابی منتظر بمانید."
+        },
+        {
+          "line": 282,
+          "text": "تا پایان بازیابی منتظر بمانید."
+        },
+        {
+          "line": 319,
+          "text": " | اعتبار تا "
+        },
+        {
+          "line": 319,
+          "text": " | ظرفیت "
+        },
+        {
+          "line": 368,
+          "text": "برنامه در حال اجراست"
+        },
+        {
+          "line": 368,
+          "text": "ابتدا نسخهٔ دیگر برنامه را ببندید."
+        },
+        {
+          "line": 467,
+          "text": "تغییر فهرست ظرفیت"
+        },
+        {
+          "line": 467,
+          "text": "وضعیت انتخاب‌شده تغییر کند؟ سوابق حفظ می‌شوند."
+        },
+        {
+          "line": 493,
+          "text": "خروجی CSV حضور و غیاب"
+        },
+        {
+          "line": 494,
+          "text": "خروجی کامل رمزگذاری‌شده"
+        },
+        {
+          "line": 495,
+          "text": "بازیابی بکاپ کامل محلی"
+        },
+        {
+          "line": 514,
+          "text": "کلید بازیابی همین مدرسه"
+        },
+        {
+          "line": 542,
+          "text": "عملیات انجام شد؛ برای ورود عادی برنامه را دوباره اجرا کنید."
+        },
+        {
+          "line": 175,
+          "text": "ورود حساب سایت ذخیره نشده؛ مجوز آفلاین در خزانهٔ امن سیستم نگهداری می‌شود."
+        },
+        {
+          "line": 270,
+          "text": "فهرست دریافت شد."
+        },
+        {
+          "line": 274,
+          "text": "عملیات با موفقیت انجام شد."
+        },
+        {
+          "line": 316,
+          "text": "اشتراک نامعتبر"
+        },
+        {
+          "line": 355,
+          "text": "خروج محلی"
+        },
+        {
+          "line": 355,
+          "text": "ورود ذخیره‌شدهٔ این دستگاه پاک شد، اما لغو روی سرور تأیید نشد. برای لغو قطعی دستگاه از حساب سایت استفاده کنید."
+        },
+        {
+          "line": 358,
+          "text": "بکاپ آنلاین ارسال شد."
+        },
+        {
+          "line": 358,
+          "text": "ارسال بکاپ انجام نشد؛ از منوی اشتراک بررسی کنید."
+        },
+        {
+          "line": 403,
+          "text": "اتصال مدرسه"
+        },
+        {
+          "line": 476,
+          "text": "ظرفیت"
+        },
+        {
+          "line": 519,
+          "text": "بکاپ کامل"
+        },
+        {
+          "line": 521,
+          "text": "بکاپ کامل رمزگذاری‌شده"
+        },
+        {
+          "line": 333,
+          "text": "اشتراک"
+        },
+        {
+          "line": 333,
+          "text": "اعتبار دسترسی پایان یافته یا بررسی آنلاین ساعت لازم است. اطلاعات حذف نشده است. در اجرای بعد از ورود آنلاین برای تمدید یا خروجی / بازیابی محلی استفاده کنید."
+        },
+        {
+          "line": 398,
+          "text": "اتصال دیتابیس به مدرسه"
+        },
+        {
+          "line": 462,
+          "text": "آرشیو"
+        },
+        {
+          "line": 462,
+          "text": "فعال"
+        },
+        {
+          "line": 524,
+          "text": "جایگزینی اطلاعات محلی"
+        },
+        {
+          "line": 524,
+          "text": "دیتابیس و تصاویر رویدادها جایگزین شوند؟ نسخهٔ قبل نگه داشته می‌شود."
+        },
+        {
+          "line": 398,
+          "text": "دیتابیس این دستگاه به مدرسهٔ «"
+        },
+        {
+          "line": 398,
+          "text": "» متصل شود؟"
+        }
+      ]
+    },
+    {
+      "file": "src/database.py",
+      "candidates": [
+        {
+          "line": 404,
+          "text": "حداقل یک روز مدرسه باید انتخاب شود."
+        },
+        {
+          "line": 586,
+          "text": "تاریخ پایان باید بعد از تاریخ شروع باشد."
+        },
+        {
+          "line": 650,
+          "text": "تاریخ پایان باید بعد از تاریخ شروع باشد."
+        },
+        {
+          "line": 725,
+          "text": "نام رشته الزامی است."
+        },
+        {
+          "line": 741,
+          "text": "نام رشته الزامی است."
+        },
+        {
+          "line": 820,
+          "text": "نام کلاس الزامی است."
+        },
+        {
+          "line": 822,
+          "text": "پایه الزامی است."
+        },
+        {
+          "line": 824,
+          "text": "سال تحصیلی انتخاب نشده است."
+        },
+        {
+          "line": 847,
+          "text": "نام کلاس الزامی است."
+        },
+        {
+          "line": 849,
+          "text": "پایه الزامی است."
+        },
+        {
+          "line": 851,
+          "text": "سال تحصیلی انتخاب نشده است."
+        },
+        {
+          "line": 1263,
+          "text": "وضعیت حضور نامعتبر است."
+        },
+        {
+          "line": 414,
+          "text": "سال تحصیلی انتخاب‌شده پیدا نشد."
+        },
+        {
+          "line": 456,
+          "text": "تاریخ استثنا نامعتبر است."
+        },
+        {
+          "line": 470,
+          "text": "سال تحصیلی انتخاب‌شده پیدا نشد."
+        },
+        {
+          "line": 583,
+          "text": "تاریخ سال تحصیلی نامعتبر است."
+        },
+        {
+          "line": 647,
+          "text": "تاریخ سال تحصیلی نامعتبر است."
+        },
+        {
+          "line": 696,
+          "text": "سال تحصیلی انتخاب‌شده پیدا نشد."
+        },
+        {
+          "line": 761,
+          "text": "این رشته به یک یا چند کلاس متصل است."
+        },
+        {
+          "line": 882,
+          "text": "این کلاس دانش‌آموز دارد و قابل حذف نیست."
+        },
+        {
+          "line": 927,
+          "text": "کلاس انتخاب‌شده پیدا نشد."
+        },
+        {
+          "line": 1935,
+          "text": "دانش‌آموز پیدا نشد."
+        },
+        {
+          "line": 475,
+          "text": "تاریخ خارج از بازه سال تحصیلی است."
+        },
+        {
+          "line": 480,
+          "text": "تاریخ خارج از بازه سال تحصیلی است."
+        },
+        {
+          "line": 604,
+          "text": "بازه انتخاب‌شده با سال تحصیلی «"
+        },
+        {
+          "line": 604,
+          "text": "» هم‌پوشانی دارد."
+        },
+        {
+          "line": 669,
+          "text": "بازه انتخاب‌شده با سال تحصیلی «"
+        },
+        {
+          "line": 669,
+          "text": "» هم‌پوشانی دارد."
+        },
+        {
+          "line": 1047,
+          "text": "کلاس انتخاب‌شده پیدا نشد."
+        },
+        {
+          "line": 1081,
+          "text": "کلاس انتخاب‌شده پیدا نشد."
+        }
+      ]
+    },
+    {
+      "file": "src/engine/smart_events.py",
+      "candidates": [
+        {
+          "line": 285,
+          "text": "ورود بعد از زمان شروع مدرسه ("
+        }
+      ]
+    },
+    {
+      "file": "src/localization.py",
+      "candidates": [
+        {
+          "line": 37,
+          "text": "؀"
+        },
+        {
+          "line": 37,
+          "text": "ۿ"
+        }
+      ]
+    }
+  ]
+}

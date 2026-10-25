@@ -1,0 +1,19 @@
+{
+  "scope": "synthetic local SQLite, real Django development server, console email, Chromium",
+  "checks": [
+    "en language persists across pages; core routes load at 1440/390px without overflow",
+    "fa language persists across pages; core routes load at 1440/390px without overflow",
+    "company-only registration → console verification link → login → no-product workspace → explicit school workspace creation",
+    "actual password-recovery email token → new password → successful login"
+  ],
+  "screenshots": [
+    "login-en.png",
+    "company-en-1440.png",
+    "company-en-390.png",
+    "login-fa.png",
+    "company-fa-1440.png",
+    "company-fa-390.png",
+    "workspace-en-no-product.png"
+  ],
+  "browser": "154.0.8037.57"
+}

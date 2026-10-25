@@ -29,7 +29,7 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=args.chromium, headless=True, args=['--no-sandbox'])
         result['browser'] = browser.version
-        context = browser.new_context(viewport={'width': 1440, 'height': 1000}, reduced_motion='reduce')
+        context = browser.new_context(extra_http_headers={'Accept-Language':'fa'}, viewport={'width': 1440, 'height': 1000}, reduced_motion='reduce')
         page = context.new_page()
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
@@ -108,7 +108,7 @@ def main():
         assert not errors, 'Browser JavaScript errors: ' + '; '.join(errors)
         result['checks'].append('no page-level JavaScript exceptions')
         # Critical navigation/forms remain rendered when JavaScript is disabled.
-        no_script = browser.new_context(viewport={'width': 390, 'height': 844}, java_script_enabled=False)
+        no_script = browser.new_context(extra_http_headers={'Accept-Language':'fa'}, viewport={'width': 390, 'height': 844}, java_script_enabled=False)
         no_script_page = no_script.new_page()
         for path in ('/', '/pricing/', '/login/', '/contact/'):
             response = no_script_page.goto(args.base_url.rstrip('/') + path, wait_until='networkidle')

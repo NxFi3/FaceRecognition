@@ -128,3 +128,9 @@ Use the normal application login and camera configuration. Recording ends after
 See [metric definitions and validation](docs/runtime-profiling.md) and the
 [production runtime audit](docs/runtime-baseline-audit.md). Profiling is disabled
 when starting the application normally.
+
+Current company-account/localization increment: [implementation audit, tested scope
+and remaining bilingual release blockers](docs/unified-account-i18n-audit.md).
+[Verified English/Persian browser and Qt evidence](docs/screenshots/unified-account/README.md).
+The full legacy desktop/owner localization is unfinished; do not advertise full
+bilingual support from the existence of the language selector alone.

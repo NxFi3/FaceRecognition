@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from email import policy
 from email.parser import BytesParser
 import json
+import os
 from pathlib import Path
 import re
 import secrets
@@ -121,7 +122,7 @@ def run(args):
         client = CloudClient(config, root/'cloud-state.json', store=vault, transport=transport)
         browser = p.chromium.launch(executable_path=args.chromium, headless=True, args=['--no-sandbox'])
         report['browser'] = browser.version
-        school_context = browser.new_context(viewport={'width': 1440, 'height': 1000}, reduced_motion='reduce')
+        school_context = browser.new_context(extra_http_headers={'Accept-Language':'fa'}, viewport={'width': 1440, 'height': 1000}, reduced_motion='reduce')
         school = school_context.new_page()
         browser_errors = []
         school.on('pageerror', lambda _: browser_errors.append('pageerror'))
@@ -217,7 +218,7 @@ def run(args):
         denied_login()
         report['checks'].append('priced checkout and manual evidence claim do not activate a subscription')
         stage('second school and tenant denial')
-        other_context = browser.new_context(viewport={'width': 390, 'height': 844})
+        other_context = browser.new_context(extra_http_headers={'Accept-Language':'fa'}, viewport={'width': 390, 'height': 844})
         other = other_context.new_page()
         register(other, other_email, 'مدرسهٔ ساختگی دوم ممیزی')
         visit(other, PRODUCT+'account/orders/'+first_order+'/invoice/', status=404)
@@ -225,7 +226,7 @@ def run(args):
         other_context.close()
         report['checks'].append('school accounts denied owner console and another school invoice')
         stage('owner login and payment rejection')
-        owner_context = browser.new_context(viewport={'width': 1440, 'height': 1000}, reduced_motion='reduce')
+        owner_context = browser.new_context(extra_http_headers={'Accept-Language':'fa'}, viewport={'width': 1440, 'height': 1000}, reduced_motion='reduce')
         owner = owner_context.new_page()
         login(owner, fixture['owner_email'], fixture['owner_password'])
         def owner_payment(order_id):
@@ -260,7 +261,42 @@ def run(args):
         require(urlparse(owner.url).path == '/owner/', 'Synthetic owner attestation failed')
         capture(owner, 'owner-verified')
         stage('desktop signed activation and device limit')
-        lease = client.login(school_email, password)
+        # Real Qt dialog and background job against the same CA-verified API;
+        # only the OS credential vault remains the explicitly documented double.
+        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+        from PySide6.QtWidgets import QApplication, QDialog
+        from PySide6.QtCore import QSettings
+        from src.cloud.ui import LoginDialog
+        from src.localization import configure
+        application = QApplication.instance() or QApplication([])
+        configure(application, 'en')
+        dialog = LoginDialog(client)
+        dialog.email.setText(school_email)
+        dialog.password.setText(password)
+        dialog.show()
+        with patch('PySide6.QtCore.QSettings', lambda *a: QSettings(str(root/'qt-test-settings.ini'), QSettings.IniFormat)):
+            for locale in ('en', 'fa'):
+                dialog.language_box.setCurrentIndex(1 if locale == 'fa' else 0)
+                configure(application, locale)
+                dialog.retranslate()
+                application.processEvents()
+                filename = 'audit-production-desktop-login-' + locale + '.png'
+                dialog.grab().save(str(args.output / filename))
+                report['screenshots'].append(filename)
+            dialog.language_box.setCurrentIndex(0)
+        configure(application, 'en')
+        dialog.retranslate()
+        dialog.login()
+        deadline = time.monotonic() + 45
+        ticks = 0
+        while dialog.isVisible() and time.monotonic() < deadline:
+            application.processEvents()
+            ticks += 1
+            time.sleep(.01)
+        require(dialog.result() == QDialog.Accepted, 'Actual Qt desktop login failed')
+        require(ticks > 0, 'Qt event processing was not exercised')
+        report['checks'].append('actual Qt LoginDialog completed background activation over verified HTTPS; English/Persian screenshots captured')
+        lease = client.require_lease()
         require(client.allowed() and lease['student_limit'] == fixture.get('student_limit', 900), 'Correct signed entitlement not available')
         require(lease['device_limit'] == fixture.get('device_limit', 1), 'Device entitlement mismatch')
         report['checks'].append('wrong amount cannot activate; synthetic owner attestation activates actual pinned-Ed25519 desktop client over verified HTTPS')
