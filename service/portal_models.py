@@ -1,0 +1,64 @@
+"""Business records only. Student records/templates never belong in these tables."""
+import uuid
+from django.conf import settings
+from django.core.validators import RegexValidator, MinValueValidator
+from django.db import models
+from django.utils import timezone
+
+
+class ContactRequest(models.Model):
+    name = models.CharField(max_length=120)
+    email = models.EmailField()
+    school_name = models.CharField(max_length=160, blank=True)
+    kind = models.CharField(max_length=16, choices=[('demo', 'درخواست نمایش'), ('contact', 'تماس')])
+    body = models.TextField(max_length=4000)
+    consent = models.BooleanField(default=False)
+    handled = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class SupportTicket(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    school = models.ForeignKey('service.School', on_delete=models.PROTECT)
+    subject = models.CharField(max_length=160)
+    category = models.CharField(max_length=20, choices=[('support', 'پشتیبانی'), ('renewal', 'تمدید'), ('upgrade', 'ارتقا'), ('cancellation', 'لغو قرارداد'), ('privacy', 'خروجی / حذف اطلاعات تجاری')])
+    body = models.TextField(max_length=6000)
+    status = models.CharField(max_length=12, choices=[('open', 'باز'), ('closed', 'بسته')], default='open')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    class Meta:
+        ordering = ['-created_at']
+
+
+class TicketReply(models.Model):
+    ticket = models.ForeignKey(SupportTicket, on_delete=models.PROTECT, related_name='replies')
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    body = models.TextField(max_length=6000)
+    created_at = models.DateTimeField(auto_now_add=True)
+    class Meta:
+        ordering = ['created_at']
+
+
+class Release(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    version = models.CharField(max_length=80)
+    platform = models.CharField(max_length=24, default='windows-x64', choices=[('windows-x64', 'Windows x64')])
+    artifact_name = models.CharField(max_length=160, validators=[RegexValidator(r'\A[A-Za-z0-9][A-Za-z0-9._-]*\.(zip|exe)\Z', 'نام فایل فقط حروف لاتین، عدد و ._- و پسوند zip/exe باشد.')])
+    sha256 = models.CharField(max_length=64, validators=[RegexValidator(r'\A[0-9a-f]{64}\Z')])
+    size_bytes = models.PositiveBigIntegerField(validators=[MinValueValidator(1)])
+    notes = models.TextField(max_length=6000)
+    is_published = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    class Meta:
+        ordering = ['-created_at']
+
+
+class EmailOutbox(models.Model):
+    recipient = models.EmailField()
+    subject = models.CharField(max_length=200)
+    body = models.TextField()
+    dedupe_key = models.CharField(max_length=200, unique=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    available_at = models.DateTimeField(default=timezone.now)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)

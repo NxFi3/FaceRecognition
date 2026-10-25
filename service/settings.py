@@ -100,3 +100,8 @@ if not TESTING:
 
 # Short owner step-up; authority comes only from the singleton DB record.
 OWNER_REAUTH_SECONDS = 300
+
+# Commercial artifacts are operator-installed and mounted read-only, never user uploads.
+RELEASE_ROOT = Path(os.environ.get('RELEASE_ROOT', '/data/releases'))
+MANUAL_PAYMENT_INSTRUCTIONS = os.environ.get('MANUAL_PAYMENT_INSTRUCTIONS', '')
+CONTACT_RESPONSE_DAYS = int(os.environ.get('CONTACT_RESPONSE_DAYS', '3'))

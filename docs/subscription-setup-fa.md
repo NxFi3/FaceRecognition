@@ -84,11 +84,11 @@ sudo nano deploy/.env
 sudo docker compose --env-file deploy/.env -f deploy/compose.yml config --quiet
 sudo docker compose --env-file deploy/.env -f deploy/compose.yml up -d --build
 sudo docker compose --env-file deploy/.env -f deploy/compose.yml ps
-sudo docker compose --env-file deploy/.env -f deploy/compose.yml exec web python -m service.manage createsuperuser
+sudo docker compose --env-file deploy/.env -f deploy/compose.yml exec web python -m service.manage provision_owner --email owner@yourbrand.ir
 ```
 
-حساب مدیر پیش‌فرض و رمز عمومی ساخته نمی‌شود. نام کاربری، ایمیل و رمز مدیر
-را در دستور آخر خودتان وارد کنید. سپس `https://دامنه/admin/` را باز کنید.
+حساب مدیر پیش‌فرض و رمز عمومی ساخته نمی‌شود. ایمیل واقعی مالک را در دستور آخر بگذارید و رمز را در prompt امن وارد کنید؛
+مالک صریحاً provision می‌شود و staff/superuser به‌تنهایی کافی نیست. سپس `https://دامنه/admin/` را باز کنید.
 آدرس `https://دامنه/health/` باید `{"ok": true}` برگرداند؛ این بررسی سلامت
 دیتابیس و Redis است، نه تضمین تحویل ایمیل یا فضای کافی دیسک.
 

@@ -4,6 +4,26 @@ A desktop smart-attendance application combining face recognition, person detect
 
 The project is designed to be tested on CPU-first hardware, with optional CUDA acceleration where supported. Performance and accuracy depend on the cameras, environment, model assets, and configuration; benchmark results from one setup are not universal guarantees.
 
+## NxFi commercial platform
+
+The same Django service now provides a Persian RTL product website, synthetic
+interactive demo, school portal, invoices/support/releases and explicit owner
+management. Purchases use independently verified manual payments; no live Iranian
+payment gateway or cloud inference service is advertised as integrated.
+
+- [Local development, owner bootstrap and deployment (Persian)](docs/commercial-deployment-fa.md)
+- [Repository audit](docs/commercial-audit.md)
+- [Commercial security and validation](docs/commercial-security.md)
+- [Verified synthetic desktop/mobile website screenshots](docs/screenshots/README.md)
+- [Offline licensing and school recovery (Persian)](docs/subscription-setup-fa.md)
+
+Company name NxFi Technologies is provisional. The project makes no claim of
+legal registration, certification, paying customers, or measured target-PC accuracy.
+The commercial feature branch is `feature/nxfi-commercial-platform`; its baseline
+`hardening/offline-first-licensing` remains unchanged. Published prices and release
+binaries must be explicitly configured by the owner; there are no fake payment
+successes or placeholder installers.
+
 ## Project layout
 
     FaceRecognition/

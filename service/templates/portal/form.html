@@ -1,0 +1,1 @@
+{% extends 'base.html' %}{% block content %}<section class="section container"><div class="form-card"><span class="eyebrow">NXFI / ACCOUNT</span><h1>{{ title }}</h1><form method="post">{% csrf_token %}{{ form.as_p }}<button class="button">ثبت تغییرات</button></form><p><a href="{% url 'account' %}">بازگشت به حساب</a></p></div></section>{% endblock %}

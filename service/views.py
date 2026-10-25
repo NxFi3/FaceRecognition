@@ -43,7 +43,8 @@ class SchoolLoginView(LoginView):
     authentication_form = SchoolAuthenticationForm
     template_name = "registration/login.html"
     def form_valid(self, form):
-        if not form.get_user().is_staff and not School.objects.filter(user=form.get_user()).exists():
+        from .owner_auth import is_company_owner
+        if not is_company_owner(form.get_user()) and not School.objects.filter(user=form.get_user()).exists():
             form.add_error(None, "حساب مدرسه پیدا نشد.")
             return self.form_invalid(form)
         return super().form_valid(form)
@@ -75,7 +76,7 @@ def register(request):
         except OSError:
             messages.error(request, "ارسال ایمیل انجام نشد؛ از ارسال دوبارهٔ تأیید استفاده کنید.")
         else:
-            messages.success(request, "ایمیل تأیید ارسال شد. پس از تأیید، مدیر باید اشتراک را فعال کند.")
+            messages.success(request, "ایمیل تأیید ارسال شد. پس از تأیید، طرح را از پرتال انتخاب کنید؛ فعال‌سازی فقط پس از بررسی مجاز انجام می‌شود.")
         return redirect("login")
     return render(request, "accounts/register.html", {"form": form})
 
@@ -117,8 +118,9 @@ def resend(request):
 
 @login_required
 def account(request):
-    if request.user.is_staff:
-        return redirect("admin:index")
+    from .owner_auth import is_company_owner
+    if is_company_owner(request.user):
+        return redirect("owner")
     school = School.objects.filter(user=request.user).first()
     if school is None:
         raise Http404
