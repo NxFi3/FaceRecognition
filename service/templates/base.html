@@ -1,1 +1,50 @@
-{% load static %}<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>سامانه مدارس</title><link rel="stylesheet" href="{% static 'portal.css' %}"></head><body><main><nav><a href="{% url 'account' %}">حساب مدرسه</a> · <a href="{% url 'register' %}">ثبت‌نام</a> · <a href="{% url 'login' %}">ورود</a></nav>{% for message in messages %}<p class="notice">{{ message }}</p>{% endfor %}{% block content %}{% endblock %}</main></body></html>
+{% load static %}<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light"><meta name="theme-color" content="#121a33">
+  <title>{% block title %}{{ page_title|default:'FaceRecognition' }} · NxFi Technologies{% endblock %}</title>
+  <meta name="description" content="{{ meta_description|default:'FaceRecognition؛ حضور و غیاب تصویری برای مدارس، با پردازش محلی و مجوز آفلاین.' }}">
+  <meta name="robots" content="{% if indexable %}index,follow{% else %}noindex,nofollow{% endif %}">
+  <meta property="og:type" content="website"><meta property="og:locale" content="fa_IR"><meta property="og:site_name" content="NxFi Technologies">
+  <meta property="og:title" content="{{ page_title|default:'FaceRecognition' }}"><meta property="og:description" content="{{ meta_description|default:'حضور و غیاب تصویری برای مدرسه، با پردازش محلی و مجوز آفلاین.' }}">
+  {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}"><meta property="og:url" content="{{ canonical_url }}">{% endif %}
+  <link rel="icon" href="{% static 'nxfi-mark.svg' %}" type="image/svg+xml">
+  <link rel="preload" href="{% static 'fonts/Vazirmatn-variable.woff2' %}" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="{% static 'site.css' %}">
+  <script src="{% static 'site.js' %}" defer></script>
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+<a class="skip-link" href="#main-content">رفتن به محتوای اصلی</a>
+<header class="site-header">
+  <div class="container nav-shell">
+    <a class="brand" href="{% url 'home' %}" aria-label="NxFi Technologies — صفحهٔ اصلی"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span><strong dir="ltr">NxFi<span> Technologies</span></strong><small>راهکارهای هوشمند برای آموزش</small></span></a>
+    <button class="menu-toggle" type="button" data-menu-toggle aria-expanded="false" aria-controls="primary-nav"><span aria-hidden="true">☰</span><span class="sr-only">باز کردن فهرست</span></button>
+    <nav id="primary-nav" class="primary-nav" aria-label="فهرست اصلی">
+      <a href="{% url 'features' %}"{% if current_page == 'features' %} aria-current="page"{% endif %}>محصول</a>
+      <a href="{% url 'how-it-works' %}"{% if current_page == 'how-it-works' %} aria-current="page"{% endif %}>چطور کار می‌کند؟</a>
+      <a href="{% url 'pricing' %}"{% if current_page == 'pricing' %} aria-current="page"{% endif %}>طرح‌ها</a>
+      <a href="{% url 'support' %}"{% if current_page == 'support' %} aria-current="page"{% endif %}>راهنما</a>
+      <a href="{% url 'contact' %}">ارتباط با ما</a>
+      <span class="nav-divider" aria-hidden="true"></span>
+      {% if request.user.is_authenticated %}<a class="button button-small" href="{% url 'account' %}">پنل من <span aria-hidden="true">↗</span></a><form class="nav-logout" method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">خروج</button></form>
+      {% else %}<a class="nav-login" href="{% url 'login' %}">ورود</a><a class="button button-small" href="{% url 'contact' %}?kind=demo">درخواست دمو <span aria-hidden="true">↗</span></a>{% endif %}
+    </nav>
+  </div>
+</header>
+<noscript><nav class="container no-js-nav" aria-label="فهرست بدون JavaScript"><a href="{% url 'features' %}">محصول</a><a href="{% url 'pricing' %}">طرح‌ها</a><a href="{% url 'support' %}">راهنما</a><a href="{% url 'login' %}">ورود</a></nav></noscript>
+<main id="main-content" tabindex="-1">
+  {% if messages %}<div class="container message-stack" aria-live="polite">{% for message in messages %}<div class="notice {{ message.tags }}" role="status">{{ message }}</div>{% endfor %}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="site-footer">
+  <div class="container footer-grid">
+    <div class="footer-brand"><a class="brand" href="{% url 'home' %}"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span><strong dir="ltr">NxFi Technologies</strong><small>فناوری، در خدمتِ روزهای بهتر.</small></span></a><p>FaceRecognition، راهکار حضور و غیاب تصویری برای مدرسه. پردازش محلی، مدیریت روشن و احترام به مالکیت داده.</p><span class="badge badge-neutral">در مسیر آماده‌سازی برای پایلوت</span></div>
+    <div><h2>محصول</h2><a href="{% url 'features' %}">قابلیت‌ها</a><a href="{% url 'demo' %}">دموی تعاملی</a><a href="{% url 'compare' %}">مقایسهٔ راهکارها</a><a href="{% url 'pricing' %}">طرح‌های اشتراک</a></div>
+    <div><h2>همراه مدرسه</h2><a href="{% url 'downloads' %}">دریافت نرم‌افزار</a><a href="{% url 'requirements' %}">پیش‌نیازهای نصب</a><a href="{% url 'faq' %}">پرسش‌های متداول</a><a href="{% url 'support' %}">مرکز راهنما</a></div>
+    <div><h2>شفافیت و ارتباط</h2><a href="{% url 'contact' %}">تماس و درخواست دمو</a><a href="{% url 'privacy' %}">حریم خصوصی</a><a href="{% url 'terms' %}">شرایط استفاده</a><a href="{% url 'account' %}">پرتال مدرسه</a></div>
+  </div>
+  <div class="container footer-bottom"><span dir="ltr">© {% now 'Y' %} NxFi Technologies</span><span>NxFi Technologies نام پیشنهادی این پروژه است؛ ادعای ثبت حقوقی یا تأییدیهٔ رسمی نداریم.</span></div>
+</footer>
+</body></html>

@@ -1,0 +1,40 @@
+{% extends 'base.html' %}{% block content %}
+<section class="hero container">
+  <div class="hero-surface">
+    <div class="hero-copy reveal">
+      <div class="hero-kicker"><span class="status-dot"></span>پردازش در مدرسه. مدیریت با دیدِ روشن.</div>
+      <h1>هر روز، تصویری روشن‌تر<br>از <em>حضور مدرسه.</em></h1>
+      <p>FaceRecognition، حضور و غیاب تصویری را به یک گردش‌کار منظم تبدیل می‌کند؛ از ثبت ورود و خروج تا گزارش‌های کاربردی، با حفظ اطلاعات در کامپیوتر مدرسه.</p>
+      <div class="button-row"><a class="button" href="{% url 'contact' %}?kind=demo">برای مدرسهٔ من نمایش بده <span aria-hidden="true">↗</span></a><a class="button button-ghost" href="{% url 'demo' %}"><span aria-hidden="true">▷</span> دموی تعاملی</a></div>
+      <div class="hero-note"><span aria-hidden="true">✓</span> پس از فعال‌سازی، تا پایان اعتبارِ مجوز بدون اینترنت کار کنید.</div>
+    </div>
+    <div class="hero-visual reveal">
+      {% include 'marketing/preview.html' %}
+      <div class="preview-floating"><span class="check-circle" aria-hidden="true">✓</span><div><strong>داده‌ها، تحت کنترل مدرسه</strong><small>پردازش محلی · بکاپ ابری فقط با رضایت</small></div></div>
+    </div>
+  </div>
+  <div class="trust-strip">
+    <div class="trust-item"><span class="trust-icon" aria-hidden="true">⌁</span><div><strong>کارکرد آفلاین</strong><small>تا پایان مجوزِ فعال‌شده</small></div></div>
+    <div class="trust-item"><span class="trust-icon" aria-hidden="true">▤</span><div><strong>داده در اختیار مدرسه</strong><small>گزارش و بازیابی محلی</small></div></div>
+    <div class="trust-item"><span class="trust-icon" aria-hidden="true">◉</span><div><strong>ورودی و خروجی</strong><small>گردش‌کار دو دوربین</small></div></div>
+    <div class="trust-item"><span class="trust-icon" aria-hidden="true">⌘</span><div><strong>استقرار روی CPU</strong><small>با بررسی سخت‌افزار پیش از نصب</small></div></div>
+  </div>
+</section>
+<section class="section container">
+  <div class="section-head center"><span class="eyebrow">از تصویر تا تصمیم اجرایی</span><h2>کمتر درگیر ثبت،<br>بیشتر همراهِ مدرسه.</h2><p>ابزارهای یک روز کاری مدرسه، در یک محیط فارسی و یکپارچه. هر تصمیم حساس، با امکان بررسی مسئول مدرسه.</p></div>
+  <div class="grid grid-3">
+    <article class="card feature-card"><div class="card-icon" aria-hidden="true">⌗</div><h3>ثبت تردد تصویری</h3><p>مسیر ورود و خروج را تعریف کنید و رویدادهای تردد را از دو دوربین در محیط محلی بررسی کنید.</p><a class="card-link" href="{% url 'features' %}#attendance">گردش‌کار تردد <span aria-hidden="true">←</span></a></article>
+    <article class="card feature-card"><div class="card-icon teal" aria-hidden="true">▥</div><h3>گزارش، برای اقدام</h3><p>حضور، تأخیر و رویدادهای مدرسه را مرور کنید؛ گزارش‌ها در محل قابل بررسی و خروجی‌گرفتن هستند.</p><a class="card-link" href="{% url 'features' %}#reports">دربارهٔ گزارش‌ها <span aria-hidden="true">←</span></a></article>
+    <article class="card feature-card"><div class="card-icon amber" aria-hidden="true">◇</div><h3>مدیریتِ قابل پیگیری</h3><p>اعتبار اشتراک، ظرفیت، دستگاه‌های مجاز و درخواست‌های پشتیبانی را در پرتال مدرسه مدیریت کنید.</p><a class="card-link" href="{% url 'account' %}">پرتال مدرسه <span aria-hidden="true">←</span></a></article>
+  </div>
+</section>
+<section class="section section-white">
+  <div class="container split-layout">
+    <div><span class="eyebrow">طراحی با احترام به داده</span><h2>اطلاعات مدرسه،<br>در کنترلِ مدرسه.</h2><p>تشخیص و ثبت حضور روی کامپیوتر شما انجام می‌شود. پردازش ابریِ تصویر در محصول فعلی ارائه نمی‌شود و برای شروع کار، ارسال تصاویر به سرور لازم نیست.</p><ul class="check-list"><li>مجوز آفلاینِ امضاشده پس از فعال‌سازی آنلاین</li><li>پشتیبان ابری اختیاری، رمزگذاری‌شده با کلید مدرسه</li><li>خروجی و مسیر بازیابی داده حتی پس از انقضای اشتراک</li></ul><a class="text-link" href="{% url 'privacy' %}">سیاست حفاظت از داده را بخوانید <span aria-hidden="true">←</span></a></div>
+    <div class="privacy-visual"><div class="privacy-panel"><div class="shield-icon" aria-hidden="true">◇</div><h3>مرز روشن برای داده‌ها</h3><p>تصویر و اطلاعات چهره برای پردازش روزانه به ابر منتقل نمی‌شوند.</p><div class="privacy-flow"><div class="flow-node private"><strong>مدرسه</strong><span>تشخیص و ثبت محلی</span></div><span class="flow-arrow" aria-hidden="true">←</span><div class="flow-node"><strong>پرتال NxFi</strong><span>حساب و اشتراک</span></div></div><div class="mini-note">ارسال بکاپ فقط با رضایت و رمزگذاری در دستگاه مدرسه</div></div></div>
+  </div>
+</section>
+<section class="section container"><div class="section-head"><span class="eyebrow">شروع با یک مسیر مشخص</span><h2>از بررسی تا اولین روز استفاده.</h2></div><div class="grid grid-4 steps"><article class="step"><span class="step-num">01</span><h3>بررسی مدرسه</h3><p>محیط، سخت‌افزار و نیاز مدرسه را پیش از انتخاب طرح بررسی کنید.</p></article><article class="step"><span class="step-num">02</span><h3>نصب و فعال‌سازی</h3><p>نسخهٔ تأییدشده را نصب و مجوزِ دستگاه را یک بار آنلاین فعال کنید.</p></article><article class="step"><span class="step-num">03</span><h3>آماده‌سازی محلی</h3><p>با مجوزهای لازم، اطلاعات دانش‌آموزان و محدودهٔ دوربین را تنظیم کنید.</p></article><article class="step"><span class="step-num">04</span><h3>پایلوت و استفاده</h3><p>تردد، گزارش و بازیابی را با مسئول مدرسه بررسی و سپس استفاده را آغاز کنید.</p></article></div><a class="card-link" href="{% url 'how-it-works' %}">مراحل راه‌اندازی را ببینید <span aria-hidden="true">←</span></a></section>
+<section class="section-tight container"><div class="callout"><div><h2>برای مدرسهٔ شما مناسب است؟</h2><p>با یک نمایش و بررسی شرایط واقعی، آگاهانه تصمیم بگیرید.</p></div><div class="button-row"><a class="button button-light" href="{% url 'contact' %}?kind=demo">درخواست جلسهٔ معرفی <span aria-hidden="true">↗</span></a><a class="button button-ghost" href="{% url 'pricing' %}">بررسی طرح‌ها</a></div></div></section>
+<section class="section container"><div class="section-head center"><span class="eyebrow">پیش از انتخاب</span><h2>چند پاسخ روشن.</h2></div><div class="faq-list"><details><summary>اگر اینترنت مدرسه قطع شود چه اتفاقی می‌افتد؟</summary><p>پس از فعال‌سازی آنلاین، مجوز معتبر تا تاریخ پایانِ امضاشده قابل استفادهٔ آفلاین است. قطع سرور به‌تنهایی مجوز معتبر را باطل نمی‌کند.</p></details><details><summary>آیا اطلاعات چهره به سرور شما ارسال می‌شود؟</summary><p>پردازش روزمره محلی است. بکاپ ابری تنها با رضایت صریح مدرسه ارسال می‌شود و نسخه‌های جدید پیش از ارسال با کلید مدرسه رمزگذاری می‌شوند.</p></details><details><summary>آیا می‌توان قبل از خرید بررسی کرد؟</summary><p>بله؛ دموی تعاملی عمومی با دادهٔ ساختگی در دسترس است. برای بررسی نصب یا طرح آزمایشی می‌توانید درخواست دمو ثبت کنید؛ فعال‌سازی طرح آزمایشی نیازمند تأیید است.</p></details></div><div class="section-head center"><a class="card-link" href="{% url 'faq' %}">همهٔ پرسش‌ها <span aria-hidden="true">←</span></a></div></section>
+{% endblock %}
