@@ -88,3 +88,34 @@ Before onboarding children’s biometric data, obtain school/guardian approvals 
 applicable, agree purpose/retention/deletion and recovery custody, review Iranian
 hosting/payment/legal obligations with qualified advisers, verify actual Windows
 and camera parity, and rehearse recovery on a separate installation.
+
+## Implementation trace and operational checks
+
+The baseline audit is intentionally retained above so fixed findings are not
+rewritten as if they never existed. Implementation details and remaining limits
+are recorded separately:
+
+- [Commercial operations and deployment (Persian)](commercial-deployment-fa.md):
+  explicit owner provisioning, manual bank verification, read-only artifacts,
+  local development isolation, outbox processing and server recovery.
+- [Owner security](commercial-owner-security.md): explicit ownership record,
+  provisioning/transfer and fresh authentication for sensitive actions.
+- [Desktop security review](desktop-commercial-security.md): reproduced logout
+  reactivation, export-cell injection and bounded file handling fixes, with tests.
+- [Future inference provider](future-inference-provider.md): local-only boundary
+  and proposed future API; no cloud inference product or uploader is activated.
+
+The DevOps implementation was checked using three local-development guard tests,
+two secret-generator regression tests, a production Compose `config --quiet`
+against a newly generated disposable environment, Python compilation, shell syntax
+and Git whitespace checks. These checks did not launch public infrastructure or
+prove HTTPS/SMTP delivery. Docker/image/PostgreSQL/browser/full-suite results are
+reported by the final integration run, rather than inferred from these checks.
+
+Local plaintext student storage, guardian/school consent, credential-vault
+availability, model redistribution rights, actual Windows signing/build/camera
+parity, provider contracts, external penetration review and lawful financial
+invoicing remain release responsibilities. Password-based owner step-up is not
+phishing-resistant MFA. Dependency advisory scans cannot establish absence of all
+vulnerabilities, and neither anti-spoofing/liveness nor perfect offline DRM is
+claimed.
