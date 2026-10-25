@@ -72,9 +72,18 @@ class DeviceAdmin(OwnerModelAdmin):
     exclude = ("token_digest", "password_stamp")
     def has_add_permission(self, request):
         return False
+    def has_delete_permission(self, request, obj=None):
+        # Deleting the digest would strand a still-valid offline license: it
+        # could no longer authenticate to receive its signed revocation status.
+        return False
     def save_model(self, request, obj, form, change):
-        super().save_model(request, obj, form, change)
-        AuditEvent.objects.create(actor=request.user, school=obj.school, action="device.updated", object_id=str(obj.pk))
+        with transaction.atomic():
+            School.objects.select_for_update().get(pk=obj.school_id)
+            Device.objects.select_for_update().filter(pk=obj.pk).first()
+            # Only revocation is editable here. The form instance may predate a
+            # completed login; never restore its old token/stamp/expiry columns.
+            obj.save(update_fields=['revoked'])
+            AuditEvent.objects.create(actor=request.user, school=obj.school, action="device.updated", object_id=str(obj.pk))
 
 
 @admin.register(Backup)

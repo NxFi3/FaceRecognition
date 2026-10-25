@@ -146,13 +146,16 @@ def web_download(request, backup_id):
 @login_required
 @require_POST
 def revoke_device(request, device_id):
-    device = Device.objects.filter(pk=device_id, school__user=request.user).first()
-    if device is None:
-        raise Http404
-    device.revoked = True
-    # Retain the digest so this revoked installation can receive a signed denial.
-    device.save(update_fields=["revoked"])
-    AuditEvent.objects.create(actor=request.user, school=device.school, action="device.revoked", object_id=str(device.pk))
+    with transaction.atomic():
+        # Use the same School -> Device lock order as signed-license issuance.
+        school = School.objects.select_for_update().filter(user=request.user).first()
+        device = Device.objects.select_for_update().filter(pk=device_id, school=school).first()
+        if device is None:
+            raise Http404
+        device.revoked = True
+        # Preserve the digest so the next authenticated sync gets signed denial.
+        device.save(update_fields=["revoked"])
+        AuditEvent.objects.create(actor=request.user, school=school, action="device.revoked", object_id=str(device.pk))
     return redirect("account")
 
 

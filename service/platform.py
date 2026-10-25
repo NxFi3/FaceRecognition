@@ -66,9 +66,10 @@ def profile(request):
     school = school_for(request)
     form = SchoolProfileForm(request.POST or None, initial={'name': school.name})
     if request.method == 'POST' and form.is_valid():
-        school.name = form.cleaned_data['name']
-        school.save(update_fields=['name'])
-        AuditEvent.objects.create(actor=request.user, school=school, action='school.profile.updated', object_id=str(school.pk))
+        with transaction.atomic():
+            school.name = form.cleaned_data['name']
+            school.save(update_fields=['name'])
+            AuditEvent.objects.create(actor=request.user, school=school, action='school.profile.updated', object_id=str(school.pk))
         messages.success(request, 'نام مدرسه به‌روز شد؛ تغییر ایمیل از مسیر پشتیبانی انجام می‌شود.')
         return redirect('profile')
     return render(request, 'portal/form.html', {'title': 'مشخصات مدرسه', 'form': form, 'school': school})
@@ -256,6 +257,7 @@ def owner_payment(request, order_id):
 @owner_required(recent=True)
 @require_POST
 def owner_trial(request, order_id):
+    get_object_or_404(Order, pk=order_id)
     try:
         approve_trial(order_id=order_id, actor=request.user)
     except (ValidationError, ValueError) as exc:
@@ -273,8 +275,9 @@ def owner_plan(request, plan_id=None):
     form.fields['product'].disabled = item is not None
     form.fields['product'].label = 'محصول'
     if request.method == 'POST' and form.is_valid():
-        item = form.save()
-        AuditEvent.objects.create(actor=request.user, action='plan.updated', object_id=str(item.pk))
+        with transaction.atomic():
+            item = form.save()
+            AuditEvent.objects.create(actor=request.user, action='plan.updated', object_id=str(item.pk))
         messages.success(request, 'طرح ذخیره شد؛ سفارش‌های قبلی مبلغ ثبت‌شدهٔ خود را نگه می‌دارند.')
         return redirect('owner')
     return render(request, 'portal/form.html', {'title': 'تعریف / ویرایش طرح', 'form': form})
@@ -292,8 +295,9 @@ def owner_release(request):
         except (OSError, ValidationError) as exc:
             form.add_error(None, str(exc))
         else:
-            item.save()
-            AuditEvent.objects.create(actor=request.user, action='release.published' if item.is_published else 'release.registered', object_id=str(item.pk))
+            with transaction.atomic():
+                item.save()
+                AuditEvent.objects.create(actor=request.user, action='release.published' if item.is_published else 'release.registered', object_id=str(item.pk))
             return redirect('owner')
     return render(request, 'portal/form.html', {'title': 'ثبت انتشار — فایل باید توسط اپراتور روی سرور نصب شده باشد', 'form': form})
 
@@ -301,10 +305,11 @@ def owner_release(request):
 @owner_required(recent=True)
 @require_POST
 def owner_release_withdraw(request, release_id):
-    item = get_object_or_404(Release, pk=release_id)
-    item.is_published = False
-    item.save(update_fields=['is_published'])
-    AuditEvent.objects.create(actor=request.user, action='release.withdrawn', object_id=str(item.pk))
+    with transaction.atomic():
+        item = get_object_or_404(Release.objects.select_for_update(), pk=release_id)
+        item.is_published = False
+        item.save(update_fields=['is_published'])
+        AuditEvent.objects.create(actor=request.user, action='release.withdrawn', object_id=str(item.pk))
     return redirect('owner')
 
 
@@ -327,10 +332,11 @@ def owner_ticket(request, ticket_id):
 @owner_required(recent=True)
 @require_POST
 def owner_contact(request, contact_id):
-    item = get_object_or_404(ContactRequest, pk=contact_id)
-    item.handled = True
-    item.save(update_fields=['handled'])
-    AuditEvent.objects.create(actor=request.user, action='contact.handled', object_id=str(item.pk))
+    with transaction.atomic():
+        item = get_object_or_404(ContactRequest.objects.select_for_update(), pk=contact_id)
+        item.handled = True
+        item.save(update_fields=['handled'])
+        AuditEvent.objects.create(actor=request.user, action='contact.handled', object_id=str(item.pk))
     return redirect('owner')
 
 
@@ -338,11 +344,15 @@ def owner_contact(request, contact_id):
 def owner_health(request):
     from django.db import connection
     from django.core.cache import cache
-    health = {'database': False, 'cache': False, 'email_pending': EmailOutbox.objects.filter(sent_at__isnull=True).count()}
+    health = {'database': False, 'cache': False, 'email_pending': None}
     try:
         with connection.cursor() as cursor:
             cursor.execute('SELECT 1')
+        health['email_pending'] = EmailOutbox.objects.filter(sent_at__isnull=True).count()
         health['database'] = True
+    except Exception:
+        health['probe_error'] = True
+    try:
         cache.set('owner-health', True, 5)
         health['cache'] = cache.get('owner-health') is True
     except Exception:
