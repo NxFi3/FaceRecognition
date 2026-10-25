@@ -97,3 +97,11 @@ Recorded focused run (2026-10-25):
 **14 tests, all passed** (0.410 seconds in the recorded run). This used disposable
 SQLite server test data, not production accounts or Windows. The full PostgreSQL,
 portal, commerce and deployment test results belong to the integration report.
+
+Device-allowance follow-up: the technical `SchoolAdminForm` now rejects reducing
+an allowance below non-revoked bound installations, including installations whose
+network credentials have expired. In the admin POST transaction it locks the same
+school row as API admission before counting. It never silently revokes devices;
+explicit revocation/logout is required first. New schools' preassigned UUIDs are
+handled safely. Three regression cases cover reduction, explicit release and new
+school creation. Recorded focused suite after this follow-up: **17 tests passed**.

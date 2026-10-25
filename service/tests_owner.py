@@ -199,3 +199,48 @@ class PublicOriginConfigurationTests(TestCase):
                 result = subprocess.run([sys.executable, '-c', 'import service.settings'], env=environment, capture_output=True, text=True, timeout=10)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('PUBLIC_URL must be an HTTPS origin', result.stderr)
+
+
+@override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
+class SchoolAdminDeviceAllowanceTests(TestCase):
+    def setUp(self):
+        from django.utils import timezone
+        from datetime import timedelta
+        from .models import Device
+        self.user = get_user_model().objects.create_user('allowance-school@example.com', password=PASSWORD)
+        self.school = School.objects.create(user=self.user, name='School', student_limit=900, device_limit=2)
+        import uuid
+        for index in range(2):
+            Device.objects.create(school=self.school, installation_id=uuid.uuid4(), label='Synthetic',
+                token_digest=str(index)*64, password_stamp='test', credential_expires_at=timezone.now()-timedelta(days=1))
+
+    def form(self, school=None, **changes):
+        from .admin import SchoolAdminForm
+        value = {'user': self.user.pk, 'name': 'School', 'status': 'suspended', 'student_limit': 900,
+            'device_limit': 1, 'backup_quota_bytes': 1024**3, 'backup_retention': 7, 'backups_enabled': True}
+        value.update(changes)
+        return SchoolAdminForm(value, instance=school or self.school)
+
+    def test_admin_cannot_reduce_below_bound_even_with_expired_network_tokens(self):
+        form = self.form()
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors.as_data()['device_limit'][0].code, 'active_devices_exceed_allowance')
+        self.school.refresh_from_db()
+        self.assertEqual(self.school.device_limit, 2)
+
+    def test_explicit_revocation_or_logout_frees_allowance_without_silent_changes(self):
+        from .models import Device
+        Device.objects.filter(school=self.school).update(revoked=True)
+        form = self.form()
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.assertEqual(Device.objects.filter(school=self.school, revoked=True).count(), 2)
+        Device.objects.filter(school=self.school).update(revoked=False, token_digest=None)
+        self.assertTrue(self.form().is_valid())
+
+    def test_creation_with_default_uuid_has_no_existing_bound_devices(self):
+        user = get_user_model().objects.create_user('new-school@example.com', password=PASSWORD)
+        form = self.form(School(), user=user.pk)
+        self.assertTrue(form.is_valid(), form.errors)
+        created = form.save()
+        self.assertEqual(created.device_limit, 1)

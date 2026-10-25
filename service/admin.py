@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django import forms
+from django.db import transaction
 from .models import AuditEvent, Backup, Device, School
 from .owner_auth import is_company_owner
 
@@ -17,8 +19,31 @@ class OwnerModelAdmin(admin.ModelAdmin):
         return is_company_owner(request.user)
 
 
+class SchoolAdminForm(forms.ModelForm):
+    class Meta:
+        model = School
+        fields = '__all__'
+
+    def clean(self):
+        cleaned = super().clean()
+        allowance = cleaned.get('device_limit')
+        if allowance is not None:
+            # ModelAdmin POSTs have an outer transaction. Lock the same school row
+            # as API device admission so a device cannot slip in during a reduction.
+            with transaction.atomic():
+                School.objects.select_for_update().filter(pk=self.instance.pk).first()
+                bound = Device.objects.filter(school_id=self.instance.pk, revoked=False,
+                                               token_digest__isnull=False).count()
+                if bound > allowance:
+                    self.add_error('device_limit', forms.ValidationError(
+                        'ابتدا دستگاه‌های اضافی را صریحاً لغو کنید؛ کاهش ظرفیت دستگاه، نصب آفلاین را بی‌صدا لغو نمی‌کند.',
+                        code='active_devices_exceed_allowance'))
+        return cleaned
+
+
 @admin.register(School)
 class SchoolAdmin(OwnerModelAdmin):
+    form = SchoolAdminForm
     list_display = ("name", "status", "starts_at", "expires_at", "student_limit", "device_limit")
     list_filter = ("status",)
     search_fields = ("name", "user__username")
