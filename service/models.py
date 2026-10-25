@@ -83,3 +83,4 @@ class AuditEvent(models.Model):
 from .commerce_models import Product, ProductSubscription, Plan, Order, VerifiedPayment  # noqa: E402,F401
 from .owner_models import CompanyOwner  # noqa: E402,F401
 from .portal_models import ContactRequest, SupportTicket, TicketReply, Release, EmailOutbox  # noqa: E402,F401
+from .customer_models import CustomerProfile  # noqa: E402,F401

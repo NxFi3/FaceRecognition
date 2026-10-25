@@ -30,7 +30,7 @@ if (demo) {
   function update() {
     const data = days[daySelect.value] || days.saturday;
     for (const key of ['present', 'late', 'absent']) {
-      demo.querySelector('[data-demo-' + key + ']').textContent = new Intl.NumberFormat('fa-IR').format(data[key]);
+      demo.querySelector('[data-demo-' + key + ']').textContent = new Intl.NumberFormat(document.documentElement.lang === 'fa' ? 'fa-IR' : 'en').format(data[key]);
     }
     const query = filter.value.trim();
     let visible = 0;
@@ -40,7 +40,7 @@ if (demo) {
       if (!row.hidden) visible += 1;
     });
     demo.querySelector('[data-demo-empty]').hidden = visible !== 0;
-    demo.querySelector('[data-demo-announcement]').textContent = 'داده‌های ساختگیِ روز انتخاب‌شده به‌روزرسانی شد. ' + new Intl.NumberFormat('fa-IR').format(visible) + ' ردیف نمونه نمایش داده می‌شود.';
+    demo.querySelector('[data-demo-announcement]').textContent = (document.documentElement.lang === 'fa' ? 'داده‌های ساختگی به‌روز شد. ' : 'Synthetic data updated. ') + new Intl.NumberFormat(document.documentElement.lang === 'fa' ? 'fa-IR' : 'en').format(visible) + (document.documentElement.lang === 'fa' ? ' ردیف نمونه نمایش داده می‌شود.' : ' sample rows displayed.');
   }
   daySelect.addEventListener('change', update);
   filter.addEventListener('input', update);
@@ -52,10 +52,15 @@ for (const form of document.querySelectorAll('form[data-submit-once]')) {
     for (const button of form.querySelectorAll('button[type="submit"]:not([name])')) {
       button.disabled = true;
       button.setAttribute('aria-busy', 'true');
-      button.textContent = 'در حال ارسال…';
+      button.textContent = document.documentElement.lang === 'fa' ? 'در حال ارسال…' : 'Submitting…';
     }
   });
 }
 for (const button of document.querySelectorAll('[data-print]')) {
   button.addEventListener('click', () => window.print());
+}
+
+// Keep language submission CSP-compatible; preserve form fields/navigation via next.
+for (const select of document.querySelectorAll('[data-language-select]')) {
+  select.addEventListener('change', () => select.form.requestSubmit());
 }

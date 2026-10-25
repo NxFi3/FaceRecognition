@@ -7,6 +7,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 
 FACE_PRODUCT_SLUG = 'facerecognition'
@@ -23,6 +24,14 @@ class Product(models.Model):
 
     class Meta:
         ordering = ['sort_order', 'name']
+
+    @property
+    def localized_summary(self):
+        # Only the historical seeded text has a reviewed translation. Preserve
+        # arbitrary operator-authored copy verbatim; never pretend to translate it.
+        if self.summary == 'حضور و غیاب تصویری مدارس با پردازش محلی و مجوز آفلاین':
+            return _('Local visual school attendance with offline licensing')
+        return self.summary
 
     @property
     def is_available(self):

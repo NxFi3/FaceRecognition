@@ -16,7 +16,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .models import School, Device, Backup, AuditEvent
+from .models import School, Device, Backup, AuditEvent, CustomerProfile
 from .portal_models import ContactRequest, SupportTicket, TicketReply, Release, EmailOutbox
 from .platform_forms import (ContactForm, SchoolProfileForm, TicketForm, ReplyForm,
     ManualPaymentForm, VerifyPaymentForm, ReleaseForm)
@@ -231,6 +231,7 @@ def owner(request):
     totals = payments.aggregate(total=Sum('amount_irr'))
     # No license API/client keys are exposed in this overview.
     return render(request, 'owner/dashboard.html', {'revenue': totals['total'] or 0,
+        'unassigned_customers': CustomerProfile.objects.filter(user__school__isnull=True).exclude(user=request.user).select_related('user').order_by('-pk')[:100],
         'schools': School.objects.select_related('user').order_by('-created_at')[:100],
         'orders': Order.objects.select_related('school','product').filter(**({'product_id': selected} if selected else {})).order_by('-created_at')[:100],
         'plans': Plan.objects.select_related('product').filter(**({'product_id': selected} if selected else {})).order_by('product_id','sort_order'), 'products': Product.objects.order_by('sort_order','pk'), 'selected_product': selected, 'subscriptions': ProductSubscription.objects.select_related('school','product').filter(**({'product_id': selected} if selected else {})).order_by('-expires_at')[:100], 'contacts': ContactRequest.objects.order_by('-created_at')[:50],
@@ -412,8 +413,8 @@ def owner_device_revoke(request, school_id, device_id):
 def workspace(request):
     if is_company_owner(request.user):
         return redirect('owner')
-    school = school_for(request)
-    product = get_object_or_404(Product, pk=FACE_PRODUCT_SLUG)
+    school = School.objects.filter(user=request.user).first()
+    product = Product.objects.filter(pk=FACE_PRODUCT_SLUG).first()
     subscriptions = ProductSubscription.objects.filter(school=school, product_id=FACE_PRODUCT_SLUG).select_related('product')
     return render(request, 'portal/workspace.html', {'school': school, 'product': product,
         'subscriptions': subscriptions, 'page_title': 'حساب NxFi Technologies'})

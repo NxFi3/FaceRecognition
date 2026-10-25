@@ -5,22 +5,23 @@ from django.http import Http404, HttpResponse
 from django.shortcuts import render
 from django.urls import reverse
 from django.utils.html import escape
+from django.utils.translation import gettext_lazy as _
 
 PUBLIC_PAGES = {
-    'home': ('NxFi Technologies؛ نرم‌افزار و هوش مصنوعی کاربردی', 'آشنایی با NxFi Technologies، شرکت نرم‌افزار و فناوری هوش مصنوعی، و FaceRecognition به‌عنوان نخستین محصول تجاری آن.'),
-    'products': ('محصولات NxFi Technologies', 'محصولات معرفی‌شدهٔ NxFi Technologies؛ FaceRecognition نخستین و در حال حاضر تنها محصول تجاری شرکت است.'),
-    'product-facerecognition': ('FaceRecognition؛ حضور روشن، مدیریت آسوده', 'محصول حضور و غیاب تصویری NxFi Technologies برای مدارس؛ پردازش محلی، مجوز آفلاین، گزارش و پشتیبانی.'),
-    'features': ('قابلیت‌های FaceRecognition', 'از ثبت چهره و تردد تا گزارش‌های محلی و پشتیبان رمزگذاری‌شده؛ قابلیت‌های سامانهٔ مدارس NxFi.'),
-    'how-it-works': ('از نصب تا یک روز کاری', 'مراحل بررسی سخت‌افزار، فعال‌سازی اشتراک، ثبت دانش‌آموزان و شروع حضور و غیاب تصویری.'),
-    'demo': ('دموی تعاملی با دادهٔ ساختگی', 'بدون دوربین و بدون دادهٔ واقعی دانش‌آموزان، نمونهٔ نمایشی گزارش حضور و غیاب را بررسی کنید.'),
-    'pricing': ('طرح متناسب با مدرسهٔ شما', 'طرح‌های قابل تنظیم بر اساس ظرفیت دانش‌آموز، تعداد نصب و مدت اشتراک؛ پرداخت دستی فقط پس از تأیید فعال می‌شود.'),
-    'compare': ('انتخاب آگاهانه برای مدرسه', 'مقایسهٔ گردش‌کار دستی با FaceRecognition و توضیح روشن پیش‌نیازها و محدودیت‌ها.'),
-    'downloads': ('دریافت نرم‌افزار', 'نسخه‌های منتشرشدهٔ FaceRecognition، یادداشت انتشار و SHA-256 برای بررسی صحت فایل.'),
-    'requirements': ('پیش‌نیازهای نصب', 'سخت‌افزار، ویندوز، دوربین، شبکه و الزامات حفاظت از دادهٔ مدارس برای نصب FaceRecognition.'),
-    'faq': ('پرسش‌های متداول', 'پاسخ دربارهٔ کارکرد آفلاین، اشتراک، تمدید، اطلاعات چهره، ظرفیت و بازیابی اطلاعات.'),
-    'support': ('مرکز راهنمای NxFi', 'پشتیبانی حساب NxFi و راهنمای محصول فعلی FaceRecognition؛ نصب، مجوز آفلاین و بازیابی.'),
-    'privacy': ('حریم خصوصی در NxFi Technologies', 'تفکیک اطلاعات حساب تجاری از سوابق دانش‌آموزان، رضایت برای بکاپ و مسئولیت نگهداری کلید بازیابی.'),
-    'terms': ('شرایط استفاده از NxFi و محصولات', 'شرایط حساب مشتری NxFi، سفارش و پرداخت و شرایط فنی محصول فعلی FaceRecognition.'),
+    'home': (_('NxFi Technologies — software and applied AI'), _('Explore NxFi Technologies — software and applied AI. Official NxFi Technologies product information and customer services.')),
+    'products': (_('Products by NxFi Technologies'), _('Explore Products by NxFi Technologies. Official NxFi Technologies product information and customer services.')),
+    'product-facerecognition': (_('FaceRecognition — local school attendance'), _('Explore FaceRecognition — local school attendance. Official NxFi Technologies product information and customer services.')),
+    'features': (_('FaceRecognition features'), _('Explore FaceRecognition features. Official NxFi Technologies product information and customer services.')),
+    'how-it-works': (_('How FaceRecognition works'), _('Explore How FaceRecognition works. Official NxFi Technologies product information and customer services.')),
+    'demo': (_('Interactive synthetic demonstration'), _('Explore Interactive synthetic demonstration. Official NxFi Technologies product information and customer services.')),
+    'pricing': (_('FaceRecognition plans and pricing'), _('Explore FaceRecognition plans and pricing. Official NxFi Technologies product information and customer services.')),
+    'compare': (_('Compare attendance workflows'), _('Explore Compare attendance workflows. Official NxFi Technologies product information and customer services.')),
+    'downloads': (_('Download FaceRecognition'), _('Explore Download FaceRecognition. Official NxFi Technologies product information and customer services.')),
+    'requirements': (_('Installation requirements'), _('Explore Installation requirements. Official NxFi Technologies product information and customer services.')),
+    'faq': (_('Frequently asked questions'), _('Explore Frequently asked questions. Official NxFi Technologies product information and customer services.')),
+    'support': (_('NxFi support center'), _('Explore NxFi support center. Official NxFi Technologies product information and customer services.')),
+    'privacy': (_('Privacy policy'), _('Explore Privacy policy. Official NxFi Technologies product information and customer services.')),
+    'terms': (_('Terms of service'), _('Explore Terms of service. Official NxFi Technologies product information and customer services.')),
 }
 
 
@@ -72,6 +73,11 @@ def sitemap(request):
     locations = [settings.PUBLIC_URL + reverse(name) for name in PUBLIC_PAGES
                  if face_published or name not in PRODUCT_PAGES]
     locations.append(settings.PUBLIC_URL + reverse('contact'))
+    locations.append(settings.PUBLIC_URL + reverse('about'))
     body = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
     body += ''.join('<url><loc>' + escape(location) + '</loc></url>' for location in locations)
     return HttpResponse(body + '</urlset>', content_type='application/xml')
+
+
+def about(request):
+    return render(request, 'marketing/about.html', {'indexable': True, 'page_title': _('About NxFi'), 'canonical_url': settings.PUBLIC_URL + reverse('about')})

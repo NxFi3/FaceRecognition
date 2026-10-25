@@ -16,25 +16,26 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from .backups import download_response
-from .models import AuditEvent, Backup, Device, School
+from .models import AuditEvent, Backup, Device, School, CustomerProfile
+from django.utils.translation import gettext_lazy as _, get_language, override
 from .security import throttled, too_many
 
 
 class RegistrationForm(UserCreationForm):
-    username = forms.EmailField(label="ایمیل", max_length=150)
-    school_name = forms.CharField(label="نام مدرسه", max_length=160)
+    username = forms.EmailField(label=_("Email"), max_length=150)
+    school_name = forms.CharField(label=_("School name (optional, for FaceRecognition)"), max_length=160, required=False)
     class Meta:
         model = get_user_model()
         fields = ("username", "school_name", "password1", "password2")
     def clean_username(self):
         value = self.cleaned_data["username"].strip().casefold()
         if get_user_model().objects.filter(username=value).exists():
-            raise forms.ValidationError("این ایمیل قابل ثبت نیست؛ ورود یا بازیابی رمز را امتحان کنید.")
+            raise forms.ValidationError(_("This email cannot be registered. Try signing in or recovering your password."))
         return value
 
 
 class SchoolAuthenticationForm(AuthenticationForm):
-    username = forms.EmailField(label="ایمیل مدرسه", max_length=150)
+    username = forms.EmailField(label=_("NxFi account email"), max_length=150)
     def clean_username(self):
         return self.cleaned_data["username"].strip().casefold()
 
@@ -44,8 +45,8 @@ class SchoolLoginView(LoginView):
     template_name = "registration/login.html"
     def form_valid(self, form):
         from .owner_auth import is_company_owner
-        if not is_company_owner(form.get_user()) and not School.objects.filter(user=form.get_user()).exists():
-            form.add_error(None, "حساب مدرسه پیدا نشد.")
+        if not is_company_owner(form.get_user()) and not (School.objects.filter(user=form.get_user()).exists() or CustomerProfile.objects.filter(user=form.get_user(), email_verified_at__isnull=False).exists()):
+            form.add_error(None, _("No verified NxFi account was found."))
             return self.form_invalid(form)
         return super().form_valid(form)
 
@@ -53,12 +54,14 @@ class SchoolLoginView(LoginView):
 def send_verification(user):
     token = signing.dumps({"user": user.pk, "email": user.email}, salt="verify-school-email")
     url = settings.PUBLIC_URL + reverse("verify", args=[token])
-    send_mail("تأیید حساب مدرسه", f"برای تأیید ایمیل حساب مدرسه این لینک را باز کنید. اعتبار: ۲۴ ساعت.\n{url}", settings.DEFAULT_FROM_EMAIL, [user.email])
+    profile = CustomerProfile.objects.filter(user=user).first()
+    with override(profile.preferred_language if profile else "en"):
+        send_mail(_("Verify your NxFi account"), str(_("Open this link to verify your account email. Valid for 24 hours.")) + "\n" + url, settings.DEFAULT_FROM_EMAIL, [user.email])
 
 
 def register(request):
     if not settings.TESTING and not settings.EMAIL_HOST:
-        return HttpResponse("ثبت‌نام تا تنظیم سرویس ایمیل توسط مدیر غیرفعال است.", status=503)
+        return HttpResponse(_("Registration is unavailable until the operator configures email."), status=503)
     form = RegistrationForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         try:
@@ -67,16 +70,18 @@ def register(request):
                 user.email = form.cleaned_data["username"]
                 user.is_active = False
                 user.save()
-                School.objects.create(user=user, name=form.cleaned_data["school_name"])
+                CustomerProfile.objects.create(user=user, preferred_language="fa" if get_language() == "fa" else "en")
+                if form.cleaned_data["school_name"]:
+                    School.objects.create(user=user, name=form.cleaned_data["school_name"])
         except IntegrityError:
-            form.add_error("username", "این ایمیل قابل ثبت نیست؛ ورود یا بازیابی رمز را امتحان کنید.")
+            form.add_error("username", _("This email cannot be registered. Try signing in or recovering your password."))
             return render(request, "accounts/register.html", {"form": form})
         try:
             send_verification(user)
         except OSError:
-            messages.error(request, "ارسال ایمیل انجام نشد؛ از ارسال دوبارهٔ تأیید استفاده کنید.")
+            messages.error(request, _("Email could not be sent. Use resend verification."))
         else:
-            messages.success(request, "ایمیل تأیید ارسال شد. پس از تأیید، طرح را از پرتال انتخاب کنید؛ فعال‌سازی فقط پس از بررسی مجاز انجام می‌شود.")
+            messages.success(request, _("Verification email sent. Verify your email, then choose a product. Subscription activation requires authorized approval."))
         return redirect("login")
     return render(request, "accounts/register.html", {"form": form})
 
@@ -86,19 +91,23 @@ def verify(request, token):
         data = signing.loads(token, salt="verify-school-email", max_age=86400)
         user = get_user_model().objects.get(pk=data["user"], email=data["email"])
     except (signing.BadSignature, KeyError, get_user_model().DoesNotExist):
-        return HttpResponse("لینک نامعتبر یا منقضی شده است.", status=400)
+        return HttpResponse(_("This link is invalid or expired."), status=400)
     with transaction.atomic():
         school = School.objects.select_for_update().filter(user=user).first()
-        if school is None or school.status == School.Status.BANNED:
-            return HttpResponse("با پشتیبانی تماس بگیرید.", status=403)
-        if school.email_verified_at is None:
-            school.email_verified_at = timezone.now()
-            school.save(update_fields=["email_verified_at"])
+        customer, _created = CustomerProfile.objects.get_or_create(user=user)
+        if school is not None and school.status == School.Status.BANNED:
+            return HttpResponse(_("Contact support."), status=403)
+        if customer.email_verified_at is None and (school is None or school.email_verified_at is None):
+            customer.email_verified_at = timezone.now()
+            customer.save(update_fields=["email_verified_at"])
+            if school is not None:
+                school.email_verified_at = customer.email_verified_at
+                school.save(update_fields=["email_verified_at"])
             user.is_active = True
             user.save(update_fields=["is_active"])
         elif not user.is_active:
-            return HttpResponse("با پشتیبانی تماس بگیرید.", status=403)
-    messages.success(request, "ایمیل تأیید شد. اکنون وارد شوید.")
+            return HttpResponse(_("Contact support."), status=403)
+    messages.success(request, _("Email verified. You can now sign in."))
     return redirect("login")
 
 
@@ -111,7 +120,7 @@ def resend(request):
                 send_verification(user)
             except OSError:
                 pass
-        messages.success(request, "اگر حساب نیاز به تأیید داشته باشد، لینک ارسال می‌شود.")
+        messages.success(request, _("If the account needs verification, a link will be sent."))
         return redirect("login")
     return render(request, "accounts/resend.html")
 

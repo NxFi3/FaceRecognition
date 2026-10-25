@@ -67,7 +67,7 @@ class PortalTests(TestCase):
                  'requirements', 'faq', 'contact', 'support', 'privacy', 'terms')
         for name in names:
             with self.subTest(page=name):
-                response = self.client.get(reverse(name), secure=True)
+                response = self.client.get(reverse(name), secure=True, HTTP_ACCEPT_LANGUAGE="fa")
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, 'lang="fa"')
                 self.assertContains(response, 'dir="rtl"')

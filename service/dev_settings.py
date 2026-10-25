@@ -36,3 +36,5 @@ STORAGES = {'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'
 # Dedicated local locations; never mount real school backup data in this profile.
 BACKUP_ROOT = DEV_DATABASE.parent / 'development-backups'
 RELEASE_ROOT = DEV_DATABASE.parent / 'development-releases'
+
+LANGUAGE_COOKIE_SECURE = False

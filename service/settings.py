@@ -28,7 +28,7 @@ WSGI_APPLICATION = "service.wsgi.application"
 INSTALLED_APPS = ["service.apps.OwnerAdminConfig", "django.contrib.auth", "django.contrib.contenttypes",
                   "django.contrib.sessions", "django.contrib.messages", "django.contrib.staticfiles", "service"]
 MIDDLEWARE = ["django.middleware.security.SecurityMiddleware", "whitenoise.middleware.WhiteNoiseMiddleware",
-              "django.contrib.sessions.middleware.SessionMiddleware", "django.middleware.common.CommonMiddleware",
+              "django.contrib.sessions.middleware.SessionMiddleware", "django.middleware.locale.LocaleMiddleware", "django.middleware.common.CommonMiddleware",
               "django.middleware.csrf.CsrfViewMiddleware", "django.contrib.auth.middleware.AuthenticationMiddleware",
               "django.contrib.messages.middleware.MessageMiddleware", "django.middleware.clickjacking.XFrameOptionsMiddleware",
               "service.security.SecurityHeaders"]
@@ -96,7 +96,13 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 12}},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"}]
-LANGUAGE_CODE = "fa"
+LANGUAGE_CODE = "en"
+LANGUAGES = [("en", "English"), ("fa", "فارسی")]
+USE_I18N = True
+LOCALE_PATHS = [BASE_DIR / "locale"]
+LANGUAGE_COOKIE_HTTPONLY = True
+LANGUAGE_COOKIE_SAMESITE = "Lax"
+LANGUAGE_COOKIE_SECURE = not TESTING
 TIME_ZONE = "UTC"
 USE_TZ = True
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

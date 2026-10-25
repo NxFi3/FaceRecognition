@@ -1,42 +1,12 @@
-{% extends 'base.html' %}{% block content %}
-<section class="hero container corporate-hero">
-  <div class="hero-surface">
-    <div class="hero-copy reveal">
-      <div class="hero-kicker"><span class="status-dot"></span>شرکت نرم‌افزار و فناوری هوش مصنوعی</div>
-      <h1><span class="corporate-wordmark" dir="ltr">NxFi Technologies</span><br>نرم‌افزار دقیق.<br><em>هوش مصنوعی کاربردی.</em></h1>
-      <p>در NxFi، فناوری را به محصولی تبدیل می‌کنیم که در کار روزمره قابل استفاده، قابل فهم و قابل اتکا باشد؛ با مهندسی نرم‌افزار، بینایی ماشین و توجه به مالکیت داده.</p>
-      <div class="button-row"><a class="button" href="{% url 'products' %}">محصولات ما <span aria-hidden="true">←</span></a><a class="button button-ghost" href="{% url 'contact' %}">گفت‌وگو با NxFi <span aria-hidden="true">↗</span></a></div>
-      <div class="hero-note">تمرکز امروز: یک محصول کامل برای مدرسه، با مسیر روشن برای توسعه.</div>
-    </div>
-    <div class="hero-visual reveal company-visual" aria-label="رویکرد NxFi؛ نرم‌افزار، هوش مصنوعی و محصول">
-      <div class="company-orbit"><span class="company-orbit-line" aria-hidden="true"></span><span class="company-orbit-line second" aria-hidden="true"></span>
-        <div class="company-core"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><strong dir="ltr">NxFi</strong><small>فناوری در قالب محصول</small></div>
-        <div class="company-node node-software"><span aria-hidden="true">⌘</span><strong>مهندسی نرم‌افزار</strong><small>ساختار روشن، توسعهٔ ماندگار</small></div>
-        <div class="company-node node-ai"><span aria-hidden="true">⌁</span><strong>هوش مصنوعی کاربردی</strong><small>در خدمت یک مسئلهٔ مشخص</small></div>
-        <div class="company-node node-trust"><span aria-hidden="true">◇</span><strong>طراحی مسئولانه</strong><small>مرز روشن برای دسترسی و داده</small></div>
-      </div>
-    </div>
-  </div>
-  <div class="trust-strip">
-    <div class="trust-item"><span class="trust-icon" aria-hidden="true">⌗</span><div><strong>محصول‌محور</strong><small>گردش‌کار واقعی، نه صرفاً یک مدل</small></div></div>
-    <div class="trust-item"><span class="trust-icon" aria-hidden="true">▤</span><div><strong>طراحی یکپارچه</strong><small>از نرم‌افزار تا حساب و پشتیبانی</small></div></div>
-    <div class="trust-item"><span class="trust-icon" aria-hidden="true">◇</span><div><strong>دادهٔ تحت کنترل</strong><small>مجوز، رضایت و بازیابی روشن</small></div></div>
-    <div class="trust-item"><span class="trust-icon" aria-hidden="true">↗</span><div><strong>توسعهٔ مرحله‌ای</strong><small>اول کیفیت، سپس گسترش</small></div></div>
-  </div>
-</section>
-<section class="section container" id="company">
-  <div class="section-head center"><span class="eyebrow">دربارهٔ NxFi Technologies</span><h2>از امکان فناوری،<br>به ارزشِ قابل استفاده.</h2><p>نرم‌افزار خوب باید فراتر از نمایش یک قابلیت باشد. ما روی پیوند منطق محصول، تجربهٔ کاربری و استقرار واقعی تمرکز می‌کنیم؛ از اولین استفاده تا نگهداری و بازیابی.</p></div>
-  <div class="grid grid-3">
-    <article class="card feature-card"><div class="card-icon" aria-hidden="true">⌘</div><h3>مهندسی برای استفادهٔ واقعی</h3><p>قابلیت‌ها باید در یک گردش‌کار کامل قرار بگیرند؛ با تنظیمات قابل فهم، خطاهای روشن و مسیر پشتیبانی مشخص.</p></article>
-    <article class="card feature-card"><div class="card-icon teal" aria-hidden="true">⌁</div><h3>هوش مصنوعی با هدف مشخص</h3><p>از بینایی ماشین برای یک نیاز عملی استفاده می‌کنیم و محدودیت‌ها، نیاز به بررسی انسانی و شرایط استقرار را پنهان نمی‌کنیم.</p></article>
-    <article class="card feature-card"><div class="card-icon amber" aria-hidden="true">◇</div><h3>اعتماد با شفافیت</h3><p>اطلاعات مربوط به قیمت، مجوز، حفاظت از داده و آنچه واقعاً ارائه می‌شود باید روشن و قابل پیگیری باشد.</p></article>
-  </div>
-</section>
-<section class="section section-white" id="products"><div class="container">
-  <div class="section-head"><span class="eyebrow">محصولات NxFi</span><h2>اولین محصول ما،<br>برای یک روز کاریِ روشن‌تر در مدرسه.</h2><p>FaceRecognition نخستین و در حال حاضر تنها محصول تجاری NxFi Technologies است. کیفیت و تکمیل همین محصول، اولویت فعلی ماست.</p></div>
-  {% if products %}<article class="company-product-feature"><div><span class="badge badge-neutral">محصول فعلی · نرم‌افزار مدرسه</span><h3 dir="ltr">FaceRecognition</h3><p>حضور و غیاب تصویری با گردش‌کار دو دوربین، پردازش محلی، گزارش و بازیابی؛ همراه با حساب مدرسه، مجوز آفلاین و پشتیبانی قابل پیگیری.</p><ul class="check-list"><li>پردازش روزانه در کامپیوتر مدرسه</li><li>کار آفلاین تا پایان مجوز فعال‌شده</li><li>بکاپ ابری اختیاری با کلید مدرسه</li></ul><div class="button-row"><a class="button" href="{% url 'product-facerecognition' %}">آشنایی کامل با محصول <span aria-hidden="true">←</span></a><a class="button button-secondary" href="{% url 'demo' %}">دموی ساختگی محصول</a></div></div><div class="company-product-preview">{% include 'marketing/preview.html' %}</div></article>{% else %}<div class="empty-state"><h3>اطلاعات انتشار محصول موقتاً در دسترس نیست.</h3><p>برای پیگیری وضعیت FaceRecognition با تیم NxFi تماس بگیرید.</p><a class="button" href="{% url 'contact' %}">ارتباط با تیم</a></div>{% endif %}
-  <a class="card-link" href="{% url 'products' %}">بخش محصولات <span aria-hidden="true">←</span></a>
-</div></section>
-<section class="section container"><div class="section-head"><span class="eyebrow">مسیر همکاری</span><h2>از گفت‌وگو تا استقرارِ بررسی‌شده.</h2></div><div class="grid grid-3 steps"><article class="step"><span class="step-num">01</span><h3>شناخت نیاز</h3><p>دربارهٔ مسئله، محیط استفاده و محدودیت‌های اجرایی صحبت می‌کنیم.</p></article><article class="step"><span class="step-num">02</span><h3>بررسی محصول</h3><p>قابلیت‌های محصول موجود و شرایط مناسب‌بودن آن را با شفافیت مرور می‌کنیم.</p></article><article class="step"><span class="step-num">03</span><h3>پایلوت و پشتیبانی</h3><p>پیش از استفادهٔ واقعی، نصب، داده، بازیابی و گردش‌کار با مسئول مجموعه بررسی می‌شوند.</p></article></div></section>
-<section class="section-tight container"><div class="callout"><div><h2>گفت‌وگو را با یک نیاز واقعی شروع کنیم.</h2><p>برای آشنایی با NxFi یا بررسی FaceRecognition در مدرسه، با ما در ارتباط باشید.</p></div><div class="button-row"><a class="button button-light" href="{% url 'contact' %}">تماس با NxFi <span aria-hidden="true">↗</span></a><a class="button button-ghost" href="{% url 'products' %}">دیدن محصولات</a></div></div></section>
-{% endblock %}
+{% extends 'base.html' %}{% load i18n %}{% block title %}NxFi Technologies · NxFi Technologies{% endblock %}{% block content %}
+<section class="hero container corporate-hero"><div class="hero-surface"><div class="hero-copy reveal">
+<div class="hero-kicker"><span class="status-dot"></span>{% translate "Independent software & AI technology" %}</div>
+<h1><span class="corporate-wordmark" dir="ltr">NxFi Technologies</span><br>{% translate "Thoughtful software." %}<br><em>{% translate "Practical intelligence." %}</em></h1>
+<p>{% translate "We turn software engineering and computer vision into usable products, with clear workflows and respect for data ownership." %}</p>
+<div class="button-row"><a class="button" href="{% url 'products' %}">{% translate "Explore our products" %}</a><a class="button button-ghost" href="{% url 'contact' %}">{% translate "Talk to NxFi" %}</a></div>
+</div><div class="hero-visual company-visual"><div class="company-orbit"><span class="company-orbit-line" aria-hidden="true"></span><div class="company-core"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><strong>NxFi</strong><small>{% translate "Technology into products" %}</small></div><div class="company-node node-software"><strong>{% translate "Software engineering" %}</strong></div><div class="company-node node-ai"><strong>{% translate "Applied AI" %}</strong></div><div class="company-node node-product"><strong>{% translate "Product experience" %}</strong></div></div></div></div></section>
+<section class="section container" id="company"><div class="section-head center"><span class="eyebrow">{% translate "Built around real needs" %}</span><h2>{% translate "Engineering that earns trust." %}</h2><p>{% translate "A useful product needs more than a demonstration: understandable setup, reliable daily use, recovery and support." %}</p></div><div class="grid grid-3">
+<article class="card feature-card"><h3>{% translate "Clear by design" %}</h3><p>{% translate "Complete workflows, useful feedback and maintainable software." %}</p></article>
+<article class="card feature-card"><h3>{% translate "Purposeful intelligence" %}</h3><p>{% translate "Computer vision for a defined task, with honest deployment limits." %}</p></article>
+<article class="card feature-card"><h3>{% translate "Your data, your control" %}</h3><p>{% translate "Local processing and explicit choices about encrypted backups." %}</p></article></div></section>
+<section class="section section-white"><div class="container"><div class="section-head"><span class="eyebrow">{% translate "Our first product" %}</span><h2>FaceRecognition</h2><p>{% translate "Local attendance software for schools. Our first and currently only commercial product." %}</p></div><div class="grid grid-2"><article class="card"><h3>{% translate "A connected workflow. Local operation." %}</h3><p>{% translate "Two-camera attendance, local reports, signed offline licensing and optional encrypted recovery." %}</p><a class="button" href="{% url 'product-facerecognition' %}">{% translate "Explore FaceRecognition" %}</a></article><article class="card"><h3>{% translate "Start with a conversation" %}</h3><p>{% translate "Review hardware, privacy, installation and recovery before a school pilot." %}</p><a class="button button-secondary" href="{% url 'contact' %}">{% translate "Request a demo" %}</a></article></div></div></section>{% endblock %}

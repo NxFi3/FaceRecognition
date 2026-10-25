@@ -4,10 +4,14 @@ from django.urls import path
 from django.http import HttpResponsePermanentRedirect
 from django.urls import reverse
 from functools import wraps
-from . import api, backups, views, marketing, platform
+from . import api, backups, views, marketing, platform, customer
 from .owner_auth import owner_reauthenticate
 
 urlpatterns = [
+    path("language/", customer.language, name="set_language"),
+    path("about/", marketing.about, name="about"),
+    path("account/profile/company/", customer.profile, name="customer-profile"),
+    path("account/products/facerecognition/create/", customer.create_face_workspace, name="create-face-workspace"),
     path("", marketing.page, name="home"),
     path("admin/", admin.site.urls), path("health/", views.health),
     path("products/facerecognition/account/", platform.dashboard, name="account"),

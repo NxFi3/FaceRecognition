@@ -1,13 +1,13 @@
-{% load static %}<!doctype html>
-<html lang="fa" dir="rtl">
+{% load static i18n %}{% get_current_language as LANGUAGE_CODE %}{% get_current_language_bidi as LANGUAGE_BIDI %}<!doctype html>
+<html lang="{{ LANGUAGE_CODE }}" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light"><meta name="theme-color" content="#121a33">
-  <title>{% block title %}{{ page_title|default:'حساب و محصولات NxFi' }} · NxFi Technologies{% endblock %}</title>
-  <meta name="description" content="{{ meta_description|default:'NxFi Technologies؛ توسعهٔ نرم‌افزار و فناوری هوش مصنوعی، با محصولات کاربردی و توجه به حفاظت از داده.' }}">
+  <title>{% block title %}{{ page_title|default:company_name }} · NxFi Technologies{% endblock %}</title>
+  <meta name="description" content="{% translate "Software and AI products by NxFi Technologies." %}">
   <meta name="robots" content="{% if indexable %}index,follow{% else %}noindex,nofollow{% endif %}">
-  <meta property="og:type" content="website"><meta property="og:locale" content="fa_IR"><meta property="og:site_name" content="NxFi Technologies">
-  <meta property="og:title" content="{{ page_title|default:'حساب و محصولات NxFi' }}"><meta property="og:description" content="{{ meta_description|default:'شرکت نرم‌افزار و فناوری هوش مصنوعی NxFi Technologies؛ آشنایی با محصولات و ارتباط با تیم.' }}">
+  <meta property="og:type" content="website"><meta property="og:locale" content="{{ LANGUAGE_CODE }}"><meta property="og:site_name" content="NxFi Technologies">
+  <meta property="og:title" content="{{ page_title|default:company_name }}"><meta property="og:description" content="{% translate "Software and AI products by NxFi Technologies." %}">
   {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}"><meta property="og:url" content="{{ canonical_url }}">{% endif %}
   <link rel="icon" href="{% static 'nxfi-mark.svg' %}" type="image/svg+xml">
   <link rel="preload" href="{% static 'fonts/Vazirmatn-variable.woff2' %}" as="font" type="font/woff2" crossorigin>
@@ -16,23 +16,23 @@
   {% block extra_head %}{% endblock %}
 </head>
 <body>
-<a class="skip-link" href="#main-content">رفتن به محتوای اصلی</a>
+<a class="skip-link" href="#main-content">{% translate "Skip to content" %}</a>
 <header class="site-header">
   <div class="container nav-shell">
-    <a class="brand" href="{% url 'home' %}" aria-label="NxFi Technologies — صفحهٔ اصلی"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span><strong dir="ltr">NxFi<span> Technologies</span></strong><small>نرم‌افزار و فناوری هوش مصنوعی</small></span></a>
-    <button class="menu-toggle" type="button" data-menu-toggle aria-expanded="false" aria-controls="primary-nav"><span aria-hidden="true">☰</span><span class="sr-only">باز کردن فهرست</span></button>
-    <nav id="primary-nav" class="primary-nav" aria-label="فهرست اصلی">
-      <a href="{% url 'home' %}"{% if current_page == 'home' %} aria-current="page"{% endif %}>شرکت</a>
-      <a href="{% url 'products' %}"{% if current_page == 'products' or product_scope %} aria-current="page"{% endif %}>محصولات</a>
-      <a href="{% url 'support' %}"{% if current_page == 'support' %} aria-current="page"{% endif %}>مرکز راهنما</a>
-      <a href="{% url 'contact' %}"{% if current_page == 'contact' %} aria-current="page"{% endif %}>تماس با NxFi</a>
-      <span class="nav-divider" aria-hidden="true"></span>
-      {% if request.user.is_authenticated %}<a class="button button-small" href="{% url 'workspace' %}">حساب مشتری <span aria-hidden="true">↗</span></a><form class="nav-logout" method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">خروج</button></form>
-      {% else %}<a class="nav-login" href="{% url 'login' %}">ورود</a><a class="button button-small" href="{% url 'contact' %}?kind=demo">درخواست معرفی <span aria-hidden="true">↗</span></a>{% endif %}
+    <a class="brand" href="{% url 'home' %}" aria-label="NxFi Technologies"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span><strong dir="ltr">NxFi<span> Technologies</span></strong><small>{% translate "Software & AI technology" %}</small></span></a>
+    <button class="menu-toggle" type="button" data-menu-toggle aria-expanded="false" aria-controls="primary-nav"><span aria-hidden="true">☰</span><span class="sr-only">{% translate "Open navigation" %}</span></button>
+    <nav id="primary-nav" class="primary-nav" aria-label="{% translate "Main navigation" %}">
+      <a href="{% url 'home' %}"{% if current_page == 'home' %} aria-current="page"{% endif %}>{% translate "Company" %}</a>
+      <a href="{% url 'products' %}"{% if current_page == 'products' or product_scope %} aria-current="page"{% endif %}>{% translate "Products" %}</a>
+      <a href="{% url 'support' %}"{% if current_page == 'support' %} aria-current="page"{% endif %}>{% translate "Support center" %}</a>
+      <a href="{% url 'contact' %}"{% if current_page == 'contact' %} aria-current="page"{% endif %}>{% translate "Contact NxFi" %}</a>
+      <form class="language-picker" method="post" action="{% url 'set_language' %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><label class="sr-only" for="site-language">{% translate "Language" %}</label><select id="site-language" name="language" aria-label="{% translate "Language" %}" data-language-select><option value="en"{% if LANGUAGE_CODE == 'en' %} selected{% endif %}>English</option><option value="fa"{% if LANGUAGE_CODE == 'fa' %} selected{% endif %}>فارسی</option></select><button type="submit">{% translate "Apply" %}</button></form><span class="nav-divider" aria-hidden="true"></span>
+      {% if request.user.is_authenticated %}<a class="button button-small" href="{% url 'workspace' %}">{% translate "My account" %} <span aria-hidden="true">↗</span></a><form class="nav-logout" method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">{% translate "Sign out" %}</button></form>
+      {% else %}<a class="nav-login" href="{% url 'login' %}">{% translate "Sign in" %}</a><a class="button button-small" href="{% url 'contact' %}?kind=demo">{% translate "Request a demo" %} <span aria-hidden="true">↗</span></a>{% endif %}
     </nav>
   </div>
 </header>
-<noscript><nav class="container no-js-nav" aria-label="فهرست بدون JavaScript"><a href="{% url 'products' %}">محصولات</a><a href="{% url 'product-facerecognition' %}">FaceRecognition</a><a href="{% url 'support' %}">راهنما</a><a href="{% url 'login' %}">ورود</a></nav></noscript>
+<noscript><nav class="container no-js-nav" aria-label="{% translate "Navigation without JavaScript" %}"><a href="{% url 'products' %}">{% translate "Products" %}</a><a href="{% url 'product-facerecognition' %}">FaceRecognition</a><a href="{% url 'support' %}">{% translate "Help" %}</a><a href="{% url 'login' %}">{% translate "Sign in" %}</a></nav></noscript>
 {% if product_scope %}{% include 'marketing/product_nav.html' %}{% endif %}
 <main id="main-content" tabindex="-1">
   {% if messages %}<div class="container message-stack" aria-live="polite">{% for message in messages %}<div class="notice {{ message.tags }}" role="status">{{ message }}</div>{% endfor %}</div>{% endif %}
@@ -40,11 +40,11 @@
 </main>
 <footer class="site-footer">
   <div class="container footer-grid">
-    <div class="footer-brand"><a class="brand" href="{% url 'home' %}"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span><strong dir="ltr">NxFi Technologies</strong><small>فناوری، در خدمتِ روزهای بهتر.</small></span></a><p>NxFi Technologies روی توسعهٔ نرم‌افزار و فناوری هوش مصنوعی برای مسائل واقعی تمرکز دارد. FaceRecognition نخستین محصول تجاری ماست.</p><span class="badge badge-neutral">محصول نخست؛ در مسیر آماده‌سازی برای پایلوت</span></div>
-    <div><h2>NxFi Technologies</h2><a href="{% url 'home' %}#company">دربارهٔ NxFi</a><a href="{% url 'products' %}">محصولات</a><a href="{% url 'contact' %}">گفت‌وگو با تیم</a><a href="{% url 'workspace' %}">حساب مشتری</a></div>
-    <div><h2 dir="ltr">FaceRecognition</h2><a href="{% url 'product-facerecognition' %}">معرفی محصول</a><a href="{% url 'pricing' %}">طرح‌ها و خرید</a><a href="{% url 'downloads' %}">دریافت نرم‌افزار</a><a href="{% url 'account' %}">پرتال محصول</a></div>
-    <div><h2>راهنما و شفافیت</h2><a href="{% url 'support' %}">مرکز راهنمای NxFi</a><a href="{% url 'privacy' %}">حریم خصوصی</a><a href="{% url 'terms' %}">شرایط استفاده</a><a href="{% url 'workspace' %}">حساب مشتری NxFi</a></div>
+    <div class="footer-brand"><a class="brand" href="{% url 'home' %}"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span><strong dir="ltr">NxFi Technologies</strong><small>{% translate "Technology for better working days." %}</small></span></a><p>{% translate "NxFi Technologies develops software and AI technology for practical needs. FaceRecognition is our first commercial product." %}</p><span class="badge badge-neutral">{% translate "First product · preparing for pilot deployment" %}</span></div>
+    <div><h2>NxFi Technologies</h2><a href="{% url 'about' %}">{% translate "About NxFi" %}</a><a href="{% url 'products' %}">{% translate "Products" %}</a><a href="{% url 'contact' %}">{% translate "Talk to our team" %}</a><a href="{% url 'workspace' %}">{% translate "My account" %}</a></div>
+    <div><h2 dir="ltr">FaceRecognition</h2><a href="{% url 'product-facerecognition' %}">{% translate "Explore the product" %}</a><a href="{% url 'pricing' %}">{% translate "Plans & pricing" %}</a><a href="{% url 'downloads' %}">{% translate "Downloads" %}</a><a href="{% url 'account' %}">{% translate "Product portal" %}</a></div>
+    <div><h2>{% translate "Help & transparency" %}</h2><a href="{% url 'support' %}">{% translate "NxFi support center" %}</a><a href="{% url 'privacy' %}">{% translate "Privacy policy" %}</a><a href="{% url 'terms' %}">{% translate "Terms of service" %}</a><a href="{% url 'workspace' %}">{% translate "NxFi account" %}</a></div>
   </div>
-  <div class="container footer-bottom"><span dir="ltr">© {% now 'Y' %} NxFi Technologies</span><span>NxFi Technologies نام پیشنهادی این پروژه است؛ ادعای ثبت حقوقی یا تأییدیهٔ رسمی نداریم.</span></div>
+  <div class="container footer-bottom"><span dir="ltr">© {% now 'Y' %} NxFi Technologies</span><span>{% translate "NxFi Technologies is a provisional project name. No legal registration or certification is claimed." %}</span></div>
 </footer>
 </body></html>

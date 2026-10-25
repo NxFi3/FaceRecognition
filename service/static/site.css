@@ -2956,3 +2956,10 @@ main bdi,main table td {
   display:grid;
   gap:28px
 }
+/* Shared layout follows document direction; text-heavy English uses system fonts. */
+html[lang="en"] body {font-family: Inter, "Segoe UI", system-ui, sans-serif;}
+html[dir="ltr"] .hero-copy, html[dir="ltr"] .auth-copy {text-align: left;}
+.language-picker {display:flex; align-items:center; gap:.35rem; margin:0;}
+.language-picker select {width:auto; min-width:5rem; padding:.35rem; margin:0;}
+.language-picker button {padding:.35rem .5rem; min-height:2rem; font-size:.75rem;}
+html[dir="ltr"] .check-list {padding-inline-start:1.25rem;}

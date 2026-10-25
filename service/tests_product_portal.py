@@ -57,7 +57,7 @@ class CompanyProductPortalTests(TestCase):
         parser.feed(response.content.decode())
         return ' '.join(parser.headings)
     def test_home_introduces_company_and_is_distinct_from_first_product_landing(self):
-        company = self.client.get(reverse('home'), secure=True)
+        company = self.client.get(reverse('home'), secure=True, HTTP_ACCEPT_LANGUAGE='fa')
         product = self.client.get(reverse('product-facerecognition'), secure=True)
         self.assertEqual(company.status_code, 200)
         self.assertEqual(product.status_code, 200)
@@ -81,7 +81,7 @@ class CompanyProductPortalTests(TestCase):
             with self.subTest(page=name):
                 url = reverse(name)
                 self.assertEqual(url, '/products/facerecognition/'+name+'/')
-                response = self.client.get(url, secure=True)
+                response = self.client.get(url, secure=True, HTTP_ACCEPT_LANGUAGE="fa")
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, 'lang="fa"')
                 self.assertContains(response, 'dir="rtl"')
