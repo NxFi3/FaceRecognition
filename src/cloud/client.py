@@ -96,6 +96,7 @@ class CloudClient:
         self.state_path = Path(state_path)
         self._lock = threading.RLock()
         self._backup_lock = threading.Lock()
+        self._auth_network_lock = threading.Lock()
         self._state_io_lock = threading.Lock()
         self._closed = False
         self._closing = False
@@ -337,27 +338,36 @@ class CloudClient:
 
     def login(self, email, password):
         epoch = self._auth_epoch()
-        nonce, started = secrets.token_urlsafe(32), license_clock()
-        result = self._json("POST", "/api/v1/login/", json={"email": email, "password": password,
-            "device_id": self.installation, "label": "School desktop", "nonce": nonce, "license_version": 2})
-        lease = self.accept_lease(result["lease"], nonce, started, session_epoch=epoch)
-        with self._state_io_lock:
+        # A controller sync and an account dialog can coexist. Serialize their
+        # exchanges so an older response/token cannot overwrite newer revocation
+        # or renewal evidence. Callers run these operations in background jobs.
+        with self._auth_network_lock:
             with self._lock:
                 self._check_auth_epoch(epoch)
-                credential = result["credential"]
-            remembered = self.store.set(self.installation, credential)
-            with self._lock:
-                self._check_auth_epoch(epoch)
-                self.credential, self.remembered = credential, remembered
-        return lease
+            nonce, started = secrets.token_urlsafe(32), license_clock()
+            result = self._json("POST", "/api/v1/login/", json={"email": email, "password": password,
+                "device_id": self.installation, "label": "School desktop", "nonce": nonce, "license_version": 2})
+            lease = self.accept_lease(result["lease"], nonce, started, session_epoch=epoch)
+            with self._state_io_lock:
+                with self._lock:
+                    self._check_auth_epoch(epoch)
+                    credential = result["credential"]
+                remembered = self.store.set(self.installation, credential)
+                with self._lock:
+                    self._check_auth_epoch(epoch)
+                    self.credential, self.remembered = credential, remembered
+            return lease
 
     def renew(self):
         epoch = self._auth_epoch()
-        if not self.credential:
-            raise AccessDenied("ابتدا وارد حساب مدرسه شوید.")
-        nonce, started = secrets.token_urlsafe(32), license_clock()
-        result = self._json("POST", "/api/v1/lease/", json={"nonce": nonce, "license_version": 2})
-        return self.accept_lease(result["lease"], nonce, started, session_epoch=epoch)
+        with self._auth_network_lock:
+            with self._lock:
+                self._check_auth_epoch(epoch)
+                if not self.credential:
+                    raise AccessDenied("ابتدا وارد حساب مدرسه شوید.")
+            nonce, started = secrets.token_urlsafe(32), license_clock()
+            result = self._json("POST", "/api/v1/lease/", json={"nonce": nonce, "license_version": 2})
+            return self.accept_lease(result["lease"], nonce, started, session_epoch=epoch)
 
     def close(self):
         with self._lock:
