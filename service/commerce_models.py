@@ -50,6 +50,7 @@ class Order(models.Model):
         PAYMENT_SUBMITTED = 'payment_submitted', 'در انتظار بررسی پرداخت'
         FULFILLED = 'fulfilled', 'فعال‌شده'
         CANCELLED = 'cancelled', 'لغوشده'
+        REJECTED = 'rejected', 'پرداخت ردشده'
         EXPIRED = 'expired', 'مهلت سفارش پایان یافته'
     class Purpose(models.TextChoices):
         PURCHASE = 'purchase', 'خرید'
@@ -72,6 +73,7 @@ class Order(models.Model):
     device_limit = models.PositiveSmallIntegerField()
     is_trial = models.BooleanField(default=False)
     receipt_reference = models.CharField(max_length=80, blank=True)
+    rejection_reason = models.CharField(max_length=1000, blank=True)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     expires_at = models.DateTimeField()
     fulfilled_at = models.DateTimeField(null=True, blank=True, editable=False)
@@ -105,9 +107,11 @@ class Order(models.Model):
 
     def save(self, *args, **kwargs):
         if not self._state.adding:
-            previous = type(self).objects.filter(pk=self.pk).values(*self.SNAPSHOT_FIELDS).first()
+            previous = type(self).objects.filter(pk=self.pk).values(*self.SNAPSHOT_FIELDS, 'rejection_reason').first()
             if previous and any(previous[name] != getattr(self, name) for name in self.SNAPSHOT_FIELDS):
                 raise ValidationError('جزئیات مالی سفارش ثبت‌شده قابل تغییر نیست؛ سفارش جدید بسازید.')
+            if previous and previous['rejection_reason'] and previous['rejection_reason'] != self.rejection_reason:
+                raise ValidationError('دلیل ردِ ثبت‌شده قابل بازنویسی نیست؛ توضیح تکمیلی را در پشتیبانی ثبت کنید.')
         return super().save(*args, **kwargs)
 
 

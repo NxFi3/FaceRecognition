@@ -49,7 +49,12 @@ are uploaded into commerce tables.
 
 ## Payment and cancellation limits
 
-Unpaid orders can be cancelled. Cancelling an already fulfilled order, prorating,
+Unpaid orders can be cancelled. The owner can explicitly reject an invalid manual
+payment claim with a bounded customer-visible reason. Rejection queues a notice
+and audit event, leaves entitlement untouched and allows a fresh order. Repeating
+the same rejection is idempotent; changing the first reason is forbidden by both
+the service and model save guard. Fulfilled/verified orders cannot be rejected,
+and trial orders are not misrepresented as rejected payments. Cancelling an already fulfilled order, prorating,
 refund execution, chargebacks, scheduled future downgrades, tax-service integration
 and live bank gateways are not automated. They require support and accounting
 reconciliation. Payment totals are verified gross receipts, not net profit or
@@ -77,11 +82,11 @@ SERVICE_TESTING=1 python -m service.manage test service.tests_commerce -v 1
 SERVICE_TESTING=1 SERVICE_TEST_DATABASE_URL="$TEST_POSTGRES_URL" python -m service.manage test service.tests_commerce -v 1
 ```
 
-The recorded isolated SQLite run discovered 23 cases: **18 passed, 5 PostgreSQL-only
-cases skipped** (0.330 s). The actual disposable PostgreSQL 17 run then executed
-**all 23 successfully** (1.840 s), including parallel checkout, double verification
+The recorded isolated SQLite run discovered 30 cases: **24 passed, 6 PostgreSQL-only
+cases skipped** (0.497 s). The actual disposable PostgreSQL 17 run then executed
+**all 30 successfully** (2.685 s), including parallel checkout, double verification
 (one extension), reuse of one actual settlement across two schools, customer claim
-versus verification, and cancellation versus verification. Every mutation locks
+versus verification, cancellation versus verification and rejection versus verification. Every mutation locks
 School before Order to avoid an inverted FK/row-lock dependency. The original
 inverted deadlock was a structural review finding, not separately reproduced; the
 new PostgreSQL interleavings were actually run successfully.

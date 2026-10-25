@@ -229,3 +229,27 @@ def approve_trial(order_id, actor):
             raise CommerceError('دورهٔ آزمایشی قبلاً استفاده شده است.')
         AuditEvent.objects.create(actor=actor, school=school, action='trial.approved', object_id=str(order.pk))
         return _fulfill(school, order, actor)
+
+
+
+def reject_manual_payment(order_id, actor, reason):
+    """Owner rejects an unpaid claim; never refunds/reverses a verified settlement."""
+    _owner(actor)
+    if not isinstance(reason, str) or not 1 <= len(reason.strip()) <= 1000:
+        raise CommerceError('دلیل رد باید بین ۱ تا ۱۰۰۰ نویسه و فاقد اطلاعات محرمانهٔ بانکی باشد.')
+    reason = reason.strip()
+    with transaction.atomic():
+        school, order = _locked_order(order_id)
+        if order.is_trial:
+            raise CommerceError('درخواست آزمایشی پرداختی ندارد؛ رد یا لغو درخواست را از مسیر پشتیبانی پیگیری کنید.')
+        if order.status == Order.Status.REJECTED:
+            if order.rejection_reason != reason:
+                raise CommerceError('این سفارش قبلاً با دلیل دیگری رد شده است؛ تصمیم ثبت‌شده بی‌صدا تغییر نمی‌کند.')
+            return order
+        if order.status not in (Order.Status.AWAITING_PAYMENT, Order.Status.PAYMENT_SUBMITTED) or VerifiedPayment.objects.filter(order=order).exists():
+            raise CommerceError('سفارش پرداخت‌شده، بسته یا لغوشده قابل رد پرداخت نیست؛ رسیدگی را از پشتیبانی پیگیری کنید.')
+        order.status, order.rejection_reason = Order.Status.REJECTED, reason
+        order.save(update_fields=['status', 'rejection_reason'])
+        AuditEvent.objects.create(actor=actor, school=school, action='order.payment_rejected', object_id=str(order.pk))
+        _notify(order, 'نتیجهٔ بررسی پرداخت FaceRecognition', f'پرداخت سفارش {order.invoice_number} تأیید نشد. دلیل: {reason}\nهیچ اشتراک جدیدی فعال نشده است. برای پیگیری با پشتیبانی تماس بگیرید؛ در صورت نیاز سفارش تازه بسازید.', 'rejected')
+        return order

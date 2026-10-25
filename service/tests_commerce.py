@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from .commerce import (CommerceError, approve_trial, cancel_order, create_order,
-                       submit_manual_payment, verify_manual_payment)
+                       submit_manual_payment, verify_manual_payment, reject_manual_payment)
 from .commerce_models import Plan, Order, VerifiedPayment
 from .models import School, EmailOutbox, Device
 from .owner_models import CompanyOwner
@@ -265,6 +265,73 @@ class CommerceTests(Fixtures, TestCase):
         self.school.refresh_from_db()
         self.assertFalse(self.school.entitled)
 
+    def test_rejection_does_not_activate_or_record_a_payment_and_allows_new_order(self):
+        order = self.order()
+        submit_manual_payment(self.school, order.pk, 'BANK-CLAIM01')
+        rejected = reject_manual_payment(order.pk, self.owner, 'تراکنش در حساب مقصد تأیید نشد.')
+        self.assertEqual(rejected.status, Order.Status.REJECTED)
+        self.assertTrue(rejected.rejection_reason)
+        self.school.refresh_from_db()
+        self.assertFalse(self.school.entitled)
+        self.assertFalse(VerifiedPayment.objects.exists())
+        self.assertEqual(EmailOutbox.objects.filter(dedupe_key=f'order:{order.pk}:rejected').count(), 1)
+        self.assertNotEqual(self.order().pk, order.pk)
+
+    def test_rejected_order_cannot_later_be_verified(self):
+        order = self.order()
+        reject_manual_payment(order.pk, self.owner, 'رسید معتبر نیست.')
+        with self.assertRaises(CommerceError):
+            self.pay(order)
+        self.assertFalse(VerifiedPayment.objects.exists())
+        self.school.refresh_from_db()
+        self.assertFalse(self.school.entitled)
+
+    def test_fulfilled_order_cannot_be_rejected_and_existing_entitlement_unchanged(self):
+        first = self.order()
+        self.pay(first)
+        self.school.refresh_from_db()
+        expiry = self.school.expires_at
+        with self.assertRaises(CommerceError):
+            reject_manual_payment(first.pk, self.owner, 'رسید نامعتبر است.')
+        second = self.order()
+        reject_manual_payment(second.pk, self.owner, 'تراکنش دوم تأیید نشد.')
+        self.school.refresh_from_db()
+        self.assertTrue(self.school.entitled)
+        self.assertEqual(self.school.expires_at, expiry)
+        self.assertEqual(VerifiedPayment.objects.count(), 1)
+
+    def test_rejection_is_owner_only_and_repeated_rejection_idempotent(self):
+        from .models import AuditEvent
+        order = self.order()
+        with self.assertRaises(PermissionDenied):
+            reject_manual_payment(order.pk, self.user, 'رسید معتبر نیست.')
+        for _ in range(2):
+            reject_manual_payment(order.pk, self.owner, 'رسید معتبر نیست.')
+        self.assertEqual(AuditEvent.objects.filter(action='order.payment_rejected', object_id=str(order.pk)).count(), 1)
+        self.assertEqual(EmailOutbox.objects.filter(dedupe_key=f'order:{order.pk}:rejected').count(), 1)
+        with self.assertRaises(CommerceError):
+            reject_manual_payment(order.pk, self.owner, 'دلیل دیگری ثبت شود.')
+        order.refresh_from_db()
+        order.rejection_reason = 'تغییر مستقیم دلیل'
+        with self.assertRaises(ValidationError):
+            order.save(update_fields=['rejection_reason'])
+
+    def test_empty_or_oversized_rejection_reason_is_rejected(self):
+        order = self.order()
+        for reason in ('', '   ', 'x'*1001, None):
+            with self.subTest(reason=type(reason).__name__), self.assertRaises(CommerceError):
+                reject_manual_payment(order.pk, self.owner, reason)
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.AWAITING_PAYMENT)
+
+    def test_trial_is_not_misrepresented_as_a_rejected_payment(self):
+        trial = Plan.objects.create(slug='trial-review', name='Trial', price_irr=0,
+            duration_days=14, student_limit=100, device_limit=1, is_trial=True, is_active=True, is_public=True)
+        order = self.order(plan=trial)
+        with self.assertRaises(CommerceError):
+            reject_manual_payment(order.pk, self.owner, 'درخواست آزمایش در حال بررسی است.')
+        self.assertFalse(VerifiedPayment.objects.exists())
+
 
 @skipUnless(connection.vendor == 'postgresql', 'Payment races require production PostgreSQL row locks')
 @override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
@@ -346,6 +413,30 @@ class CommerceConcurrencyTests(Fixtures, TransactionTestCase):
         order.refresh_from_db()
         self.school.refresh_from_db()
         if order.status == Order.Status.CANCELLED:
+            self.assertFalse(self.school.entitled)
+            self.assertFalse(VerifiedPayment.objects.exists())
+        else:
+            self.assertEqual(order.status, Order.Status.FULFILLED)
+            self.assertTrue(self.school.entitled)
+            self.assertEqual(VerifiedPayment.objects.count(), 1)
+
+
+    def test_rejection_racing_verification_is_one_atomic_outcome(self):
+        order = self.order()
+        def action(index):
+            try:
+                if index:
+                    verify_manual_payment(order.pk, self.owner, 'BANK-REJECT1', order.amount_irr)
+                else:
+                    reject_manual_payment(order.pk, self.owner, 'تراکنش تأیید نشده است.')
+                return True
+            except CommerceError:
+                return False
+        results = self.concurrent(action)
+        self.assertEqual(sorted(results), [False, True])
+        order.refresh_from_db()
+        self.school.refresh_from_db()
+        if order.status == Order.Status.REJECTED:
             self.assertFalse(self.school.entitled)
             self.assertFalse(VerifiedPayment.objects.exists())
         else:
