@@ -39,5 +39,5 @@ class VerifyPaymentForm(forms.Form):
 class ReleaseForm(forms.ModelForm):
     class Meta:
         model = Release
-        fields = ['version', 'platform', 'artifact_name', 'sha256', 'size_bytes', 'notes', 'is_published']
-        labels = {'version': 'نسخه', 'platform': 'سکو', 'artifact_name': 'نام فایلِ از قبل نصب‌شده روی سرور', 'sha256': 'SHA-256', 'size_bytes': 'حجم بایت', 'notes': 'یادداشت انتشار', 'is_published': 'انتشار در بخش دریافت'}
+        fields = ['product', 'version', 'platform', 'artifact_name', 'sha256', 'size_bytes', 'notes', 'is_published']
+        labels = {'product': 'محصول', 'version': 'نسخه', 'platform': 'سکو', 'artifact_name': 'نام فایلِ از قبل نصب‌شده روی سرور', 'sha256': 'SHA-256', 'size_bytes': 'حجم بایت', 'notes': 'یادداشت انتشار', 'is_published': 'انتشار در بخش دریافت'}

@@ -18,6 +18,7 @@ class ContactRequest(models.Model):
 
 
 class SupportTicket(models.Model):
+    product = models.ForeignKey('service.Product', on_delete=models.PROTECT, default='facerecognition')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     school = models.ForeignKey('service.School', on_delete=models.PROTECT)
     subject = models.CharField(max_length=160)
@@ -40,6 +41,7 @@ class TicketReply(models.Model):
 
 
 class Release(models.Model):
+    product = models.ForeignKey('service.Product', on_delete=models.PROTECT, default='facerecognition')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     version = models.CharField(max_length=80)
     platform = models.CharField(max_length=24, default='windows-x64', choices=[('windows-x64', 'Windows x64')])

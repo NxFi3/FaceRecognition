@@ -59,6 +59,8 @@ class SchoolAdmin(OwnerModelAdmin):
     readonly_fields = ("id", "created_at", "email_verified_at")
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
+        from .commerce import sync_face_subscription
+        sync_face_subscription(obj)
         AuditEvent.objects.create(actor=request.user, school=obj, action="subscription.updated" if change else "school.created", object_id=str(obj.pk))
 
 

@@ -22,7 +22,7 @@ from .platform_forms import (ContactForm, SchoolProfileForm, TicketForm, ReplyFo
     ManualPaymentForm, VerifyPaymentForm, ReleaseForm)
 from .security import throttled, too_many
 from .owner_auth import owner_required, is_company_owner
-from .commerce_models import Plan, Order, VerifiedPayment
+from .commerce_models import Plan, Order, VerifiedPayment, Product, ProductSubscription, FACE_PRODUCT_SLUG
 from .commerce import create_order, submit_manual_payment, verify_manual_payment, approve_trial, cancel_order, reject_manual_payment
 
 
@@ -56,9 +56,9 @@ def dashboard(request):
     school = school_for(request)
     return render(request, 'portal/dashboard.html', {'school': school,
         'devices': Device.objects.filter(school=school), 'backups': Backup.objects.filter(school=school),
-        'orders': Order.objects.filter(school=school).order_by('-created_at')[:8],
+        'orders': Order.objects.filter(school=school, product_id=FACE_PRODUCT_SLUG).order_by('-created_at')[:8],
         'active_device_count': Device.objects.filter(school=school, revoked=False, token_digest__isnull=False).count(),
-        'ticket_count': SupportTicket.objects.filter(school=school, status='open').count()})
+        'ticket_count': SupportTicket.objects.filter(school=school, product_id=FACE_PRODUCT_SLUG, status='open').count()})
 
 
 @login_required
@@ -76,7 +76,7 @@ def profile(request):
 
 @login_required
 def orders(request):
-    return render(request, 'portal/orders.html', {'orders': Paginator(Order.objects.filter(school=school_for(request)).order_by('-created_at'), 25).get_page(request.GET.get('page'))})
+    return render(request, 'portal/orders.html', {'orders': Paginator(Order.objects.filter(school=school_for(request), product_id=FACE_PRODUCT_SLUG).order_by('-created_at'), 25).get_page(request.GET.get('page'))})
 
 
 @login_required
@@ -85,6 +85,7 @@ def order_create(request, plan_id):
     school = school_for(request)
     if throttled(request, 'order-create', str(school.pk), limit=20):
         return too_many()
+    get_object_or_404(Plan, pk=plan_id, product_id=FACE_PRODUCT_SLUG)
     try:
         order = create_order(school=school, plan_id=plan_id, idempotency_key=request.POST.get('idempotency_key', ''))
     except (ValidationError, ValueError) as exc:
@@ -95,7 +96,7 @@ def order_create(request, plan_id):
 
 @login_required
 def checkout(request, order_id):
-    order = get_object_or_404(Order, pk=order_id, school=school_for(request))
+    order = get_object_or_404(Order, pk=order_id, school=school_for(request), product_id=FACE_PRODUCT_SLUG)
     form = ManualPaymentForm(request.POST or None)
     if request.method == 'POST':
         if throttled(request, 'payment-submit', str(order.school_id), limit=10):
@@ -115,6 +116,7 @@ def checkout(request, order_id):
 @login_required
 @require_POST
 def order_cancel(request, order_id):
+    get_object_or_404(Order, pk=order_id, school=school_for(request), product_id=FACE_PRODUCT_SLUG)
     try:
         cancel_order(school=school_for(request), order_id=order_id)
     except (ValidationError, ValueError) as exc:
@@ -124,7 +126,7 @@ def order_cancel(request, order_id):
 
 @login_required
 def invoice(request, order_id):
-    order = get_object_or_404(Order, pk=order_id, school=school_for(request))
+    order = get_object_or_404(Order, pk=order_id, school=school_for(request), product_id=FACE_PRODUCT_SLUG)
     return render(request, 'portal/invoice.html', {'order': order,
         'payment': VerifiedPayment.objects.filter(order=order).first()})
 
@@ -140,15 +142,16 @@ def tickets(request):
             with transaction.atomic():
                 item = form.save(commit=False)
                 item.school = school
+                item.product_id = FACE_PRODUCT_SLUG
                 item.save()
                 AuditEvent.objects.create(actor=request.user, school=school, action='ticket.created', object_id=str(item.pk))
             return redirect('ticket', ticket_id=item.pk)
-    return render(request, 'portal/tickets.html', {'tickets': Paginator(SupportTicket.objects.filter(school=school), 25).get_page(request.GET.get('page')), 'form': form})
+    return render(request, 'portal/tickets.html', {'tickets': Paginator(SupportTicket.objects.filter(school=school, product_id=FACE_PRODUCT_SLUG), 25).get_page(request.GET.get('page')), 'form': form})
 
 
 @login_required
 def ticket(request, ticket_id):
-    item = get_object_or_404(SupportTicket, pk=ticket_id, school=school_for(request))
+    item = get_object_or_404(SupportTicket, pk=ticket_id, school=school_for(request), product_id=FACE_PRODUCT_SLUG)
     form = ReplyForm(request.POST or None)
     if request.method == 'POST':
         if throttled(request, 'ticket-reply', str(item.school_id), limit=30):
@@ -188,7 +191,7 @@ def checked_artifact(release):
 @login_required
 def release_download(request, release_id):
     school = school_for(request)  # Expired owners may download recovery software too.
-    release = get_object_or_404(Release, pk=release_id, is_published=True)
+    release = get_object_or_404(Release, pk=release_id, is_published=True, product_id=FACE_PRODUCT_SLUG)
     if throttled(request, 'release-download', str(school.pk), limit=10, seconds=3600):
         return too_many()
     try:
@@ -206,10 +209,10 @@ def business_export(request):
     school = school_for(request)
     if throttled(request, 'business-export', str(school.pk), limit=4, seconds=3600):
         return too_many()
-    payload = {'school': {'id': str(school.pk), 'name': school.name, 'email': request.user.email},
-        'orders': list(Order.objects.filter(school=school).values('id', 'status', 'amount_irr', 'created_at')),
-        'tickets': list(SupportTicket.objects.filter(school=school).values('id','subject','category','body','status','created_at')),
-        'replies': list(TicketReply.objects.filter(ticket__school=school).values('ticket_id','body','created_at'))}
+    payload = {'product': FACE_PRODUCT_SLUG, 'school': {'id': str(school.pk), 'name': school.name, 'email': request.user.email},
+        'orders': list(Order.objects.filter(school=school, product_id=FACE_PRODUCT_SLUG).values('id', 'product_id', 'product_name', 'status', 'amount_irr', 'created_at')),
+        'tickets': list(SupportTicket.objects.filter(school=school, product_id=FACE_PRODUCT_SLUG).values('id','subject','category','body','status','created_at')),
+        'replies': list(TicketReply.objects.filter(ticket__school=school, ticket__product_id=FACE_PRODUCT_SLUG).values('ticket_id','body','created_at'))}
     from django.core.serializers.json import DjangoJSONEncoder
     response = HttpResponse(json.dumps(payload, cls=DjangoJSONEncoder, ensure_ascii=False), content_type='application/json')
     response['Content-Disposition'] = 'attachment; filename="school-business-records.json"'
@@ -218,12 +221,18 @@ def business_export(request):
 
 @owner_required()
 def owner(request):
-    totals = VerifiedPayment.objects.aggregate(total=Sum('amount_irr'))
+    selected = request.GET.get('product', '')
+    if selected and not Product.objects.filter(pk=selected).exists():
+        raise Http404
+    payments = VerifiedPayment.objects.all()
+    if selected:
+        payments = payments.filter(order__product_id=selected)
+    totals = payments.aggregate(total=Sum('amount_irr'))
     # No license API/client keys are exposed in this overview.
     return render(request, 'owner/dashboard.html', {'revenue': totals['total'] or 0,
         'schools': School.objects.select_related('user').order_by('-created_at')[:100],
-        'orders': Order.objects.select_related('school').order_by('-created_at')[:100],
-        'plans': Plan.objects.order_by('sort_order'), 'contacts': ContactRequest.objects.order_by('-created_at')[:50],
+        'orders': Order.objects.select_related('school','product').filter(**({'product_id': selected} if selected else {})).order_by('-created_at')[:100],
+        'plans': Plan.objects.select_related('product').filter(**({'product_id': selected} if selected else {})).order_by('product_id','sort_order'), 'products': Product.objects.order_by('sort_order','pk'), 'selected_product': selected, 'subscriptions': ProductSubscription.objects.select_related('school','product').filter(**({'product_id': selected} if selected else {})).order_by('-expires_at')[:100], 'contacts': ContactRequest.objects.order_by('-created_at')[:50],
         'tickets': SupportTicket.objects.select_related('school').all()[:50],
         'releases': Release.objects.all()[:20], 'audits': AuditEvent.objects.select_related('actor').all()[:50]})
 
@@ -257,9 +266,12 @@ def owner_trial(request, order_id):
 @owner_required(recent=True)
 def owner_plan(request, plan_id=None):
     from django.forms import modelform_factory
-    form_class = modelform_factory(Plan, fields=['slug','name','description','price_irr','duration_days','student_limit','device_limit','is_trial','is_active','is_public','sort_order'])
+    form_class = modelform_factory(Plan, fields=['product','slug','name','description','price_irr','duration_days','student_limit','device_limit','is_trial','is_active','is_public','sort_order'])
     item = get_object_or_404(Plan, pk=plan_id) if plan_id else None
     form = form_class(request.POST or None, instance=item)
+    form.fields['product'].queryset = Product.objects.filter(pk=item.product_id if item else FACE_PRODUCT_SLUG)
+    form.fields['product'].disabled = item is not None
+    form.fields['product'].label = 'محصول'
     if request.method == 'POST' and form.is_valid():
         item = form.save()
         AuditEvent.objects.create(actor=request.user, action='plan.updated', object_id=str(item.pk))
@@ -271,6 +283,7 @@ def owner_plan(request, plan_id=None):
 @owner_required(recent=True)
 def owner_release(request):
     form = ReleaseForm(request.POST or None)
+    form.fields['product'].queryset = Product.objects.filter(slug=FACE_PRODUCT_SLUG)
     if request.method == 'POST' and form.is_valid():
         item = form.save(commit=False)
         try:
@@ -363,7 +376,9 @@ def owner_school(request, school_id):
         # Keep the form's School row lock until the complete update is durable.
         with transaction.atomic():
             if form.is_valid():
-                form.save()
+                updated_school = form.save()
+                from .commerce import sync_face_subscription
+                sync_face_subscription(updated_school)
                 AuditEvent.objects.create(actor=request.user, school=school, action='subscription.owner_updated', object_id=str(school.pk))
                 messages.success(request, 'تنظیم مدرسه ذخیره شد؛ این تغییر دستی، پرداخت یا درآمدی ثبت نمی‌کند.')
                 return redirect('owner-school', school_id=school.pk)
@@ -381,3 +396,14 @@ def owner_device_revoke(request, school_id, device_id):
         device.save(update_fields=['revoked'])  # Digest retained for signed revocation sync.
         AuditEvent.objects.create(actor=request.user, school=school, action='device.owner_revoked', object_id=str(device.pk))
     return redirect('owner-school', school_id=school.pk)
+
+
+@login_required
+def workspace(request):
+    if is_company_owner(request.user):
+        return redirect('owner')
+    school = school_for(request)
+    product = get_object_or_404(Product, pk=FACE_PRODUCT_SLUG)
+    subscriptions = ProductSubscription.objects.filter(school=school, product_id=FACE_PRODUCT_SLUG).select_related('product')
+    return render(request, 'portal/workspace.html', {'school': school, 'product': product,
+        'subscriptions': subscriptions, 'page_title': 'حساب NxFi Technologies'})

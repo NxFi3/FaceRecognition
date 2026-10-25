@@ -1,16 +1,21 @@
-# FaceRecognition
+# NxFi Technologies
 
-A desktop smart-attendance application combining face recognition, person detection, local tracking, optional appearance-based re-identification (Re-ID), and attendance-event management.
+A Persian-first corporate software and AI technology platform. FaceRecognition is
+its first and currently only commercial product: a desktop attendance application
+with person detection, local tracking, optional Re-ID, and attendance management.
 
 The project is designed to be tested on CPU-first hardware, with optional CUDA acceleration where supported. Performance and accuracy depend on the cameras, environment, model assets, and configuration; benchmark results from one setup are not universal guarantees.
 
-## NxFi commercial platform
+## Corporate website and first product
 
-The same Django service now provides a Persian RTL product website, synthetic
+The same Django service provides a company homepage and Products catalogue,
+a dedicated complete FaceRecognition journey, and a synthetic
 interactive demo, school portal, invoices/support/releases and explicit owner
 management. Purchases use independently verified manual payments; no live Iranian
 payment gateway or cloud inference service is advertised as integrated.
 
+- [Company/product architecture and migration](docs/corporate-product-architecture.md)
+- [Current corporate desktop/mobile screenshots](docs/screenshots/corporate-README.md)
 - [Local development, owner bootstrap and deployment (Persian)](docs/commercial-deployment-fa.md)
 - [Repository audit](docs/commercial-audit.md)
 - [Commercial security and validation](docs/commercial-security.md)

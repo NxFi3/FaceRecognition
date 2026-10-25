@@ -12,12 +12,13 @@ from django.core.management import call_command
 from django.db import connection, connections
 from django.test import Client, TestCase, TransactionTestCase
 from django.utils import timezone
-from service.models import School, SupportTicket, TicketReply
+from service.models import School, SupportTicket, TicketReply, Product
 
 
 @skipUnless(connection.vendor == 'postgresql', 'Retention serialization requires production PostgreSQL row locks')
 class RetentionReopenConcurrencyTests(TransactionTestCase):
     def setUp(self):
+        Product.objects.get_or_create(slug='facerecognition', defaults={'name': 'FaceRecognition', 'summary': 'Synthetic fixture', 'is_published': True})
         cache.clear()
         self.user = get_user_model().objects.create_user('retention-race@example.invalid')
         self.school = School.objects.create(user=self.user, name='Synthetic retention race')

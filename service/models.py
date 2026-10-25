@@ -80,6 +80,6 @@ class AuditEvent(models.Model):
         ordering = ["-created_at"]
 
 # Separate business/security modules remain registered in the existing service app.
-from .commerce_models import Plan, Order, VerifiedPayment  # noqa: E402,F401
+from .commerce_models import Product, ProductSubscription, Plan, Order, VerifiedPayment  # noqa: E402,F401
 from .owner_models import CompanyOwner  # noqa: E402,F401
 from .portal_models import ContactRequest, SupportTicket, TicketReply, Release, EmailOutbox  # noqa: E402,F401
