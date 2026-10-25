@@ -74,7 +74,7 @@ class OnboardingTests(unittest.TestCase):
 
     def test_catalog_compilation_and_committed_catalog_match(self):
         root = Path(__file__).resolve().parents[1]
-        messages = json.loads((root/'src/locales/fa.json').read_text())
+        messages = json.loads((root/'src/locales/fa.json').read_text(encoding='utf8'))
         compiled = compile_catalog(messages)
         self.assertEqual(compiled, (root/'service/locale/fa/LC_MESSAGES/django.mo').read_bytes())
         translator = gettext.GNUTranslations(io.BytesIO(compiled))
