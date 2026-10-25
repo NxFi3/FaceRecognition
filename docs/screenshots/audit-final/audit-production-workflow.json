@@ -188,7 +188,8 @@
     "real HTTPS client-encrypted backup upload/download/full SQLite+photo restore",
     "actual dedicated TLS proxy stop/start: offline startup and failed sync preserve paid license, verified HTTPS sync recovers",
     "actual owner expiration and online renewal recover admission without deleting local data",
-    "customer device revocation becomes durable after next successful authenticated sync"
+    "customer device revocation becomes durable after next successful authenticated sync",
+    "actual HTTPS logout accepts the current revoked bearer solely for invalidation; old bearer lease sync returns 401 and offline restart stays denied"
   ],
   "screenshots": [
     "audit-production-company-desktop.png",
@@ -203,5 +204,5 @@
     "audit-production-school-active.png",
     "audit-production-school-mobile.png"
   ],
-  "captured_at_utc": "2026-10-25T14:34:58.860605+00:00"
+  "captured_at_utc": "2026-10-25T14:50:37.236641+00:00"
 }

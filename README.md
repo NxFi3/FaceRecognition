@@ -18,7 +18,9 @@ payment gateway or cloud inference service is advertised as integrated.
 - [Current corporate desktop/mobile screenshots](docs/screenshots/corporate-README.md)
 - [Local development, owner bootstrap and deployment (Persian)](docs/commercial-deployment-fa.md)
 - [Repository audit](docs/commercial-audit.md)
-- [Commercial security and validation](docs/commercial-security.md)
+- [Independent security audit and actual production-mode workflow](docs/production-readiness-audit.md)
+- [Current production-mode screenshots](docs/screenshots/audit-final/README.md)
+- [Commercial implementation and earlier validation](docs/commercial-security.md)
 - [Verified synthetic desktop/mobile website screenshots](docs/screenshots/README.md)
 - [Offline licensing and school recovery (Persian)](docs/subscription-setup-fa.md)
 

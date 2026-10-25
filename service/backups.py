@@ -17,7 +17,7 @@ from django.http import FileResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
 import base64
-from .api import device_auth, error
+from .api import device_auth, error, locked_authenticated_device
 from .models import AuditEvent, Backup, School
 from .security import throttled
 
@@ -92,7 +92,11 @@ def upload(request):
         if count != length or digest.hexdigest() != expected:
             return error("backup_digest_mismatch", 400)
         with transaction.atomic():
-            school = School.objects.select_for_update().select_related("user").get(pk=request.school.pk)
+            # Uploading can outlast a revoke/password change; the wrapper's old
+            # snapshot is not authority for retention/quota mutations at commit.
+            if locked_authenticated_device(request) is None:
+                return error('invalid_device_credential', 401)
+            school = request.school
             if not school.entitled or not school.backups_enabled:
                 return error("subscription_inactive")
             old = list(Backup.objects.filter(school=school).order_by("-created_at"))

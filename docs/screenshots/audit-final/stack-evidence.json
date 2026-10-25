@@ -1,1 +1,14 @@
-{"testing": false, "debug": false, "db_vendor": "postgresql", "db_privileges": [false, false, false], "redis_backend": "django.core.cache.backends.redis.RedisCache", "uid": 10001, "secure_cookies": true}
+{
+  "testing": false,
+  "debug": false,
+  "db_vendor": "postgresql",
+  "db_privileges": [
+    false,
+    false,
+    false
+  ],
+  "redis_backend": "django.core.cache.backends.redis.RedisCache",
+  "uid": 10001,
+  "secure_cookies": true,
+  "notification_dispatch": "Accepted by mail backend: 4; deferred: 0. Check the outbox for exhausted attempts."
+}

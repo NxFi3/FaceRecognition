@@ -64,7 +64,7 @@ def owner_required(view=None, *, recent=False):
         @login_required
         def wrapped(request, *args, **kwargs):
             if not is_company_owner(request.user):
-                return HttpResponseForbidden('این بخش فقط برای مالک مجاز شرکت است.')
+                return render(request, 'error.html', {'code': 403, 'message': 'این بخش فقط برای مالک مجاز شرکت است.'}, status=403)
             if recent and not has_recent_owner_auth(request):
                 from urllib.parse import urlencode
                 return redirect('/owner/reauth/?' + urlencode({'next': request.get_full_path()}))
