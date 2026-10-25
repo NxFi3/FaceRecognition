@@ -17,6 +17,8 @@ class SecurityHeaders:
         response = self.get_response(request)
         response["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
         response["Referrer-Policy"] = "same-origin"
+        # The website demo is synthetic; browser access to student sensors is unnecessary.
+        response["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         if not request.path.startswith(settings.STATIC_URL):
             response["Cache-Control"] = "no-store"
         return response

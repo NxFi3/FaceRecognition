@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}تأیید امنیتی مالک | NxFi Technologies{% endblock %}
+{% block content %}
+<section class="section narrow">
+  <div class="form-card">
+    <span class="eyebrow">حفاظت از حساب مالک</span>
+    <h1>تأیید دوبارهٔ هویت</h1>
+    <p>برای عملیات مدیریتی حساس، رمز فعلی حساب خود را وارد کنید. اعتبار این تأیید کوتاه است و مجوز مالکیت به حساب مدرسه منتقل نمی‌شود.</p>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ next }}">
+      {{ form.as_p }}
+      <button class="button button-primary" type="submit">تأیید و ادامه</button>
+    </form>
+    <a href="/owner/">بازگشت به نمای شرکت</a>
+  </div>
+</section>
+{% endblock %}

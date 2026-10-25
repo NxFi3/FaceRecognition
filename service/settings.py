@@ -12,13 +12,14 @@ if len(SECRET_KEY) < 50:
     raise RuntimeError("Generate deployment secrets with deploy.configure before starting the service")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "https://testserver" if TESTING else "").rstrip("/")
 parsed = urlparse(PUBLIC_URL)
-if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.path:
+if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password
+        or parsed.path or parsed.query or parsed.fragment):
     raise RuntimeError("PUBLIC_URL must be an HTTPS origin")
 ALLOWED_HOSTS = [parsed.hostname]
 CSRF_TRUSTED_ORIGINS = [PUBLIC_URL]
 ROOT_URLCONF = "service.urls"
 WSGI_APPLICATION = "service.wsgi.application"
-INSTALLED_APPS = ["django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
+INSTALLED_APPS = ["service.apps.OwnerAdminConfig", "django.contrib.auth", "django.contrib.contenttypes",
                   "django.contrib.sessions", "django.contrib.messages", "django.contrib.staticfiles", "service"]
 MIDDLEWARE = ["django.middleware.security.SecurityMiddleware", "whitenoise.middleware.WhiteNoiseMiddleware",
               "django.contrib.sessions.middleware.SessionMiddleware", "django.middleware.common.CommonMiddleware",
@@ -96,3 +97,6 @@ if not TESTING:
                 raise ValueError()
         except Exception as exc:
             raise RuntimeError(f"{name} must contain a generated 32-byte base64 key") from exc
+
+# Short owner step-up; authority comes only from the singleton DB record.
+OWNER_REAUTH_SECONDS = 300
