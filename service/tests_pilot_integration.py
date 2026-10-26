@@ -15,9 +15,13 @@ import time
 import unittest
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-import requests
+try:
+    import requests
+except ImportError:
+    requests = None
 
 
+@unittest.skipUnless(requests is not None, "Pilot-only HTTP client is not bundled in the minimal production server image")
 class LocalPilotIntegrationTests(unittest.TestCase):
     def test_isolated_pilot_serves_real_tls_and_signed_school_license(self):
         with tempfile.TemporaryDirectory(prefix="nxfi-pilot-check-") as directory:
