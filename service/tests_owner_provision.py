@@ -1,12 +1,16 @@
 """Owner-owned school onboarding uses the real web authorization boundary."""
 from django.contrib.auth import get_user_model, authenticate
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
 from .models import AuditEvent, School
 from .owner_models import CompanyOwner
 
 
+@override_settings(STORAGES={
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+})
 class OwnerSchoolProvisionTests(TestCase):
     def setUp(self):
         self.owner_password = "Only-for-tests-owner-passphrase99!"
