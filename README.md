@@ -1,6 +1,6 @@
 # NxFi Technologies
 
-A Persian-first corporate software and AI technology platform. FaceRecognition is
+An English-default, Persian-optional corporate software and AI technology platform. FaceRecognition is
 its first and currently only commercial product: a desktop attendance application
 with person detection, local tracking, optional Re-ID, and attendance management.
 
@@ -26,8 +26,8 @@ payment gateway or cloud inference service is advertised as integrated.
 
 Company name NxFi Technologies is provisional. The project makes no claim of
 legal registration, certification, paying customers, or measured target-PC accuracy.
-The commercial feature branch is `feature/nxfi-commercial-platform`; its baseline
-`hardening/offline-first-licensing` remains unchanged. Published prices and release
+The current release-hardening branch is `hardening/release-acceptance`, based on
+`feature/nxfi-unified-account-i18n`. Previous branches remain unchanged. Published prices and release
 binaries must be explicitly configured by the owner; there are no fake payment
 successes or placeholder installers.
 
@@ -67,7 +67,8 @@ Runtime data such as the SQLite database, logs, caches, and downloaded datasets 
 
       python -m pip install -r requirements-reid.txt
 
-The OSNet backend is allowed to fall back gracefully when its optional dependencies are unavailable.
+OSNet is optional only when the deployed baseline does not use it. Preserve the
+validated weights and optional CPU dependencies for pilots that rely on Re-ID.
 
 The optional live-camera Re-ID diagnostic is not the production tracker. Run it from the repository root only when a camera is connected:
 
@@ -81,8 +82,11 @@ until subscription expiry. Network sync is asynchronous. School-owned client-enc
 complete backups require a separately kept recovery key. Start with the [Persian deployment and operations guide](docs/subscription-setup-fa.md).
 It covers VPS setup, website/admin accounts, subscription activation, Windows
 packaging, encrypted backups and disaster recovery. Payment activation is manual.
-Copy the generated public `subscription-client.json` beside the application;
-never ship the private server `.env` or signing/backup keys.
+An official Windows build bundles its validated public service configuration.
+The customer must not create or copy JSON files. Release operators stage the
+existing public URL/verification key during packaging and never ship the private
+server `.env` or signing/backup keys. Native Windows packaging still needs a
+real-machine acceptance run.
 
 From the repository root:
 
@@ -134,3 +138,5 @@ and remaining bilingual release blockers](docs/unified-account-i18n-audit.md).
 [Verified English/Persian browser and Qt evidence](docs/screenshots/unified-account/README.md).
 The full legacy desktop/owner localization is unfinished; do not advertise full
 bilingual support from the existence of the language selector alone.
+
+Release acceptance: [evidence and GO/NO-GO matrix](docs/release-readiness-report.md), [deployment checklist](docs/production-deployment-checklist.md), [school pilot protocol](docs/school-pilot-acceptance-test.md), and [known limits](docs/known-limitations.md).

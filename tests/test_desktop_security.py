@@ -170,10 +170,10 @@ class FileBoundarySecurityTests(unittest.TestCase):
                     self.assertEqual(output[1][5], '1')
                 else:
                     workbook = load_workbook(path)
-                    self.assertEqual(workbook['دانش‌آموزان']['A2'].value, "'=CODE")
-                    self.assertEqual(workbook['دانش‌آموزان']['B2'].data_type, 's')
-                    self.assertEqual(workbook['دانش‌آموزان']['F2'].value, 1)
-                    self.assertEqual(workbook['کلاس‌ها']['A2'].value, "'=CLASS")
+                    self.assertEqual(workbook[app.tr('Students')]['A2'].value, "'=CODE")
+                    self.assertEqual(workbook[app.tr('Students')]['B2'].data_type, 's')
+                    self.assertEqual(workbook[app.tr('Students')]['F2'].value, 1)
+                    self.assertEqual(workbook[app.tr('Classes')]['A2'].value, "'=CLASS")
                     workbook.close()
 
     def test_gui_event_csv_escapes_synthetic_note_formula(self):

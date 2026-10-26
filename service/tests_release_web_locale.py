@@ -105,6 +105,26 @@ class ReleaseWebLocaleTests(TestCase):
             self.assertContains(response, '&lt;script&gt;operator-copy&lt;/script&gt;')
             self.assertNotContains(response, '<script>operator-copy</script>')
 
+    def test_portal_next_step_reflects_subscription_state_in_both_languages(self):
+        self.client.force_login(self.user)
+        path = '/products/facerecognition/account/'
+        for language, active_copy in (
+            ('en', 'Your subscription is active.'),
+            ('fa', 'اشتراک شما فعال است.'),
+        ):
+            with self.subTest(language=language, status='active'):
+                response = self.response(path, language)
+                self.assertContains(response, active_copy)
+                self.assertNotContains(response, '1. Choose a plan.')
+        self.school.status = 'expired'
+        self.school.save(update_fields=['status'])
+        for language in ('en', 'fa'):
+            with self.subTest(language=language, status='expired'):
+                response = self.response(path, language)
+                self.assertNotContains(response, 'Your subscription is active.')
+                self.assertContains(response, 'Operational access is inactive.' if language == 'en'
+                                    else 'اشتراک عملیاتی فعال نیست.')
+
     def test_no_raw_persian_static_template_copy_except_language_name(self):
         # This checks literal text, labels, include arguments and filter fallbacks.
         # Dynamic operator content and translated Persian catalogs are out of scope.
