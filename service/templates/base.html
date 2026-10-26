@@ -17,6 +17,18 @@
 </head>
 <body>
 <a class="skip-link" href="#main-content">{% translate "Skip to content" %}</a>
+{% if owner_only_web %}
+<header class="site-header"><div class="container nav-shell">
+<a class="brand" href="{% url 'owner' %}"><strong dir="ltr">NxFi · FaceRecognition</strong></a>
+<nav class="primary-nav" aria-label="{% translate 'Administration' %}">
+  {% if request.user.is_authenticated %}
+  <a href="{% url 'owner' %}">{% translate "Dashboard" %}</a>
+  <a href="{% url 'owner-school-new' %}">{% translate "Add school" %}</a>
+  <a href="{% url 'owner-health' %}">{% translate "Health" %}</a>
+  <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">{% translate "Sign out" %}</button></form>
+  {% else %}<a href="{% url 'login' %}">{% translate "Owner sign in" %}</a>{% endif %}
+</nav></div></header>
+{% else %}
 <header class="site-header">
   <div class="container nav-shell">
     <a class="brand" href="{% url 'home' %}" aria-label="NxFi Technologies"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span><strong dir="ltr">NxFi<span> Technologies</span></strong><small>{% translate "Software & AI technology" %}</small></span></a>
@@ -34,10 +46,15 @@
 </header>
 <noscript><nav class="container no-js-nav" aria-label="{% translate "Navigation without JavaScript" %}"><a href="{% url 'products' %}">{% translate "Products" %}</a><a href="{% url 'product-facerecognition' %}">FaceRecognition</a><a href="{% url 'support' %}">{% translate "Help" %}</a><a href="{% url 'login' %}">{% translate "Sign in" %}</a></nav></noscript>
 {% if product_scope %}{% include 'marketing/product_nav.html' %}{% endif %}
+{% endif %}
 <main id="main-content" tabindex="-1">
   {% if messages %}<div class="container message-stack" aria-live="polite">{% for message in messages %}<div class="notice {{ message.tags }}" role="status">{{ message }}</div>{% endfor %}</div>{% endif %}
   {% block content %}{% endblock %}
 </main>
+{% if owner_only_web %}
+<footer class="site-footer"><div class="container footer-bottom"><span>NxFi · FaceRecognition</span>
+<span>{% translate "Authorized administrator access only. Student biometric records remain on school devices." %}</span></div></footer>
+{% else %}
 <footer class="site-footer">
   <div class="container footer-grid">
     <div class="footer-brand"><a class="brand" href="{% url 'home' %}"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span><strong dir="ltr">NxFi Technologies</strong><small>{% translate "Technology for better working days." %}</small></span></a><p>{% translate "NxFi Technologies develops software and AI technology for practical needs. FaceRecognition is our first commercial product." %}</p><span class="badge badge-neutral">{% translate "First product · preparing for pilot deployment" %}</span></div>
@@ -47,4 +64,5 @@
   </div>
   <div class="container footer-bottom"><span dir="ltr">© {% now 'Y' %} NxFi Technologies</span><span>{% translate "NxFi Technologies is a provisional project name. No legal registration or certification is claimed." %}</span></div>
 </footer>
+{% endif %}
 </body></html>

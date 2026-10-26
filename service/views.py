@@ -43,6 +43,8 @@ class SchoolAuthenticationForm(AuthenticationForm):
 class SchoolLoginView(LoginView):
     authentication_form = SchoolAuthenticationForm
     template_name = "registration/login.html"
+    def get_template_names(self):
+        return ["owner/login.html"] if getattr(settings, 'OWNER_ONLY_WEB', False) else super().get_template_names()
     def form_valid(self, form):
         from .owner_auth import is_company_owner
         if getattr(settings, 'OWNER_ONLY_WEB', False) and not is_company_owner(form.get_user()):

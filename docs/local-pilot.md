@@ -25,7 +25,10 @@ Read that file locally. Use its **owner** credentials to sign in at
 ever exposed. The demo subscription begins with 900 places, two devices and
 30 days. The pilot web site hides the corporate storefront and restricts
 interactive browser sign-in to the explicit owner. School desktop API login
-remains fully functional. The owner can create additional synthetic schools and edit license
+remains fully functional. The same owner-only website mode can be selected on
+an eventual production server by setting `NXFI_OWNER_ONLY_WEB=1` in its
+secure deployment environment; do this only after validating that no
+existing customers require the old web portal. The owner can create additional synthetic schools and edit license
 capacity/expiry via the web portal.
 
 Certificate details: the runner creates an isolated root CA and localhost

@@ -27,7 +27,9 @@ from .settings import *  # noqa: F403,F401,E402
 
 DEBUG = False
 OWNER_ONLY_WEB = True
-MIDDLEWARE = [*MIDDLEWARE, 'service.owner_portal.OwnerOnlyWebMiddleware']
+LOGIN_REDIRECT_URL = "/owner/"
+if 'service.owner_portal.OwnerOnlyWebMiddleware' not in MIDDLEWARE:
+    MIDDLEWARE = [*MIDDLEWARE, 'service.owner_portal.OwnerOnlyWebMiddleware']
 ALLOWED_HOSTS = ["localhost"]
 CSRF_TRUSTED_ORIGINS = [origin]
 DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": root / "service" / "pilot.sqlite3", "OPTIONS": {"timeout": 15}}}

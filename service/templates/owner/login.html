@@ -1,0 +1,11 @@
+{% extends 'base.html' %}{% load i18n %}{% block title %}{% translate "Owner sign in" %} · NxFi{% endblock %}
+{% block content %}
+<section class="auth-section container"><div class="form-card">
+<span class="eyebrow">NXFI / SECURE ADMINISTRATION</span>
+<h1>{% translate "Owner sign in" %}</h1>
+<p>{% translate "The website is restricted to the designated NxFi administrator. Schools sign in from the FaceRecognition desktop." %}</p>
+<form method="post">{% csrf_token %}{{ form.as_p }}
+{% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+<button class="button" type="submit">{% translate "Sign in" %}</button></form>
+</div></section>
+{% endblock %}

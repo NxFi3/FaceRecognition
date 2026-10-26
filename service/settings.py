@@ -32,6 +32,9 @@ MIDDLEWARE = ["django.middleware.security.SecurityMiddleware", "whitenoise.middl
               "django.middleware.csrf.CsrfViewMiddleware", "django.contrib.auth.middleware.AuthenticationMiddleware",
               "django.contrib.messages.middleware.MessageMiddleware", "django.middleware.clickjacking.XFrameOptionsMiddleware",
               "service.security.SecurityHeaders"]
+OWNER_ONLY_WEB = os.environ.get("NXFI_OWNER_ONLY_WEB") == "1"
+if OWNER_ONLY_WEB:
+    MIDDLEWARE.append("service.owner_portal.OwnerOnlyWebMiddleware")
 TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [BASE_DIR / "templates"],
               "APP_DIRS": True, "OPTIONS": {"context_processors": ["django.template.context_processors.request",
                "django.contrib.auth.context_processors.auth", "django.contrib.messages.context_processors.messages", "service.context_processors.company_navigation"]}}]
