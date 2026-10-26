@@ -157,6 +157,9 @@ def bootstrap_accounts(target):
     from service.commerce import sync_face_subscription
 
     call_command("migrate", verbosity=0, interactive=False)
+    # Serve the actual bundled CSS/JS from the isolated directory even in
+    # production-like DEBUG=False mode. Never write compiled assets into git.
+    call_command("collectstatic", verbosity=0, interactive=False)
     credentials_file = target / "pilot-test-accounts.txt"
     with transaction.atomic():
         if not CompanyOwner.objects.exists():

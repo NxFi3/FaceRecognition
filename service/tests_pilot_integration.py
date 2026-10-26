@@ -60,6 +60,9 @@ class LocalPilotIntegrationTests(unittest.TestCase):
                 else:
                     self.fail("Pilot HTTPS health did not become ready")
                 self.assertEqual(response.json(), {"ok": True})
+                stylesheet = session.get(base + "/static/site.css", verify=str(ca), timeout=5)
+                self.assertEqual(stylesheet.status_code, 200)
+                self.assertIn("text/css", stylesheet.headers.get("Content-Type", ""))
                 self.assertFalse((Path(__file__).resolve().parents[1] / "subscription-client.json").exists())
                 self.assertTrue((Path(directory) / ".nxfi-local-pilot").exists())
                 cfg = json.loads((Path(directory) / "subscription-client.json").read_text())

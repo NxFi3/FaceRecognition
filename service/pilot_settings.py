@@ -38,6 +38,7 @@ BACKUP_ROOT = root / "service" / "backups"
 RELEASE_ROOT = root / "service" / "releases"
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 EMAIL_HOST = ""
+STATIC_ROOT = root / "service" / "staticfiles"
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
