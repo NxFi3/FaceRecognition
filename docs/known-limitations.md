@@ -8,11 +8,19 @@ Current recommendation: **NO-GO for an unsupervised paying-school rollout**.
   credential vault, Qt/dlib/OSNet parity, camera drivers, reconnects or weak-PC
   latency. The school pilot sheet gives exact required checks. The observed
   ~30 FPS/camera Ryzen history is user-reported, not remeasured here.
-- **Attendance crash window — known FAIL for full atomicity.** The existing daily
-  attendance row and movement-event row use two SQLite transactions. This pass
-  serializes live transitions and permits retry after a caught write error, but a
-  process death between commits can still leave inconsistent evidence requiring
-  staff reconciliation. Do not claim exactly-once crash atomicity.
+- **Attendance crash behavior — residual field risk.** The live smart-camera
+  entry now commits the daily attendance row, movement event and optional late
+  event in one SQLite transaction; exit and optional early event likewise commit
+  together. Retried transitions consult the latest durable movement, including
+  after a commit-before-RAM-update interruption. SQLite WAL with `synchronous=NORMAL`
+  keeps a transaction atomic, but an abrupt power loss can lose the *entire*
+  latest transaction. No desktop can reconstruct an uncommitted physical crossing
+  that the camera never sees again. Staff must reconcile outages against footage
+  or other authorized evidence. A database write error stops the affected camera
+  worker with a visible error instead of acknowledging unwritten attendance;
+  restart it only after storage is healthy and reconcile the outage. Historical
+  rows from older releases are not
+  silently rewritten or deleted.
 - **Biometric quality — BLOCKED.** No authorized field footage or target i5 is
   available. False-match, missed-event and identity-switch rates cannot be
   inferred from synthetic tracker tests; matching thresholds/identity rules were
@@ -44,6 +52,12 @@ Current recommendation: **NO-GO for an unsupervised paying-school rollout**.
   available. Owner password step-up is not MFA. Manual payment works only after
   independent owner verification; an Iranian gateway/refunds/fiscal invoices
   remain unintegrated.
+- **Windows static verification is not Windows execution.** The build now checks
+  original model hashes, the staged public URL/key, Qt's Windows platform plugin,
+  native dlib/ONNX extensions, the reviewed OSNet cache manifest where applicable,
+  and common private-data file names. A clean Windows launch without Python,
+  actual Credential Manager, offline license and two cameras still need manual
+  acceptance; scanning package contents cannot prove the absence of every secret.
 - **Security verification limits.** Targeted OWASP-style tests and dependency
   scans are evidence for tested paths only. They are not a penetration test,
   proof of zero vulnerabilities or Windows-native DLL audit. Synthetic payment

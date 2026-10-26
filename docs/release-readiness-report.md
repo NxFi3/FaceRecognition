@@ -1,13 +1,14 @@
-# Release readiness evidence — `hardening/release-acceptance`
+# Release readiness evidence — `hardening/final-atomicity-windows`
 
 **Decision: NO-GO for unsupervised paid-school deployment.** The disposable
 production-mode service, browser and Linux desktop checks below are useful
 release evidence, but they do not substitute for a native Windows build, two
 real cameras on school hardware, an owned HTTPS/SMTP deployment, or offsite cold
-recovery. An existing two-transaction SQLite attendance/movement crash window also
-needs a documented reconciliation procedure before operating unattended.
+recovery. Attendance writes now have one atomic transaction, but real-world
+missed-crossing recovery after hardware failure still needs the school pilot.
 
-Base inspected: `feature/nxfi-unified-account-i18n@709590d` on 2026-10-26.
+Starting branch: `hardening/release-acceptance@46e58b4` on 2026-10-26;
+that branch itself came from `feature/nxfi-unified-account-i18n@709590d`.
 Only the new branch was edited. No production data, DNS, bank, customer mailbox,
 private production key or live service was touched. The test accounts, payments,
 SMTP messages, camera observations and backup images were synthetic. The prior
@@ -28,6 +29,8 @@ tests; their statements were not treated as fresh execution evidence.
 | P1/P2 incomplete English/Persian operational UI | Static website/owner/portal copy, server forms/errors/emails, Qt operational screens and cloud dialogs localized. Stable attendance codes are kept separate from translated labels. Dynamic school-authored descriptions stay as entered. |
 | P2 active subscription portal displayed first-purchase instructions | Portal guidance now follows actual entitlement state; active/expired English/Persian regression and real browser screenshots. |
 | P2 Windows release asset drift | Require exact original model asset names and committed ONNX files; record hashes rather than re-export/download new weights during each build. A Windows build itself remains BLOCKED here. |
+| P1 two-transaction attendance/movement crash window | Live smart-camera entry now writes daily attendance, `PERSON_ENTERED` and optional `LATE_ARRIVAL` in one `BEGIN IMMEDIATE` SQLite transaction. Exit and optional early event are likewise atomic. Durable latest movement suppresses duplicate retries after commit-before-RAM interruption. GUI signals publish only after commit. Synthetic failure, a real child-process kill before commit, retry and concurrent-worker regressions cover this path; no schema change or biometric change. |
+| P2 Windows output validation gap | The builder and Windows CI now require exact original model hashes, staged public URL/key, `qwindows.dll`, native dlib/ONNX extensions, reviewed OSNet weights when selected, and reject common accidentally packaged school/private files. These are static package checks, not a native Windows execution claim. |
 
 The [prioritized issue inventory](release-issue-inventory.md) records P0–P3
 classification, code evidence and residual risks. No new P0 issue was confirmed.
@@ -51,8 +54,8 @@ identifies a known unresolved correctness condition.
 | Server restart, PostgreSQL logical recovery and duplicate financial retry | PASS (disposable stack) | An administrator-created logical dump restored into a disposable database owned by the restricted application role; commercial counts and verified payment sum matched. Web and PG restarted and fulfilled payment was retried. This does not test loss of whole VPS/remote volumes. |
 | Migration upgrade and reverse on existing-style data | PASS (disposable) | PostgreSQL `MigrationExecutor` progression `0005 → 0007 → 0005 → 0007` and full migration checks preserved synthetic accounts/IDs. Production rollback is BLOCKED without an operator backup. |
 | Attendance duplicate transitions, unknown/uncertain handling, report correctness | PASS (deterministic regressions); BLOCKED (accuracy) | Desktop suite exercises changed event logic and unchanged uncertainty boundaries. No labeled real footage, false-match/miss/identity-switch rate, or original-camera-quality claim. |
-| Attendance and movement atomicity after a process crash between writes | FAIL | Existing daily row and movement row commit separately. Live race/write-error improvements do not remove a kill/power-loss gap; staff reconciliation is required. |
-| Windows installer, original models/DLL/Qt/OSNet and offline launch | BLOCKED | Linux original face and person detector smoke passes, model-name/asset checks pass; no Windows machine/build or OSNet cache parity was available. |
+| Attendance and movement atomicity after a process crash between writes | PASS (software-level synthetic) | One SQLite transaction now contains related rows; injected event and commit failures roll it back. A separate process was killed after inserting attendance but before inserting its event; neither row survived. Separate-state concurrent workers and commit-before-RAM retries create no duplicate movement. An uncommitted physical crossing can still be lost after sudden power failure, so field reconciliation remains BLOCKED. |
+| Windows installer, original models/DLL/Qt/OSNet and offline launch | BLOCKED | Linux original face and person detector smoke plus synthetic static distribution-validator regressions pass; no real Windows EXE build/launch, clean PC or OSNet runtime parity was available. |
 | Two 720p cameras, weak CPU latency, sleep/unplug/reconnect and stable 30 FPS | BLOCKED | No real authorized school cameras or target Windows PC; no performance number invented. `tools.profile_runtime` is available for the pilot. |
 | Public DNS/ACME, production SMTP, offsite backup/cold restore and legal/data consent | BLOCKED | Only disposable loopback HTTPS/PostgreSQL/Redis/SMTP were used. [Deployment](production-deployment-checklist.md) and [pilot](school-pilot-acceptance-test.md) gates remain open. |
 
@@ -64,19 +67,24 @@ from their outputs; a skip is not a pass.
 ```text
 PostgreSQL 17, disposable loopback container:
   SERVICE_TESTING=1 SERVICE_TEST_DATABASE_URL=<disposable PostgreSQL URL> python -m service.manage test service -v 1
-  Ran 199 tests in 24.610s — OK (0 skipped)
+  Ran 199 tests in 19.543s — OK (0 skipped) on disposable PostgreSQL 17.
 
 Linux Qt offscreen:
   QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
-  Ran 167 tests in 1.986s — OK
+  Ran 181 tests in 1.855s — OK
 
 Built service image, nonroot/read-only container:
   docker run --rm --read-only --tmpfs /tmp -e SERVICE_TESTING=1 nxfi-release:test python -m service.manage test service -v 1
-  Ran 199 tests in 22.450s — OK (skipped=15: host/PG-specific cases)
+  Ran 199 tests in 25.850s — OK (skipped=15: host/PG-specific cases)
 
 Release recovery fixture guard:
   python -m unittest tests.test_release_drill -v
   Ran 1 test in 0.003s — OK
+
+Offline license and encrypted-recovery contract:
+  SERVICE_TESTING=1 python -m tools.smoke_offline_license
+  PASS: signed activation, offline restart/failure, encrypted backup/full restore,
+  three renewals, expiry recovery and durable revocation.
 
 Original model smoke after installing existing onnxruntime dependency:
   python -m src.app --smoke-test
@@ -115,10 +123,19 @@ and [screenshots](screenshots/release-acceptance/fa/). These are local
 synthetic artifacts, not real payments or customer pages. No live bank or public
 mail provider was contacted.
 
+On the final-atomicity branch, the disposable English production workflow was
+rerun against the rebuilt service image: **PASS, 14 checks, 34 responsive pages,
+15 screenshots**. Its [machine-readable result](screenshots/final-atomicity/audit-production-workflow.json)
+and [verified school portal image](screenshots/final-atomicity/audit-production-school-active.png)
+are separate from attendance transaction tests. The browser test exercises the
+purchase/license/backup/renewal stack; the new SQLite atomicity is exercised by
+the synthetic concurrent-worker and injected-failure desktop regressions.
+
 ## Security and reliability interpretation
 
-The backup staging leak, preauthentication recovery path, stale owner authority
-and two-camera attendance race were confirmed and regression-tested. Relevant
+The backup staging leak, preauthentication recovery path, stale owner authority,
+two-camera attendance race and split SQLite commits were confirmed and
+regression-tested. Relevant
 OWASP ASVS areas include access control, authentication/session management,
 transaction integrity and file handling; matching CWE examples include CWE-284,
 CWE-362, CWE-664 and CWE-200. The dependency scan and Bandit are additional

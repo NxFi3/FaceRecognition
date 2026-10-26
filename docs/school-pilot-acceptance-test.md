@@ -21,7 +21,7 @@ BLOCKED until the operator runs and signs this sheet.**
 | 10 | Cross an entry/exit line twice from both cameras; check attendance count, early-exit review, day-off logic and report grade/class values against paper records | BLOCKED |
 | 11 | Fill the agreed student capacity, test next student and archived records, renewal/capacity reduction and historical record preservation | BLOCKED |
 | 12 | With explicit consent, export school recovery key to separate secure media; upload encrypted DB+event-photo backup; tamper a copy and test wrong key; restore to a *copy* | BLOCKED |
-| 13 | Test shutdown/disk-full/permission denied safely on disposable copy. Reconcile attendance and movement events after a simulated crash between existing separate SQLite writes | BLOCKED |
+| 13 | On a disposable copy, inject storage/permission errors and restart around entry/exit. Confirm each committed transition has its matching attendance/companion event or none of them; reconcile any physical crossing lost before commit against authorized footage | BLOCKED |
 | 14 | Verify school A cannot access B's invoices/devices/backups; owner-only endpoints reject ordinary users; CSRF and password recovery work | BLOCKED |
 | 15 | Switch English/Persian at login and while cameras run; a running operational UI should stay coherent until restart; check RTL/LTR, reports, emails and exported data | BLOCKED |
 | 16 | Run `python -m tools.profile_runtime --seconds 120 --output pilot.jsonl` with permitted cameras. Record actual processed/capture FPS, frame age p50/p95, CPU/RAM, queue and stage timing on the weak PC | BLOCKED |

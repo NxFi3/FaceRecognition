@@ -5,6 +5,7 @@ Base: `feature/nxfi-unified-account-i18n@709590d`, working branch
 This inventory precedes implementation and is updated with verified results in
 release-readiness-report.md. Priority: P0 immediate data/security loss, P1 release
 blocker, P2 correctness/operational risk, P3 maintenance.
+The final-atomicity follow-up starts from `hardening/release-acceptance@46e58b4`.
 
 | ID | Priority | Evidence at inspection | Required action |
 |---|---|---|---|
@@ -29,7 +30,9 @@ within the modification scope of this release pass.
 | RECOVERY-02 | P1 fixed | `src/cloud/ui.py` exposed local CSV/recovery actions before local administrator authentication. Actions now require the same local gate and are regression-tested. |
 | LICENSE-01 | P1 fixed | A formerly designated owner retained an already-loaded owner object during a financial/admin transaction. `service/commerce.py` and owner mutation boundaries now recheck the current owner inside a lock. PostgreSQL interleaving regression covers the stale authority. |
 | ACCESS-01 | P1 fixed | A verified NxFi company-only user without a FaceRecognition subscription received a 404 on the published installer endpoint. Download authorization now permits that account while keeping unpublished or other-school artifacts inaccessible. |
-| EVENT-01 | P1 fixed | `src/engine/smart_events.py` could create duplicate entry transitions when two camera workers touched a person together, and advanced live state before a failed SQLite write. Serialized transitions and retry-safe state have synthetic regressions. The separate attendance and movement commits remain an unresolved crash window. |
+| EVENT-01 | P1 fixed | `src/engine/smart_events.py` could create duplicate entry transitions when two camera workers touched a person together, and advanced live state before a failed SQLite write. Shared-state serialization and retry-safe state have synthetic regressions. The subsequent branch makes related SQLite commits atomic. |
+| EVENT-02 | P1 fixed in `hardening/final-atomicity-windows` | `src/database.py` previously committed attendance before `PERSON_ENTERED` in a second transaction. `record_movement_transition` now commits related entry/exit events together, serializes the durable latest-movement check and suppresses committed retries. Fault injection covers event insert, companion insert and commit failure; a separate process kill between inserts confirms rollback. |
+| WIN-01 | P2 fixed in `hardening/final-atomicity-windows` | `buildwindows.bat` and Windows CI checked only EXE/two ONNX assets after packaging. They now run a static validator for original face models, public URL/key, Qt/dlib/ONNX native files, OSNet manifest and common private-data filenames. A real Windows build/launch remains BLOCKED here. |
 | REPORT-01 | P1 fixed | Grade/class export fields were reversed, closed-day percentage numerator included unrelated dates, and an export write error could truncate an existing CSV. Fixed with report and file-error regressions. |
 | CAMERA-01 | P2 fixed | Capture failure/reopen paths could retain stale frames or an unsuccessful camera handle. Deterministic lifecycle regressions cover release, timestamp reset and restart behavior. |
 | CLOUD-01 | P2 fixed with residual risk | Local recovery key publication could precede durable write; now staged and atomically published. A failed consent-preference save now disables new uploads in that process and reports the failure; persisted prior opt-in still needs operator retry after storage recovers. |

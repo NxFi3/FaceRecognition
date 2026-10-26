@@ -90,6 +90,7 @@ python -m pip install pyinstaller
 $env:FACE_REID_CACHE = 'C:\SecurePilotAssets\TORCH_HOME'
 python -m tools.prepare_windows_assets --torch-cache $env:FACE_REID_CACHE
 cmd /c buildwindows.bat
+python -m tools.verify_windows_distribution
 & .\dist\FaceRecognition\FaceRecognition.exe --smoke-test
 Get-FileHash -Algorithm SHA256 .\dist\FaceRecognition\FaceRecognition.exe
 python -m pip freeze | Set-Content -Encoding utf8 .\build\windows-dependencies.txt

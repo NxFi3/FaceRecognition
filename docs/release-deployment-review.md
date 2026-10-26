@@ -131,3 +131,17 @@ and existing production/development configuration tests passed (1.671s)**;
 **1/1 model-filename packaging regression passed (0.081s)**. POSIX shell syntax,
 Python compilation for touched helpers and Git whitespace checks passed. No
 actual Windows execution, public ACME or real off-server cold restore is claimed.
+
+## Final-atomicity follow-up: static Windows package gate
+
+The subsequent branch adds `python -m tools.verify_windows_distribution` to
+`buildwindows.bat` and the opt-in Windows CI job. It compares the packaged
+original ONNX/dlib assets byte-for-byte with the reviewed source files, compares
+the strictly parsed public service URL/Ed25519 key with the staged configuration,
+requires `qwindows.dll` and native dlib/ONNX extensions, checks the OSNet cache
+against its generated hash manifest when selected, and rejects common private
+key/school database filenames. Synthetic package regressions cover missing,
+changed and extra files. The CI PyInstaller command now collects PySide6 data
+explicitly to match the local build. This gate does **not** prove that a Windows
+EXE launches, uses Credential Manager, or works without Python on a clean PC;
+the PowerShell smoke and pilot steps above remain mandatory.
