@@ -96,6 +96,8 @@ def run(args):
             and not parts.username and not parts.password and not parts.path and not parts.query and not parts.fragment,
             'Use a disposable HTTPS loopback stack only')
     require(fixture.get('synthetic_disposable') is True, 'Fixture must explicitly attest disposable synthetic data')
+    locale = fixture.get('language', 'fa')
+    require(locale in ('en','fa'), 'Unsupported audit language')
     ca = Path(fixture['ca_file'])
     spool = Path(fixture['smtp_spool'])
     require(ca.is_file() and spool.is_dir(), 'CA and private SMTP spool are required')
@@ -103,7 +105,7 @@ def run(args):
     report = {'scope': 'actual production-settings HTTPS stack with synthetic accounts and owner-attested synthetic payments',
               'external_payment_settlement': False, 'external_email_delivery': False,
               'desktop_vault': 'memory test double, not Windows Credential Manager',
-              'tls_verification_bypassed': False, 'browser': None, 'pages': [], 'checks': [], 'screenshots': []}
+              'language':locale, 'tls_verification_bypassed': False, 'browser': None, 'pages': [], 'checks': [], 'screenshots': []}
     suffix = secrets.token_hex(5)
     password = 'Synthetic-audit-'+secrets.token_urlsafe(18)+'!7'
     school_email = 'audit-school-'+suffix+'@example.invalid'
@@ -122,7 +124,7 @@ def run(args):
         client = CloudClient(config, root/'cloud-state.json', store=vault, transport=transport)
         browser = p.chromium.launch(executable_path=args.chromium, headless=True, args=['--no-sandbox'])
         report['browser'] = browser.version
-        school_context = browser.new_context(extra_http_headers={'Accept-Language':'fa'}, viewport={'width': 1440, 'height': 1000}, reduced_motion='reduce')
+        school_context = browser.new_context(extra_http_headers={'Accept-Language':locale}, viewport={'width': 1440, 'height': 1000}, reduced_motion='reduce')
         school = school_context.new_page()
         browser_errors = []
         school.on('pageerror', lambda _: browser_errors.append('pageerror'))
@@ -130,13 +132,27 @@ def run(args):
             response = page.goto(origin+path, wait_until='networkidle')
             require(response is not None and response.status == status, 'Unexpected HTTP status for '+path.split('?')[0])
             if status == 200:
-                require(page.locator('html').get_attribute('lang') == 'fa' and page.locator('html').get_attribute('dir') == 'rtl', 'RTL document expected')
+                actual_lang = page.locator('html').get_attribute('lang')
+                actual_dir = page.locator('html').get_attribute('dir')
+                require(actual_lang == locale and actual_dir == ('rtl' if locale == 'fa' else 'ltr'),
+                        f'Selected document language/direction expected on {path.split("?")[0]}: '
+                        f'expected {locale}, got {actual_lang}/{actual_dir}')
                 require(page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'Horizontal overflow on '+path)
             return response
         def capture(page, name):
             filename = 'audit-production-'+name+'.png'
             page.screenshot(path=str(args.output/filename), full_page=True)
             report['screenshots'].append(filename)
+            if name in ('owner-verified','school-active'):
+                other = 'fa' if locale == 'en' else 'en'
+                for selected in (other, locale):
+                    with page.expect_navigation(wait_until='networkidle'):
+                        page.locator('[data-language-select]').select_option(selected)
+                    require(page.locator('html').get_attribute('lang') == selected, 'Portal language switching failed')
+                    if selected == other:
+                        extra = 'audit-production-'+name+'-'+other+'.png'
+                        page.screenshot(path=str(args.output/extra), full_page=True)
+                        report['screenshots'].append(extra)
         def submit(page, form):
             form.locator('button').first.click()
             page.wait_for_load_state('networkidle')
@@ -192,7 +208,7 @@ def run(args):
         require(school.locator('[data-demo-present]').inner_text() != before, 'Interactive synthetic demo did not update')
         school.locator('[data-demo-search]').fill('NO-SUCH-SYNTHETIC-RECORD')
         require(school.locator('[data-demo-empty]').is_visible(), 'Synthetic demo empty state missing')
-        report['checks'].append('34 production-HTTPS public/auth responsive pages, mobile navigation/Escape and interactive synthetic demo/empty state')
+        report['checks'].append('34 production-HTTPS selected-language public/auth responsive pages, mobile navigation/Escape and interactive synthetic demo/empty state')
         stage('school registration and email verification')
         register(school, school_email, school_name)
         report['checks'].append('browser registration, real local STARTTLS SMTP email receipt, email verification and school login')
@@ -218,7 +234,7 @@ def run(args):
         denied_login()
         report['checks'].append('priced checkout and manual evidence claim do not activate a subscription')
         stage('second school and tenant denial')
-        other_context = browser.new_context(extra_http_headers={'Accept-Language':'fa'}, viewport={'width': 390, 'height': 844})
+        other_context = browser.new_context(extra_http_headers={'Accept-Language':locale}, viewport={'width': 390, 'height': 844})
         other = other_context.new_page()
         register(other, other_email, 'مدرسهٔ ساختگی دوم ممیزی')
         visit(other, PRODUCT+'account/orders/'+first_order+'/invoice/', status=404)
@@ -226,7 +242,7 @@ def run(args):
         other_context.close()
         report['checks'].append('school accounts denied owner console and another school invoice')
         stage('owner login and payment rejection')
-        owner_context = browser.new_context(extra_http_headers={'Accept-Language':'fa'}, viewport={'width': 1440, 'height': 1000}, reduced_motion='reduce')
+        owner_context = browser.new_context(extra_http_headers={'Accept-Language':locale}, viewport={'width': 1440, 'height': 1000}, reduced_motion='reduce')
         owner = owner_context.new_page()
         login(owner, fixture['owner_email'], fixture['owner_password'])
         def owner_payment(order_id):
@@ -275,12 +291,12 @@ def run(args):
         dialog.password.setText(password)
         dialog.show()
         with patch('PySide6.QtCore.QSettings', lambda *a: QSettings(str(root/'qt-test-settings.ini'), QSettings.IniFormat)):
-            for locale in ('en', 'fa'):
-                dialog.language_box.setCurrentIndex(1 if locale == 'fa' else 0)
-                configure(application, locale)
+            for dialog_locale in ('en', 'fa'):
+                dialog.language_box.setCurrentIndex(1 if dialog_locale == 'fa' else 0)
+                configure(application, dialog_locale)
                 dialog.retranslate()
                 application.processEvents()
-                filename = 'audit-production-desktop-login-' + locale + '.png'
+                filename = 'audit-production-desktop-login-' + dialog_locale + '.png'
                 dialog.grab().save(str(args.output / filename))
                 report['screenshots'].append(filename)
             dialog.language_box.setCurrentIndex(0)
@@ -330,6 +346,28 @@ def run(args):
             require(connection.execute('SELECT COUNT(*) FROM students').fetchone()[0] == 1, 'Restored DB mismatch')
         require((photos/'event_1.jpg').read_bytes().startswith(b'synthetic audit evidence'), 'Restored photo mismatch')
         report['checks'].append('real HTTPS client-encrypted backup upload/download/full SQLite+photo restore')
+        stage('logical database recovery and web/database restart')
+        from tools.release_recovery_drill import logical_restore, restart, database_summary
+        pg_container = fixture.get('docker_db')
+        web_container = fixture.get('docker_web')
+        require(pg_container and web_container, 'Disposable restart/recovery fixtures required')
+        report['recovery_drill'] = logical_restore(pg_container)
+        summary = database_summary(pg_container)
+        def healthy():
+            return session.get(origin+'/health/', verify=str(ca), timeout=(1,2)).status_code == 200
+        for name, suffix in ((web_container, 'web'), (pg_container, 'db')):
+            restart(name, suffix, healthy)
+            client.renew()
+            require(client.allowed(), 'Restart prevented valid desktop admission')
+            require(database_summary(pg_container) == summary, 'Restart changed commercial financial records')
+            # Reusing an already fulfilled order must not create another payment,
+            # subscription extension or invoice after process/DB restart.
+            repeat = subprocess.run(['docker','exec','-i',web_container,'python','-c',
+                "import django,json,sys;django.setup();from service.commerce import verify_manual_payment;from service.models import Order,CompanyOwner;v=json.load(sys.stdin);o=Order.objects.get(pk=v['order']);p=o.verified_payment;verify_manual_payment(order_id=o.pk,actor=CompanyOwner.objects.get(pk=1).user,reference=p.reference,amount_irr=p.amount_irr);print('idempotent')"],
+                input=json.dumps({'order':order}),text=True,capture_output=True,timeout=30)
+            require(repeat.returncode == 0, 'Verified payment retry failed after restart')
+            require(database_summary(pg_container) == summary, 'Retry duplicated verified payment')
+        report['checks'].append('actual logical PG dump/restore preserves commercial counts and totals; web and PG restarts recover HTTPS and paid license; fulfilled payment retries remain idempotent')
         def unavailable(*args, **kwargs):
             raise requests.ConnectionError('synthetic network outage')
         stage('offline restart and server outage')
@@ -388,6 +426,9 @@ def run(args):
             require(owner.locator('.errorlist').count() == 0, 'Owner period update rejected')
         now = datetime.now(timezone.utc)
         update_period(now-timedelta(days=400), now-timedelta(days=1))
+        visit(school, PRODUCT+'account/')
+        require(school.locator('body').inner_text().find('Your subscription is active.' if locale == 'en' else 'اشتراک شما فعال است.') < 0,
+                'Expired portal must not show active-subscription guidance')
         try:
             client.renew()
             raise AssertionError('Expired server subscription admitted')
@@ -400,6 +441,8 @@ def run(args):
         require(renewed.allowed(), 'Renewed license could not start offline')
         report['checks'].append('actual owner expiration and online renewal recover admission without deleting local data')
         visit(school, PRODUCT+'account/')
+        require(('Your subscription is active.' if locale == 'en' else 'اشتراک شما فعال است.') in school.locator('body').inner_text(),
+                'Renewed portal must show active-subscription guidance')
         capture(school, 'school-active')
         school.set_viewport_size({'width': 390, 'height': 844})
         visit(school, PRODUCT+'account/')

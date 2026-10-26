@@ -75,6 +75,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image', default='nxfi-audit:test')
     parser.add_argument('--port', type=int, default=18443)
+    parser.add_argument('--language', choices=('en','fa'), default='fa')
     parser.add_argument('--output', type=Path, default=ROOT/'docs/screenshots/audit')
     args = parser.parse_args()
     if not 1024 <= args.port <= 65535:
@@ -126,7 +127,7 @@ def main():
         pgenv=work/'postgres.env';pgenv.write_text(f'POSTGRES_USER=postgres\nPOSTGRES_PASSWORD={admin_password}\nPOSTGRES_DB=face_service\nPOSTGRES_APP_PASSWORD={pg_password}\n');pgenv.chmod(0o600)
         (work/'smtp.py').write_text(SMTP_SERVER)
         (work/'Caddyfile').write_text('https://localhost:443 {\n tls /certs/server.pem /certs/server-key.pem\n reverse_proxy '+web_name+':8000 {\n header_up X-Forwarded-For {remote_host}\n }\n}\n')
-        fixture={'base_url':origin,'ca_file':str(certs/'ca.pem'),'smtp_spool':str(spool),
+        fixture={'language':args.language,'base_url':origin,'ca_file':str(certs/'ca.pem'),'smtp_spool':str(spool),
             'owner_email':'audit-owner@example.invalid','owner_password':secrets.token_urlsafe(24)+'!7xA',
             'school_email':'audit-school@example.invalid','school_password':secrets.token_urlsafe(24)+'!8yB',
             'other_school_email':'audit-other@example.invalid','other_school_password':secrets.token_urlsafe(24)+'!9zC',
@@ -184,6 +185,7 @@ print('AUDIT_PLAN_ID='+str(p.pk))
             seeded=command(['docker','exec','-i',web_name,'python','-c',seed],data=json.dumps(fixture))
             fixture['plan_id']=int(seeded.split('AUDIT_PLAN_ID=')[1].splitlines()[0]);fixture['price_irr']=90000000
             fixture['docker_web']=web_name
+            fixture['docker_db']=pg_name
             fixture['audit_proxy_container']=proxy_name
             # Read-only operational evidence, never dumps DB passwords or environment.
             evidence=command(['docker','exec',web_name,'python','-c',"import django,json,os;django.setup();from django.db import connection;from django.conf import settings;c=connection.cursor();c.execute('SELECT rolsuper,rolcreatedb,rolcreaterole FROM pg_roles WHERE rolname=current_user');print(json.dumps({'testing':settings.TESTING,'debug':settings.DEBUG,'db_vendor':connection.vendor,'db_privileges':c.fetchone(),'redis_backend':settings.CACHES['default']['BACKEND'],'uid':os.getuid(),'secure_cookies':settings.SESSION_COOKIE_SECURE}))"])
