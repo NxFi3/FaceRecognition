@@ -5,7 +5,7 @@ from django.urls import path
 from django.http import HttpResponsePermanentRedirect
 from django.urls import reverse
 from functools import wraps
-from . import api, backups, views, marketing, platform, customer
+from . import api, backups, views, marketing, platform, customer, owner_school
 from .owner_auth import owner_reauthenticate
 
 urlpatterns = [
@@ -70,6 +70,7 @@ urlpatterns += [
     path('owner/releases/<uuid:release_id>/withdraw/', platform.owner_release_withdraw, name='owner-release-withdraw'),
     path('owner/tickets/<uuid:ticket_id>/', platform.owner_ticket, name='owner-ticket'),
     path('owner/contacts/<int:contact_id>/handled/', platform.owner_contact, name='owner-contact'),
+    path('owner/schools/new/', owner_school.create_school, name='owner-school-new'),
     path('owner/schools/<uuid:school_id>/', platform.owner_school, name='owner-school'),
     path('owner/schools/<uuid:school_id>/devices/<int:device_id>/revoke/', platform.owner_device_revoke, name='owner-device-revoke'),
     path('owner/health/', platform.owner_health, name='owner-health'),

@@ -357,7 +357,12 @@ class CloudClient:
             raise AccessDenied(tr('The service revoked access for this school or installation.'))
         return value
 
-    def login(self, email, password):
+    def login(self, email, password, *, remember=True):
+        """Authenticate normally; persist the reusable token only with consent.
+
+        A signed offline entitlement is distinct from a remembered credential.
+        Disabling Remember Me does not forge, extend or erase that entitlement.
+        """
         epoch = self._auth_epoch()
         # A controller sync and an account dialog can coexist. Serialize their
         # exchanges so an older response/token cannot overwrite newer revocation
@@ -373,7 +378,14 @@ class CloudClient:
                 with self._lock:
                     self._check_auth_epoch(epoch)
                     credential = result["credential"]
-                remembered = self.store.set(self.installation, credential)
+                if remember:
+                    remembered = self.store.set(self.installation, credential)
+                else:
+                    self.store.delete(self.installation)
+                    # Fail closed if a platform vault cannot remove an existing token.
+                    if self.store.get(self.installation) is not None:
+                        raise CloudError(tr('Saved sign-in could not be removed from the secure vault.'))
+                    remembered = False
                 with self._lock:
                     self._check_auth_epoch(epoch)
                     self.credential, self.remembered = credential, remembered

@@ -110,6 +110,10 @@ class LoginDialog(QDialog):
         form.addRow(self.email_label, self.email)
         form.addRow(self.password_label, self.password)
         layout.addLayout(form)
+        self.remember_checkbox = QCheckBox(tr('Remember me on this device'))
+        self.remember_checkbox.setObjectName('nxfi-remember-me')
+        self.remember_checkbox.setChecked(True)
+        layout.addWidget(self.remember_checkbox)
         self.status = QLabel("")
         self.status.setObjectName("nxfi-status")
         self.status.setTextFormat(Qt.PlainText)
@@ -142,6 +146,7 @@ class LoginDialog(QDialog):
         self.email_label.setText(tr('NxFi account email'))
         self.password_label.setText(tr('Password'))
         self.login_button.setText(tr('Sign in and activate'))
+        self.remember_checkbox.setText(tr('Remember me on this device'))
         self.website.setText(tr('Create an account / reset password'))
         self.language_box.setAccessibleName(tr('Language'))
         if self.export:
@@ -168,9 +173,10 @@ class LoginDialog(QDialog):
     def login(self):
         self.login_button.setEnabled(False)
         email, password = self.email.text().strip(), self.password.text()
+        remember = self.remember_checkbox.isChecked()  # Read Qt state on GUI thread.
         self.password.clear()
         self.set_status("Connecting securely…")
-        self.jobs.start("login", lambda: self.client.login(email, password))
+        self.jobs.start("login", lambda: self.client.login(email, password, remember=remember))
     def done_job(self, name, result, error):
         self.jobs.finished(name)
         self.login_button.setEnabled(True)
@@ -429,7 +435,10 @@ def run_application(app, window_class, init_db, ensure_local_admin, database_pat
             config = ClientConfig.packaged(base_dir)
             client = CloudClient(config, database_path.parent / "cloud-state.json")
         except Exception:
-            QMessageBox.critical(None, tr("Incomplete installation"), tr("The trusted service configuration is missing or invalid. Reinstall the official package or contact NxFi support."))
+            guidance = tr('The trusted service configuration is missing or invalid. Reinstall the official package or contact NxFi support.')
+            if not getattr(__import__('sys'), 'frozen', False):
+                guidance += '\n\n' + tr('Source checkouts require a valid subscription-client.json for a trusted HTTPS service. The HTTP development website cannot activate this desktop.')
+            QMessageBox.critical(None, tr('Incomplete installation'), guidance)
             return 1
         from .recovery import recover_interrupted_restore
         recover_interrupted_restore(database_path)
