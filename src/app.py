@@ -18,6 +18,11 @@ except ImportError:
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from .localization import text as tr
+except ImportError:
+    from localization import text as tr
+
 import cv2
 import dlib
 try:
@@ -803,7 +808,7 @@ class CameraWorker(QThread):
 
     def run(self):
         self._running = True
-        self.status_changed.emit("Loading face detector...")
+        self.status_changed.emit(tr("Loading face detector…"))
         cap = None
         executor = None
         futures = set()
@@ -811,7 +816,7 @@ class CameraWorker(QThread):
         try:
             if not YUNET_MODEL_PATH.exists():
                 raise FileNotFoundError(
-                    f"YuNet model not found: {YUNET_MODEL_PATH}"
+                    tr("YuNet model not found: {0}").format(YUNET_MODEL_PATH)
                 )
 
             detector = cv2.FaceDetectorYN.create(
@@ -862,16 +867,15 @@ class CameraWorker(QThread):
             last_detections = []
 
             self.status_changed.emit(
-                f"Camera online • {actual_width}x{actual_height} • "
-                f"{actual_fps:.0f} FPS • YuNet • "
-                f"{len(matcher.students)} students • "
-                f"recognition workers: {worker_count}"
+                tr("Camera online • {0}×{1} • {2:.0f} FPS • YuNet • {3} students • recognition workers: {4}").format(
+                    actual_width, actual_height, actual_fps, len(matcher.students), worker_count
+                )
             )
 
             while self._running:
                 ret, frame = cap.read()
                 if not ret:
-                    self.error.emit("Camera frame failed.")
+                    self.error.emit(tr("Camera frame failed."))
                     break
 
                 frame_count += 1
@@ -886,7 +890,7 @@ class CameraWorker(QThread):
                         track_id, result = future.result()
                     except Exception as exc:
                         self.error.emit(
-                            f"Recognition worker failed: {exc}"
+                            tr("Recognition worker failed: {0}").format(exc)
                         )
                         continue
 
@@ -1221,7 +1225,7 @@ class CameraWorker(QThread):
 
         except Exception as exc:
             self.error.emit(str(exc))
-            self.status_changed.emit("Camera stopped")
+            self.status_changed.emit(tr("Camera stopped"))
         finally:
             if executor is not None:
                 executor.shutdown(
@@ -1256,7 +1260,7 @@ class EnrollmentWorker(QThread):
         try:
             if not YUNET_MODEL_PATH.exists():
                 raise FileNotFoundError(
-                    f"مدل YuNet پیدا نشد: {YUNET_MODEL_PATH}"
+                    tr("YuNet model not found: {0}").format(YUNET_MODEL_PATH)
                 )
 
             detector = cv2.FaceDetectorYN.create(
@@ -1292,12 +1296,12 @@ class EnrollmentWorker(QThread):
                     self.status.emit(message)
                     logger.info("ENROLLMENT_STATUS %s", message)
 
-            report_status("دوربین آماده است؛ روبه‌روی دوربین قرار بگیرید.")
+            report_status(tr("Camera ready. Please face the camera."))
 
             while self._running and len(embeddings) < ENROLLMENT_SAMPLES:
                 ret, frame = cap.read()
                 if not ret:
-                    raise RuntimeError("دریافت تصویر از دوربین ناموفق بود.")
+                    raise RuntimeError(tr("Could not receive a camera frame."))
 
                 # Show the camera frame before potentially slow face detection.
                 self.frame_ready.emit(frame_to_qimage(frame))
@@ -1324,11 +1328,11 @@ class EnrollmentWorker(QThread):
                 if len(faces) == 1:
                     bbox = faces[0]
                     report_status(
-                        f"چهره پیدا شد؛ نمونه‌های ثبت‌شده: {len(embeddings)} از {ENROLLMENT_SAMPLES}"
+                        tr("Face found; saved samples: {0} of {1}").format(len(embeddings), ENROLLMENT_SAMPLES)
                     )
                     now = time.time()
                     if now - last_sample >= ENROLLMENT_SAMPLE_INTERVAL:
-                        report_status("چهره پیدا شد؛ در حال استخراج ویژگی و ثبت نمونه...")
+                        report_status(tr("Face found; extracting features and saving a sample…"))
                         try:
                             embedding = face_embedding(frame, bbox)
                         except Exception:
@@ -1342,7 +1346,7 @@ class EnrollmentWorker(QThread):
                                 ENROLLMENT_SAMPLES,
                             )
                             report_status(
-                                f"نمونه ثبت شد: {len(embeddings)} از {ENROLLMENT_SAMPLES}؛ کمی سرتان را حرکت دهید."
+                                tr("Sample saved: {0} of {1}. Move your head slightly.").format(len(embeddings), ENROLLMENT_SAMPLES)
                             )
 
                     x1, y1, x2, y2 = bbox
@@ -1356,11 +1360,11 @@ class EnrollmentWorker(QThread):
                 elif len(faces) == 0:
                     if detected_face_count:
                         report_status(
-                            "صورت پیدا شده اما خیلی کوچک است؛ نزدیک‌تر به دوربین بنشینید."
+                            tr("The face is too small. Move closer to the camera.")
                         )
                     else:
                         report_status(
-                            "چهره پیدا نشد؛ نور را بهتر کنید و صورت را روبه‌روی دوربین بگیرید."
+                            tr("No face found. Improve the lighting and face the camera.")
                         )
                     draw_text(
                         frame,
@@ -1371,7 +1375,7 @@ class EnrollmentWorker(QThread):
                         2,
                     )
                 else:
-                    report_status("بیش از یک چهره دیده شد؛ فقط یک نفر جلوی دوربین بماند.")
+                    report_status(tr("More than one face detected. Only one person should remain in view."))
                     draw_text(
                         frame,
                         "Only one person should be in front of the camera",
@@ -1422,18 +1426,18 @@ class EnrollmentPreviewWorker(QThread):
     def run(self):
         cap = None
         try:
-            self.status.emit("در حال اتصال به دوربین ثبت...")
+            self.status.emit(tr("Connecting to the enrollment camera…"))
             cap = _open_camera(self.camera_id, self.target_fps)
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             self.status.emit(
-                f"پیش‌نمایش زنده فعال است • {width}×{height} • برای ثبت آماده‌اید."
+                tr("Live preview active • {0}×{1} • ready to enroll.").format(width, height)
             )
 
             while self._running:
                 ok, frame = cap.read()
                 if not ok or frame is None:
-                    raise RuntimeError("دریافت تصویر از دوربین ثبت ناموفق بود.")
+                    raise RuntimeError(tr("Could not receive an enrollment camera frame."))
                 self.frame_ready.emit(frame_to_qimage(frame))
                 self.msleep(20)
         except Exception as exc:
@@ -1457,7 +1461,7 @@ class EnrollmentDialog(QDialog):
 
         self.setModal(True)
         self.setWindowTitle(
-            "افزودن دانش‌آموز" if show_student_fields else "ثبت دوباره چهره"
+            tr("Add student") if show_student_fields else tr("Re-enroll face")
         )
         # Fit the dialog to the usable screen area. The old fixed size and
         # 860x500 preview could push action buttons below the screen edge,
@@ -1487,11 +1491,11 @@ class EnrollmentDialog(QDialog):
             self.code_edit = QLineEdit()
             self.name_edit = QLineEdit()
 
-            self.code_edit.setPlaceholderText("کد دانش‌آموزی")
-            self.name_edit.setPlaceholderText("نام و نام خانوادگی")
+            self.code_edit.setPlaceholderText(tr("Student code"))
+            self.name_edit.setPlaceholderText(tr("Full name"))
 
             self.class_combo = QComboBox()
-            self.class_combo.addItem("بدون کلاس", None)
+            self.class_combo.addItem(tr("No class"), None)
 
             active = get_active_academic_year()
             if active:
@@ -1504,21 +1508,21 @@ class EnrollmentDialog(QDialog):
                     year_name,
                     student_count,
                 ) in list_classes(active[0]):
-                    label = f"{class_name} — پایه {grade}"
+                    label = tr("{0} — Grade {1}").format(class_name, grade)
                     if major_name:
                         label += f" — {major_name}"
                     self.class_combo.addItem(label, class_id)
 
-            form.addRow("کد دانش‌آموزی", self.code_edit)
-            form.addRow("نام", self.name_edit)
-            form.addRow("کلاس", self.class_combo)
+            form.addRow(tr("Student code"), self.code_edit)
+            form.addRow(tr("Name"), self.name_edit)
+            form.addRow(tr("Class"), self.class_combo)
             root.addLayout(form)
 
         camera_row = QHBoxLayout()
-        camera_label = QLabel("دوربین ثبت چهره")
+        camera_label = QLabel(tr("Face enrollment camera"))
         camera_label.setObjectName("fieldLabel")
         self.camera_combo = QComboBox()
-        self.refresh_camera_button = QPushButton("بازخوانی")
+        self.refresh_camera_button = QPushButton(tr("Refresh"))
         self.refresh_camera_button.clicked.connect(self.refresh_enrollment_cameras)
         camera_row.addWidget(camera_label)
         camera_row.addWidget(self.camera_combo, 1)
@@ -1534,12 +1538,12 @@ class EnrollmentDialog(QDialog):
 
         if not show_student_fields:
             title = QLabel(
-                "۱۲ نمونه جدید ثبت می‌شود. بین نمونه‌ها کمی حرکت طبیعی داشته باشید."
+                tr("12 new samples will be collected. Move naturally between samples.")
             )
             title.setObjectName("sectionTitle")
             root.addWidget(title)
 
-        self.preview = QLabel("پیش‌نمایش دوربین")
+        self.preview = QLabel(tr("Camera preview"))
         self.preview.setAlignment(Qt.AlignCenter)
         # Keep the preview flexible so the action buttons stay visible on
         # smaller screens; the live image is scaled to fit this label.
@@ -1548,14 +1552,14 @@ class EnrollmentDialog(QDialog):
         root.addWidget(self.preview, 1)
 
         self.progress_label = QLabel(
-            "آماده ثبت ۱۲ نمونه."
+            tr("Ready to collect 12 samples.")
         )
         self.progress_label.setObjectName("muted")
         root.addWidget(self.progress_label)
 
         buttons = QHBoxLayout()
-        self.start_button = QPushButton("شروع ثبت")
-        self.cancel_button = QPushButton("لغو")
+        self.start_button = QPushButton(tr("Start enrollment"))
+        self.cancel_button = QPushButton(tr("Cancel"))
 
         self.start_button.clicked.connect(self.start_capture)
         self.cancel_button.clicked.connect(self.reject)
@@ -1575,7 +1579,7 @@ class EnrollmentDialog(QDialog):
         camera_id = self.camera_combo.currentData()
         if camera_id is None:
             self.enrollment_camera_status.setText(
-                "دوربین معتبری برای پیش‌نمایش پیدا نشد؛ «بازخوانی» را بزنید."
+                tr("No valid preview camera was found. Select Refresh.")
             )
             return
 
@@ -1607,7 +1611,7 @@ class EnrollmentDialog(QDialog):
 
     def preview_error(self, message):
         self.enrollment_camera_status.setText(
-            f"پیش‌نمایش دوربین فعال نشد: {message}"
+            tr("Camera preview could not start: {0}").format(message)
         )
 
     def refresh_enrollment_cameras(self):
@@ -1631,14 +1635,14 @@ class EnrollmentDialog(QDialog):
             self.camera_combo.setEnabled(True)
             self.refresh_camera_button.setEnabled(True)
             self.enrollment_camera_status.setText(
-                f"{len(cameras)} دوربین پیدا شد • دوربین انتخاب‌شده برای همین ثبت استفاده می‌شود."
+                tr("{0} cameras found • the selected camera is used for this enrollment only.").format(len(cameras))
             )
         else:
-            self.camera_combo.addItem("هیچ دوربینی پیدا نشد", None)
+            self.camera_combo.addItem(tr("No camera found"), None)
             self.camera_combo.setEnabled(False)
             self.refresh_camera_button.setEnabled(True)
             self.enrollment_camera_status.setText(
-                "هیچ دوربینی در دسترس نیست. اتصال دوربین را بررسی کنید و «بازخوانی» را بزنید."
+                tr("No camera is available. Check the connection and select Refresh.")
             )
 
         self.camera_combo.blockSignals(False)
@@ -1648,8 +1652,8 @@ class EnrollmentDialog(QDialog):
         if self.camera_combo.currentData() is None:
             QMessageBox.warning(
                 self,
-                "دوربین یافت نشد",
-                "ابتدا یک دوربین معتبر برای ثبت چهره انتخاب کنید.",
+                tr("Camera not found"),
+                tr("Select a valid camera before enrolling a face."),
             )
             return
 
@@ -1657,30 +1661,30 @@ class EnrollmentDialog(QDialog):
             if not self.code_edit.text().strip():
                 QMessageBox.warning(
                     self,
-                    "اطلاعات ناقص",
-                    "کد دانش‌آموزی الزامی است.",
+                    tr("Missing information"),
+                    tr("Student code is required."),
                 )
                 return
 
             if not self.name_edit.text().strip():
                 QMessageBox.warning(
                     self,
-                    "اطلاعات ناقص",
-                    "نام دانش‌آموز الزامی است.",
+                    tr("Missing information"),
+                    tr("Student name is required."),
                 )
                 return
 
         # Release the preview camera before the enrollment worker opens it.
-        self.progress_label.setText("در حال آماده‌سازی دوربین برای ثبت...")
+        self.progress_label.setText(tr("Preparing the enrollment camera…"))
         if not self.stop_preview():
             self.progress_label.setText(
-                "دوربین هنوز در حال آزادشدن است؛ چند ثانیه صبر کنید و دوباره بزنید."
+                tr("The camera is still shutting down. Wait a few seconds and try again.")
             )
             return
 
         self.start_button.setEnabled(False)
         self.progress_label.setText(
-            "دوربین فعال شد؛ روبه‌روی دوربین بایستید و کمی حرکت طبیعی داشته باشید."
+            tr("Camera started. Face the camera and move naturally.")
         )
 
         selected_camera_id = int(self.camera_combo.currentData())
@@ -1714,18 +1718,18 @@ class EnrollmentDialog(QDialog):
 
     def update_progress(self, current, total):
         self.progress_label.setText(
-            f"ثبت شد: {current} از {total}"
+            tr("Saved: {0} of {1}").format(current, total)
         )
 
     def capture_error(self, message):
         self.start_button.setEnabled(True)
-        self.progress_label.setText(f"ثبت انجام نشد: {message}")
-        QMessageBox.critical(self, "خطای ثبت", message)
+        self.progress_label.setText(tr("Enrollment failed: {0}").format(message))
+        QMessageBox.critical(self, tr("Enrollment error"), message)
         QTimer.singleShot(0, self.start_preview)
 
     def capture_finished(self, embeddings):
         if embeddings is None:
-            self.progress_label.setText("ثبت لغو شد یا کامل نشد.")
+            self.progress_label.setText(tr("Enrollment was cancelled or incomplete."))
             self.start_button.setEnabled(True)
             QTimer.singleShot(0, self.start_preview)
             return
@@ -1734,7 +1738,7 @@ class EnrollmentDialog(QDialog):
         if self.worker is not None and self.worker.isRunning():
             self.worker.wait(5000)
 
-        self.progress_label.setText("ثبت چهره با موفقیت تمام شد.")
+        self.progress_label.setText(tr("Face enrollment completed successfully."))
         self.accept()
 
     def closeEvent(self, event):
@@ -1746,7 +1750,9 @@ class EnrollmentDialog(QDialog):
         event.accept()
 
 
-def confirm_action(parent, title, message, confirm_text="تأیید", cancel_text="لغو"):
+def confirm_action(parent, title, message, confirm_text=None, cancel_text=None):
+    confirm_text = confirm_text if confirm_text is not None else tr("Confirm")
+    cancel_text = cancel_text if cancel_text is not None else tr("Cancel")
     box = QMessageBox(parent)
     box.setIcon(QMessageBox.Question)
     box.setWindowTitle(title)
@@ -1776,9 +1782,9 @@ class AdminPasswordDialog(QDialog):
         self.resize(430, 250)
 
         titles = {
-            "login": "ورود مدیر",
-            "setup": "تنظیم رمز مدیر",
-            "change": "تغییر رمز مدیر",
+            "login": tr("Administrator sign-in"),
+            "setup": tr("Set administrator password"),
+            "change": tr("Change administrator password"),
         }
         self.setWindowTitle(titles[mode])
 
@@ -1787,73 +1793,73 @@ class AdminPasswordDialog(QDialog):
         root.setSpacing(14)
 
         title = QLabel(
-            "سامانه حضور و غیاب مدرسه"
+            tr("School attendance system")
             if mode == "login"
             else (
-                "برای شروع یک رمز مدیریتی تعیین کنید."
+                tr("Set a local administrator password to get started.")
                 if mode == "setup"
-                else "رمز مدیریتی را به‌روزرسانی کنید."
+                else tr("Update the local administrator password.")
             )
         )
         title.setObjectName("sectionTitle")
         root.addWidget(title)
 
         if mode == "login":
-            message = QLabel("برای ورود به سامانه، رمز مدیر لازم است.")
+            message = QLabel(tr("The local administrator password is required to enter the application."))
             message.setObjectName("muted")
             message.setWordWrap(True)
             root.addWidget(message)
 
             self.password_edit = QLineEdit()
             self.password_edit.setEchoMode(QLineEdit.Password)
-            self.password_edit.setPlaceholderText("رمز مدیر")
+            self.password_edit.setPlaceholderText(tr("Administrator password"))
             self.password_edit.returnPressed.connect(self.submit_login)
             root.addWidget(self.password_edit)
 
         elif mode == "setup":
-            message = QLabel("رمز باید حداقل ۸ کاراکتر داشته باشد.")
+            message = QLabel(tr("The password must contain at least 8 characters."))
             message.setObjectName("muted")
             root.addWidget(message)
 
             self.password_edit = QLineEdit()
             self.password_edit.setEchoMode(QLineEdit.Password)
-            self.password_edit.setPlaceholderText("رمز جدید")
+            self.password_edit.setPlaceholderText(tr("New password"))
             root.addWidget(self.password_edit)
 
             self.confirm_edit = QLineEdit()
             self.confirm_edit.setEchoMode(QLineEdit.Password)
-            self.confirm_edit.setPlaceholderText("تکرار رمز")
+            self.confirm_edit.setPlaceholderText(tr("Confirm password"))
             self.confirm_edit.returnPressed.connect(self.submit_setup)
             root.addWidget(self.confirm_edit)
 
         else:
             self.current_edit = QLineEdit()
             self.current_edit.setEchoMode(QLineEdit.Password)
-            self.current_edit.setPlaceholderText("رمز فعلی")
+            self.current_edit.setPlaceholderText(tr("Current password"))
             root.addWidget(self.current_edit)
 
             self.password_edit = QLineEdit()
             self.password_edit.setEchoMode(QLineEdit.Password)
-            self.password_edit.setPlaceholderText("رمز جدید")
+            self.password_edit.setPlaceholderText(tr("New password"))
             root.addWidget(self.password_edit)
 
             self.confirm_edit = QLineEdit()
             self.confirm_edit.setEchoMode(QLineEdit.Password)
-            self.confirm_edit.setPlaceholderText("تکرار رمز جدید")
+            self.confirm_edit.setPlaceholderText(tr("Confirm new password"))
             self.confirm_edit.returnPressed.connect(self.submit_change)
             root.addWidget(self.confirm_edit)
 
         buttons = QHBoxLayout()
         buttons.addStretch()
 
-        cancel = QPushButton("لغو")
+        cancel = QPushButton(tr("Cancel"))
         cancel.clicked.connect(self.reject)
         buttons.addWidget(cancel)
 
         self.submit_button = QPushButton(
-            "ورود"
+            tr("Sign in")
             if mode == "login"
-            else ("ثبت رمز" if mode == "setup" else "تغییر رمز")
+            else (tr("Save password") if mode == "setup" else tr("Change password"))
         )
 
         if mode == "login":
@@ -1879,15 +1885,15 @@ class AdminPasswordDialog(QDialog):
         if self.attempts >= 5:
             QMessageBox.critical(
                 self,
-                "دسترسی رد شد",
-                "تعداد تلاش‌های ناموفق بیش از حد مجاز شد.",
+                tr("Access denied"),
+                tr("Too many unsuccessful attempts."),
             )
             self.reject()
         else:
             QMessageBox.warning(
                 self,
-                "رمز نادرست",
-                f"رمز اشتباه است. {5 - self.attempts} تلاش باقی مانده.",
+                tr("Incorrect password"),
+                tr("Incorrect password. {0} attempts remaining.").format(5 - self.attempts),
             )
 
     def submit_setup(self):
@@ -1897,16 +1903,16 @@ class AdminPasswordDialog(QDialog):
         if len(password) < 8:
             QMessageBox.warning(
                 self,
-                "رمز کوتاه است",
-                "رمز باید حداقل ۸ کاراکتر باشد.",
+                tr("Password too short"),
+                tr("Use at least 8 characters for the password."),
             )
             return
 
         if password != confirm:
             QMessageBox.warning(
                 self,
-                "عدم تطابق",
-                "دو رمز یکسان نیستند.",
+                tr("Passwords do not match"),
+                tr("The two passwords do not match."),
             )
             return
 
@@ -1921,30 +1927,30 @@ class AdminPasswordDialog(QDialog):
         if len(new_password) < 8:
             QMessageBox.warning(
                 self,
-                "رمز کوتاه است",
-                "رمز جدید باید حداقل ۸ کاراکتر باشد.",
+                tr("Password too short"),
+                tr("The new password must contain at least 8 characters."),
             )
             return
 
         if new_password != confirm:
             QMessageBox.warning(
                 self,
-                "عدم تطابق",
-                "دو رمز جدید یکسان نیستند.",
+                tr("Passwords do not match"),
+                tr("The two new passwords do not match."),
             )
             return
 
         try:
             changed = change_admin_password(current, new_password)
         except ValueError as exc:
-            QMessageBox.warning(self, "خطا", str(exc))
+            QMessageBox.warning(self, tr("Error"), str(exc))
             return
 
         if not changed:
             QMessageBox.warning(
                 self,
-                "رمز نادرست",
-                "رمز فعلی اشتباه است.",
+                tr("Incorrect password"),
+                tr("The current password is incorrect."),
             )
             self.current_edit.clear()
             self.current_edit.setFocus()
@@ -1955,19 +1961,19 @@ class AdminPasswordDialog(QDialog):
 
 class SchoolCalendarDialog(QDialog):
     WEEKDAYS = [
-        (5, "شنبه"),
-        (6, "یکشنبه"),
-        (0, "دوشنبه"),
-        (1, "سه‌شنبه"),
-        (2, "چهارشنبه"),
-        (3, "پنجشنبه"),
-        (4, "جمعه"),
+        (5, "Saturday"),
+        (6, "Sunday"),
+        (0, "Monday"),
+        (1, "Tuesday"),
+        (2, "Wednesday"),
+        (3, "Thursday"),
+        (4, "Friday"),
     ]
 
     def __init__(self, selected_year_id=None, parent=None):
         super().__init__(parent)
         self.setModal(True)
-        self.setWindowTitle("تقویم مدرسه")
+        self.setWindowTitle(tr("School calendar"))
         self.resize(1020, 720)
 
         root = QVBoxLayout(self)
@@ -1975,18 +1981,18 @@ class SchoolCalendarDialog(QDialog):
         root.setSpacing(16)
 
         header = QHBoxLayout()
-        title = QLabel("تقویم مدرسه")
+        title = QLabel(tr("School calendar"))
         title.setObjectName("pageTitle")
         title.setStyleSheet("font-size: 23px;")
         header.addWidget(title)
 
         header.addStretch()
 
-        header.addWidget(QLabel("سال تحصیلی"))
+        header.addWidget(QLabel(tr("Academic year")))
         self.year_combo = QComboBox()
 
         for year_id, name, start_date, end_date, is_active in list_academic_years():
-            label = name + (" — فعال" if is_active else "")
+            label = name + (tr(" — active") if is_active else "")
             self.year_combo.addItem(label, year_id)
 
         target = selected_year_id
@@ -2005,8 +2011,7 @@ class SchoolCalendarDialog(QDialog):
         root.addLayout(header)
 
         subtitle = QLabel(
-            "روزهای عادی مدرسه را یک‌بار برای کل سال تحصیلی تنظیم کنید؛ "
-            "تعطیلی یا روز جبرانی فقط از طریق استثناها تغییر می‌کند."
+            tr("Set normal school weekdays once for the academic year. Use exceptions for holidays or extra school days.")
         )
         subtitle.setObjectName("muted")
         subtitle.setWordWrap(True)
@@ -2018,7 +2023,7 @@ class SchoolCalendarDialog(QDialog):
         weekly_layout.setContentsMargins(18, 16, 18, 16)
         weekly_layout.setSpacing(12)
 
-        weekly_title = QLabel("روزهای عادی هفته")
+        weekly_title = QLabel(tr("Normal weekdays"))
         weekly_title.setObjectName("sectionTitle")
         weekly_layout.addWidget(weekly_title)
 
@@ -2030,7 +2035,7 @@ class SchoolCalendarDialog(QDialog):
         self.weekday_group.setExclusive(False)
 
         for weekday, label in self.WEEKDAYS:
-            check = QPushButton(label)
+            check = QPushButton(tr(label))
             check.setCheckable(True)
             check.setMinimumHeight(40)
             check.setMinimumWidth(82)
@@ -2062,14 +2067,14 @@ class SchoolCalendarDialog(QDialog):
         checks_layout.addStretch()
         weekly_layout.addLayout(checks_layout)
 
-        save_weekly = QPushButton("ذخیره روزهای هفتگی")
+        save_weekly = QPushButton(tr("Save weekdays"))
         save_weekly.setMinimumHeight(38)
         save_weekly.clicked.connect(self.save_weekly)
         weekly_layout.addWidget(save_weekly, 0, Qt.AlignRight)
 
         root.addWidget(weekly_box)
 
-        exceptions_title = QLabel("استثناهای تقویم")
+        exceptions_title = QLabel(tr("Calendar exceptions"))
         exceptions_title.setObjectName("sectionTitle")
         root.addWidget(exceptions_title)
 
@@ -2083,12 +2088,12 @@ class SchoolCalendarDialog(QDialog):
         editor_layout.setContentsMargins(18, 16, 18, 16)
         editor_layout.setSpacing(12)
 
-        editor_heading = QLabel("ثبت استثنا")
+        editor_heading = QLabel(tr("Add exception"))
         editor_heading.setObjectName("sectionTitle")
         editor_layout.addWidget(editor_heading)
 
         editor_hint = QLabel(
-            "برای یک تاریخ خاص مشخص کنید مدرسه تعطیل است یا آن روز باید روز مدرسه محسوب شود."
+            tr("Specify whether the school is closed or open on a particular date.")
         )
         editor_hint.setObjectName("muted")
         editor_hint.setWordWrap(True)
@@ -2102,10 +2107,10 @@ class SchoolCalendarDialog(QDialog):
         self.override_date.setDisplayFormat("yyyy/MM/dd")
         self.override_date.setMinimumHeight(38)
 
-        form.addRow("تاریخ", self.override_date)
+        form.addRow(tr("Date"), self.override_date)
         editor_layout.addLayout(form)
 
-        status_label = QLabel("وضعیت این تاریخ")
+        status_label = QLabel(tr("Status for this date"))
         status_label.setObjectName("statTitle")
         editor_layout.addWidget(status_label)
 
@@ -2115,8 +2120,8 @@ class SchoolCalendarDialog(QDialog):
         self.override_status_group = QButtonGroup(self)
         self.override_status_group.setExclusive(True)
 
-        self.override_holiday_button = QPushButton("تعطیل")
-        self.override_school_button = QPushButton("روز مدرسه")
+        self.override_holiday_button = QPushButton(tr("Closed"))
+        self.override_school_button = QPushButton(tr("School day"))
 
         for button in (
             self.override_holiday_button,
@@ -2151,24 +2156,24 @@ class SchoolCalendarDialog(QDialog):
         self.override_holiday_button.setChecked(True)
         editor_layout.addLayout(status_layout)
 
-        note_label = QLabel("توضیح")
+        note_label = QLabel(tr("Notes"))
         note_label.setObjectName("statTitle")
         editor_layout.addWidget(note_label)
 
         self.override_note = QLineEdit()
         self.override_note.setMinimumHeight(40)
         self.override_note.setPlaceholderText(
-            "مثلاً تعطیلی رسمی، آلودگی هوا یا روز جبرانی"
+            tr("For example: public holiday, air pollution closure or extra school day")
         )
         editor_layout.addWidget(self.override_note)
 
         editor_layout.addStretch()
 
-        save_override = QPushButton("ثبت یا به‌روزرسانی استثنا")
+        save_override = QPushButton(tr("Save or update exception"))
         save_override.setMinimumHeight(42)
         save_override.clicked.connect(self.save_override)
 
-        clear_override = QPushButton("پاک‌کردن فرم")
+        clear_override = QPushButton(tr("Clear form"))
         clear_override.setMinimumHeight(38)
         clear_override.clicked.connect(self.clear_override_form)
 
@@ -2183,13 +2188,13 @@ class SchoolCalendarDialog(QDialog):
         list_layout.setContentsMargins(18, 16, 18, 16)
         list_layout.setSpacing(10)
 
-        list_heading = QLabel("استثناهای ثبت‌شده")
+        list_heading = QLabel(tr("Saved exceptions"))
         list_heading.setObjectName("sectionTitle")
         list_layout.addWidget(list_heading)
 
         self.override_table = QTableWidget(0, 4)
         self.override_table.setHorizontalHeaderLabels(
-            ["شناسه", "تاریخ", "وضعیت", "توضیح"]
+            [tr("ID"), tr("Date"), tr("Status"), tr("Notes")]
         )
         self.override_table.setColumnHidden(0, True)
         self.override_table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -2208,7 +2213,7 @@ class SchoolCalendarDialog(QDialog):
         )
         list_layout.addWidget(self.override_table, 1)
 
-        delete_button = QPushButton("حذف استثنای انتخاب‌شده")
+        delete_button = QPushButton(tr("Delete selected exception"))
         delete_button.setMinimumHeight(40)
         delete_button.clicked.connect(self.delete_override)
         list_layout.addWidget(delete_button, 0, Qt.AlignLeft)
@@ -2219,7 +2224,7 @@ class SchoolCalendarDialog(QDialog):
         footer = QHBoxLayout()
         footer.addStretch()
 
-        close_button = QPushButton("بستن")
+        close_button = QPushButton(tr("Close"))
         close_button.setMinimumWidth(100)
         close_button.clicked.connect(self.accept)
         footer.addWidget(close_button)
@@ -2264,13 +2269,13 @@ class SchoolCalendarDialog(QDialog):
             set_school_weekdays(year_id, weekdays)
             QMessageBox.information(
                 self,
-                "تقویم مدرسه",
-                "روزهای عادی هفته ذخیره شد.",
+                tr("School calendar"),
+                tr("Normal weekdays saved."),
             )
         except Exception as exc:
             QMessageBox.critical(
                 self,
-                "ذخیره برنامه ناموفق بود",
+                tr("Could not save the schedule"),
                 str(exc),
             )
 
@@ -2283,7 +2288,7 @@ class SchoolCalendarDialog(QDialog):
             values = [
                 str(override_id),
                 date,
-                "روز مدرسه" if is_school_day else "تعطیل",
+                tr("School day") if is_school_day else tr("Closed"),
                 note or "—",
             ]
             for col, value in enumerate(values):
@@ -2309,7 +2314,7 @@ class SchoolCalendarDialog(QDialog):
         self.override_date.setDate(
             QDate.fromString(date_item.text(), "yyyy-MM-dd")
         )
-        is_school_day = status_item.text() == "روز مدرسه"
+        is_school_day = status_item.text() == tr("School day")
         self.override_school_button.setChecked(is_school_day)
         self.override_holiday_button.setChecked(not is_school_day)
         self.override_note.setText(
@@ -2352,7 +2357,7 @@ class SchoolCalendarDialog(QDialog):
         except Exception as exc:
             QMessageBox.critical(
                 self,
-                "ثبت استثنا ناموفق بود",
+                tr("Could not save the exception"),
                 str(exc),
             )
 
@@ -2361,8 +2366,8 @@ class SchoolCalendarDialog(QDialog):
         if row < 0:
             QMessageBox.information(
                 self,
-                "انتخاب استثنا",
-                "ابتدا یک استثنا را از جدول انتخاب کنید.",
+                tr("Select an exception"),
+                tr("Select an exception from the table first."),
             )
             return
 
@@ -2372,10 +2377,10 @@ class SchoolCalendarDialog(QDialog):
 
         if not confirm_action(
             self,
-            "حذف استثنا",
-            "استثنای انتخاب‌شده حذف شود؟",
-            "حذف",
-            "لغو",
+            tr("Delete exception"),
+            tr("Delete the selected exception?"),
+            tr("Delete"),
+            tr("Cancel"),
         ):
             return
 
@@ -2386,7 +2391,7 @@ class SchoolCalendarDialog(QDialog):
         except Exception as exc:
             QMessageBox.critical(
                 self,
-                "حذف استثنا ناموفق بود",
+                tr("Could not delete the exception"),
                 str(exc),
             )
 
@@ -2399,12 +2404,12 @@ class AcademicYearDialog(QDialog):
         self.setModal(True)
         self.resize(520, 290)
         self.setWindowTitle(
-            "ویرایش سال تحصیلی" if existing else "افزودن سال تحصیلی"
+            tr("Edit academic year") if existing else tr("Add academic year")
         )
 
         root = QVBoxLayout(self)
 
-        title = QLabel("سال تحصیلی را با تاریخ واقعی شروع و پایان تعریف کنید.")
+        title = QLabel(tr("Enter the actual start and end dates for the academic year."))
         title.setObjectName("sectionTitle")
         title.setWordWrap(True)
         root.addWidget(title)
@@ -2444,12 +2449,12 @@ class AcademicYearDialog(QDialog):
 
         self.start_date.dateChanged.connect(self.on_start_date_changed)
 
-        form.addRow("تاریخ شروع", self.start_date)
-        form.addRow("تاریخ پایان", self.end_date)
+        form.addRow(tr("Start date"), self.start_date)
+        form.addRow(tr("End date"), self.end_date)
 
         self.generated_name = QLabel()
         self.generated_name.setObjectName("muted")
-        form.addRow("عنوان سال", self.generated_name)
+        form.addRow(tr("Academic year title"), self.generated_name)
 
         root.addLayout(form)
 
@@ -2461,8 +2466,8 @@ class AcademicYearDialog(QDialog):
         buttons = QHBoxLayout()
         buttons.addStretch()
 
-        cancel = QPushButton("لغو")
-        save = QPushButton("ذخیره")
+        cancel = QPushButton(tr("Cancel"))
+        save = QPushButton(tr("Save"))
         cancel.clicked.connect(self.reject)
         save.clicked.connect(self.validate_and_accept)
 
@@ -2493,10 +2498,10 @@ class AcademicYearDialog(QDialog):
         if end > start:
             days = start.daysTo(end)
             self.range_hint.setText(
-                f"بازه انتخاب‌شده: {days} روز"
+                tr("Selected range: {0} days").format(days)
             )
         else:
-            self.range_hint.setText("تاریخ پایان باید بعد از شروع باشد.")
+            self.range_hint.setText(tr("The end date must follow the start date."))
 
     def validate_and_accept(self):
         start = self.start_date.date()
@@ -2505,16 +2510,16 @@ class AcademicYearDialog(QDialog):
         if not start.isValid() or not end.isValid():
             QMessageBox.warning(
                 self,
-                "تاریخ نامعتبر",
-                "هر دو تاریخ را به‌درستی انتخاب کنید.",
+                tr("Invalid date"),
+                tr("Select both dates correctly."),
             )
             return
 
         if end <= start:
             QMessageBox.warning(
                 self,
-                "بازه نامعتبر",
-                "تاریخ پایان باید بعد از تاریخ شروع باشد.",
+                tr("Invalid range"),
+                tr("The end date must be after the start date."),
             )
             return
 
@@ -2533,15 +2538,15 @@ class ClassDialog(QDialog):
 
         self.setModal(True)
         self.resize(560, 340)
-        self.setWindowTitle("ویرایش کلاس" if existing else "افزودن کلاس")
+        self.setWindowTitle(tr("Edit class") if existing else tr("Add class"))
 
         root = QVBoxLayout(self)
         root.setSpacing(14)
 
         title = QLabel(
-            "اطلاعات کلاس را وارد کنید."
+            tr("Enter the class details.")
             if not existing
-            else "اطلاعات کلاس را ویرایش کنید."
+            else tr("Edit the class details.")
         )
         title.setObjectName("sectionTitle")
         root.addWidget(title)
@@ -2551,27 +2556,27 @@ class ClassDialog(QDialog):
         form.setFormAlignment(Qt.AlignRight | Qt.AlignTop)
 
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("مثلاً کلاس ۱۰۱")
+        self.name_edit.setPlaceholderText(tr("For example: Class 101"))
 
         self.grade_edit = QLineEdit()
-        self.grade_edit.setPlaceholderText("مثلاً دهم")
+        self.grade_edit.setPlaceholderText(tr("For example: Grade 10"))
 
         self.major_combo = QComboBox()
-        self.major_combo.addItem("بدون رشته", None)
+        self.major_combo.addItem(tr("No major"), None)
         for major_id, name, _ in majors:
             self.major_combo.addItem(name, major_id)
 
         self.year_combo = QComboBox()
-        self.year_combo.addItem("انتخاب سال تحصیلی", None)
+        self.year_combo.addItem(tr("Select academic year"), None)
 
         for year_id, name, start_date, end_date, is_active in academic_years:
             date_text = ""
             if start_date and end_date:
-                date_text = f" • {start_date} تا {end_date}"
+                date_text = tr(" • {0} to {1}").format(start_date, end_date)
 
             label = f"{name}{date_text}"
             if is_active:
-                label += " • فعال"
+                label += tr(" • active")
 
             self.year_combo.addItem(label, year_id)
 
@@ -2581,15 +2586,14 @@ class ClassDialog(QDialog):
             if active_index >= 0:
                 self.year_combo.setCurrentIndex(active_index)
 
-        form.addRow("نام کلاس", self.name_edit)
-        form.addRow("پایه", self.grade_edit)
-        form.addRow("رشته", self.major_combo)
-        form.addRow("سال تحصیلی", self.year_combo)
+        form.addRow(tr("Class name"), self.name_edit)
+        form.addRow(tr("Grade"), self.grade_edit)
+        form.addRow(tr("Major"), self.major_combo)
+        form.addRow(tr("Academic year"), self.year_combo)
         root.addLayout(form)
 
         hint = QLabel(
-            "نام کلاس، پایه و سال تحصیلی الزامی هستند. "
-            "یک کلاس با نام تکراری در یک سال دوباره ساخته نمی‌شود."
+            tr("Class name, grade and academic year are required. A class name cannot be duplicated within the same year.")
         )
         hint.setObjectName("muted")
         hint.setWordWrap(True)
@@ -2598,8 +2602,8 @@ class ClassDialog(QDialog):
         buttons = QHBoxLayout()
         buttons.addStretch()
 
-        cancel = QPushButton("لغو")
-        save = QPushButton("افزودن کلاس" if not existing else "ذخیره تغییرات")
+        cancel = QPushButton(tr("Cancel"))
+        save = QPushButton(tr("Add class") if not existing else tr("Save changes"))
 
         cancel.clicked.connect(self.reject)
         save.clicked.connect(self.validate_and_accept)
@@ -2632,8 +2636,8 @@ class ClassDialog(QDialog):
         if not name:
             QMessageBox.warning(
                 self,
-                "اطلاعات ناقص",
-                "نام کلاس را وارد کنید.",
+                tr("Missing information"),
+                tr("Enter a class name."),
             )
             self.name_edit.setFocus()
             return
@@ -2641,8 +2645,8 @@ class ClassDialog(QDialog):
         if not grade:
             QMessageBox.warning(
                 self,
-                "اطلاعات ناقص",
-                "پایه را وارد کنید.",
+                tr("Missing information"),
+                tr("Enter the grade."),
             )
             self.grade_edit.setFocus()
             return
@@ -2650,8 +2654,8 @@ class ClassDialog(QDialog):
         if year_id is None:
             QMessageBox.warning(
                 self,
-                "سال تحصیلی",
-                "یک سال تحصیلی انتخاب کنید.",
+                tr("Academic year"),
+                tr("Select an academic year."),
             )
             self.year_combo.setFocus()
             return
@@ -2669,17 +2673,17 @@ class ClassDialog(QDialog):
 
 class ManualAttendanceDialog(QDialog):
     STATUS_OPTIONS = [
-        ("حاضر", "present"),
-        ("دیرکرد", "late"),
-        ("موجه", "excused"),
-        ("غایب", "absent"),
+        ("Present", "present"),
+        ("Late", "late"),
+        ("Excused", "excused"),
+        ("Absent", "absent"),
     ]
 
     def __init__(self, student_name, current_status, current_notes="", parent=None):
         super().__init__(parent)
         self.setModal(True)
         self.resize(480, 250)
-        self.setWindowTitle("ویرایش وضعیت حضور")
+        self.setWindowTitle(tr("Edit attendance status"))
 
         root = QVBoxLayout(self)
         title = QLabel(student_name)
@@ -2689,23 +2693,23 @@ class ManualAttendanceDialog(QDialog):
         form = QFormLayout()
         self.status_combo = QComboBox()
         for label, value in self.STATUS_OPTIONS:
-            self.status_combo.addItem(label, value)
+            self.status_combo.addItem(tr(label), value)
 
         index = self.status_combo.findData(current_status)
         if index >= 0:
             self.status_combo.setCurrentIndex(index)
 
         self.notes_edit = QLineEdit(current_notes)
-        self.notes_edit.setPlaceholderText("توضیح اختیاری")
+        self.notes_edit.setPlaceholderText(tr("Optional notes"))
 
-        form.addRow("وضعیت", self.status_combo)
-        form.addRow("توضیح", self.notes_edit)
+        form.addRow(tr("Status"), self.status_combo)
+        form.addRow(tr("Notes"), self.notes_edit)
         root.addLayout(form)
 
         buttons = QHBoxLayout()
         buttons.addStretch()
-        cancel = QPushButton("لغو")
-        save = QPushButton("ذخیره")
+        cancel = QPushButton(tr("Cancel"))
+        save = QPushButton(tr("Save"))
         cancel.clicked.connect(self.reject)
         save.clicked.connect(self.accept)
         buttons.addWidget(cancel)
@@ -2751,7 +2755,7 @@ class AttendanceTrendChart(QWidget):
             painter.drawText(
                 self.rect(),
                 Qt.AlignCenter,
-                "داده‌ای برای نمایش وجود ندارد",
+                tr("No data to display"),
             )
             return
 
@@ -2764,7 +2768,7 @@ class AttendanceTrendChart(QWidget):
             painter.drawText(
                 8,
                 int(y + 4),
-                f"{int(value)}٪",
+                tr("{0}%").format(int(value)),
             )
 
         path = QPainterPath()
@@ -2852,7 +2856,7 @@ class ClassAttendanceChart(QWidget):
             painter.drawText(
                 self.rect(),
                 Qt.AlignCenter,
-                "داده‌ای برای نمایش وجود ندارد",
+                tr("No data to display"),
             )
             return
 
@@ -2904,7 +2908,7 @@ class ClassAttendanceChart(QWidget):
             painter.drawText(
                 back.right() - 45,
                 y + bar_height - 3,
-                f"{percent:.0f}٪",
+                tr("{0:.0f}%").format(percent),
             )
 
 
@@ -2937,7 +2941,7 @@ class StatusDonutChart(QWidget):
             painter.drawText(
                 self.rect(),
                 Qt.AlignCenter,
-                "داده‌ای برای نمایش وجود ندارد",
+                tr("No data to display"),
             )
             return
 
@@ -2948,10 +2952,10 @@ class StatusDonutChart(QWidget):
             "excused": "#6b8fd6",
         }
         labels = {
-            "present": "حاضر",
-            "late": "دیرکرد",
-            "absent": "غایب",
-            "excused": "موجه",
+            "present": tr("Present"),
+            "late": tr("Late"),
+            "absent": tr("Absent"),
+            "excused": tr("Excused"),
         }
 
         # Reserve a separate area for the legend so its text never sits
@@ -3139,7 +3143,7 @@ class GateLineCanvas(QWidget):
         painter.fillRect(self.rect(), QColor('#171b22'))
         if self.frame.isNull():
             painter.setPen(QColor('white'))
-            painter.drawText(self.rect(), Qt.AlignCenter, 'تصویر دوربین در دسترس نیست')
+            painter.drawText(self.rect(), Qt.AlignCenter, tr("Camera image unavailable"))
             return
         rect = self.image_rect()
         painter.drawImage(rect, self.frame)
@@ -3148,8 +3152,8 @@ class GateLineCanvas(QWidget):
             line = (*self.drag_start, *self.drag_end)
         if line and self.inside_side in (-1, 1) and not self.dragging:
             for side, color, label in (
-                (self.inside_side, QColor(40, 190, 105, 68), 'داخل'),
-                (-self.inside_side, QColor(239, 145, 65, 45), 'خارج'),
+                (self.inside_side, QColor(40, 190, 105, 68), tr("Inside")),
+                (-self.inside_side, QColor(239, 145, 65, 45), tr("Outside")),
             ):
                 poly = self.clip_half_plane(line, side)
                 if len(poly) >= 3:
@@ -3181,7 +3185,7 @@ class GateLineCanvas(QWidget):
             painter.setPen(QPen(QColor('white'), 1))
             painter.setBrush(QColor(24, 29, 37, 210))
             painter.drawRoundedRect(badge, 5, 5)
-            painter.drawText(badge, Qt.AlignCenter, 'روی سمت داخل کلیک کن')
+            painter.drawText(badge, Qt.AlignCenter, tr("Click the inside region"))
 
     def mousePressEvent(self, event):
         if event.button() != Qt.LeftButton:
@@ -3239,21 +3243,21 @@ class GateLineEditorDialog(QDialog):
 
     def __init__(self, slot, frame, line_points=None, inside_side=None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f'تنظیم خط دوربین {slot}')
+        self.setWindowTitle(tr("Configure Camera {0} line").format(slot))
         self.resize(950, 700)
         root = QVBoxLayout(self)
-        title = QLabel('۱) خط را روی تصویر بکش.  ۲) سمت داخل مدرسه را انتخاب کن.')
+        title = QLabel(tr("1) Draw the line on the image. 2) Select the inside of the school."))
         title.setObjectName('sectionTitle')
         title.setWordWrap(True)
         root.addWidget(title)
-        help_label = QLabel('با ماوس خط را بکش؛ سپس «انتخاب سمت داخل» را بزن و داخل مدرسه را کلیک کن. سمت دیگر خودکار خارج حساب می‌شود.')
+        help_label = QLabel(tr("Draw a line with the mouse, select Choose inside, then click inside the school. The other side is treated as outside."))
         help_label.setWordWrap(True)
         help_label.setObjectName('muted')
         root.addWidget(help_label)
         row = QHBoxLayout()
-        self.draw_button = QPushButton('کشیدن خط')
-        self.inside_button = QPushButton('انتخاب سمت داخل')
-        self.clear_button = QPushButton('پاک کردن')
+        self.draw_button = QPushButton(tr("Draw line"))
+        self.inside_button = QPushButton(tr("Choose inside"))
+        self.clear_button = QPushButton(tr("Clear"))
         for button in (self.draw_button, self.inside_button, self.clear_button):
             row.addWidget(button)
         row.addStretch(1)
@@ -3266,8 +3270,8 @@ class GateLineEditorDialog(QDialog):
         root.addWidget(self.status)
         footer = QHBoxLayout()
         footer.addStretch(1)
-        cancel = QPushButton('انصراف')
-        self.accept_button = QPushButton('تأیید خط')
+        cancel = QPushButton(tr("Dismiss"))
+        self.accept_button = QPushButton(tr("Confirm line"))
         footer.addWidget(cancel)
         footer.addWidget(self.accept_button)
         root.addLayout(footer)
@@ -3282,24 +3286,24 @@ class GateLineEditorDialog(QDialog):
 
     def _mode(self, mode):
         self.canvas.set_mode(mode)
-        self.status.setText('با نگه‌داشتن کلیک چپ، خط را روی تصویر بکش.' if mode == 'line' else 'داخل مدرسه را روی یکی از دو سمت خط کلیک کن.')
+        self.status.setText(tr("Hold the left mouse button to draw the line on the image.") if mode == 'line' else tr("Click on the side that is inside the school."))
 
     def _sync(self):
         points, side = self.canvas.selection()
         if not points:
             self.accept_button.setEnabled(False)
-            self.status.setText('ابتدا خط را رسم کن.')
+            self.status.setText(tr("Draw a line first."))
         elif side not in (-1, 1):
             self.accept_button.setEnabled(False)
-            self.status.setText('خط رسم شد؛ حالا سمت داخل را انتخاب کن.')
+            self.status.setText(tr("Line drawn. Now select the inside region."))
         else:
             self.accept_button.setEnabled(True)
-            self.status.setText('سبز = داخل مدرسه • نارنجی = خارج • تأیید کن و سپس تنظیمات دوربین را ذخیره کن.')
+            self.status.setText(tr("Green = inside school • orange = outside. Confirm, then save camera settings."))
 
     def _accept_if_valid(self):
         points, side = self.canvas.selection()
         if points is None or side not in (-1, 1):
-            QMessageBox.warning(self, 'تنظیم ناقص', 'خط را رسم کن و سمت داخل را هم مشخص کن.')
+            QMessageBox.warning(self, tr("Incomplete configuration"), tr("Draw the line and select the inside region."))
             return
         self.accept()
 
@@ -3313,7 +3317,7 @@ class MainWindow(QMainWindow):
 
         init_db()
 
-        self.setWindowTitle("سامانه حضور و غیاب مدرسه")
+        self.setWindowTitle(tr("School attendance system"))
         self.resize(1450, 900)
 
         self.camera_workers = {}
@@ -3378,11 +3382,11 @@ class MainWindow(QMainWindow):
         side_layout.setContentsMargins(18, 22, 18, 18)
         side_layout.setSpacing(8)
 
-        title = QLabel("حضور و غیاب")
+        title = QLabel(tr("Attendance"))
         title.setObjectName("brand")
         side_layout.addWidget(title)
 
-        subtitle = QLabel("سامانه مدیریت مدرسه")
+        subtitle = QLabel(tr("School management system"))
         subtitle.setObjectName("brandSub")
         side_layout.addWidget(subtitle)
 
@@ -3390,13 +3394,13 @@ class MainWindow(QMainWindow):
 
         self.nav_buttons = []
         navigation = (
-            ("داشبورد", 0),
-            ("دانش‌آموزان", 1),
-            ("کلاس‌ها", 2),
-            ("رشته‌ها", 3),
-            ("حضور و غیاب", 4),
-            ("گزارش‌ها", 5),
-            ("تنظیمات", 6),
+            (tr("Dashboard"), 0),
+            (tr("Students"), 1),
+            (tr("Classes"), 2),
+            (tr("Majors"), 3),
+            (tr("Attendance"), 4),
+            (tr("Reports"), 5),
+            (tr("Settings"), 6),
         )
 
         for text, index in navigation:
@@ -3410,11 +3414,11 @@ class MainWindow(QMainWindow):
 
         side_layout.addStretch()
 
-        self.change_password_button = QPushButton("تغییر رمز مدیر")
+        self.change_password_button = QPushButton(tr("Change administrator password"))
         self.change_password_button.clicked.connect(self.change_admin_password)
         side_layout.addWidget(self.change_password_button)
 
-        self.camera_status = QLabel("دوربین در حال راه‌اندازی...")
+        self.camera_status = QLabel(tr("Starting camera…"))
         self.camera_status.setObjectName("sidebarStatus")
         self.camera_status.setWordWrap(True)
         side_layout.addWidget(self.camera_status)
@@ -3444,7 +3448,7 @@ class MainWindow(QMainWindow):
         self.global_alert_label.setWordWrap(True)
         self.global_alert_label.setObjectName("earlyAlertText")
         alert_layout.addWidget(self.global_alert_label, 1)
-        self.global_alert_hint = QPushButton("مشاهده گزارش‌ها")
+        self.global_alert_hint = QPushButton(tr("View reports"))
         self.global_alert_hint.setObjectName("earlyAlertHint")
         self.global_alert_hint.clicked.connect(lambda: self.show_page(5))
         alert_layout.addWidget(self.global_alert_hint)
@@ -3493,13 +3497,13 @@ class MainWindow(QMainWindow):
             button.setChecked(button_index == index)
 
         titles = (
-            "داشبورد",
-            "دانش‌آموزان",
-            "کلاس‌ها",
-            "رشته‌ها",
-            "حضور و غیاب",
-            "گزارش‌ها",
-            "تنظیمات",
+            tr("Dashboard"),
+            tr("Students"),
+            tr("Classes"),
+            tr("Majors"),
+            tr("Attendance"),
+            tr("Reports"),
+            tr("Settings"),
         )
         self.page_title.setText(titles[index])
 
@@ -3525,16 +3529,16 @@ class MainWindow(QMainWindow):
 
         cards = QHBoxLayout()
 
-        card, self.total_students_label = self.make_card("کل دانش‌آموزان")
+        card, self.total_students_label = self.make_card(tr("Total students"))
         cards.addWidget(card)
 
-        card, self.present_label = self.make_card("حاضر امروز")
+        card, self.present_label = self.make_card(tr("Present today"))
         cards.addWidget(card)
 
-        card, self.absent_label = self.make_card("غایب امروز")
+        card, self.absent_label = self.make_card(tr("Absent today"))
         cards.addWidget(card)
 
-        card, self.late_label = self.make_card("دیرکرد امروز")
+        card, self.late_label = self.make_card(tr("Late today"))
         cards.addWidget(card)
 
         layout.addLayout(cards)
@@ -3545,7 +3549,7 @@ class MainWindow(QMainWindow):
         camera_box = QFrame()
         camera_box.setObjectName("panel")
         camera_layout = QVBoxLayout(camera_box)
-        camera_title = QLabel("نمای زنده دوربین‌ها")
+        camera_title = QLabel(tr("Live cameras"))
         camera_title.setAlignment(Qt.AlignRight)
         camera_layout.addWidget(camera_title)
 
@@ -3562,7 +3566,7 @@ class MainWindow(QMainWindow):
             preview_layout.addWidget(preview_title)
 
             preview = QLabel(
-                "Camera 2 غیرفعال است." if slot == 2 else "در انتظار دوربین..."
+                tr("Camera 2 is disabled.") if slot == 2 else tr("Waiting for camera…")
             )
             preview.setAlignment(Qt.AlignCenter)
             preview.setMinimumSize(400, 280)
@@ -3579,13 +3583,13 @@ class MainWindow(QMainWindow):
         recent_box = QFrame()
         recent_box.setObjectName("panel")
         recent_layout = QVBoxLayout(recent_box)
-        recent_title = QLabel("آخرین ورودها")
+        recent_title = QLabel(tr("Recent arrivals"))
         recent_title.setObjectName("sectionTitle")
         recent_layout.addWidget(recent_title)
 
         self.recent_table = QTableWidget(0, 4)
         self.recent_table.setHorizontalHeaderLabels(
-            ["دانش‌آموز", "کلاس", "زمان", "وضعیت"]
+            [tr("Student"), tr("Class"), tr("Time"), tr("Status")]
         )
         self.configure_table(self.recent_table)
         recent_layout.addWidget(self.recent_table)
@@ -3597,13 +3601,13 @@ class MainWindow(QMainWindow):
         class_box = QFrame()
         class_box.setObjectName("panel")
         class_layout = QVBoxLayout(class_box)
-        title = QLabel("وضعیت کلاس‌ها")
+        title = QLabel(tr("Class attendance"))
         title.setObjectName("sectionTitle")
         class_layout.addWidget(title)
 
         self.dashboard_classes = QTableWidget(0, 5)
         self.dashboard_classes.setHorizontalHeaderLabels(
-            ["کلاس", "رشته", "کل", "حاضر", "درصد"]
+            [tr("Class"), tr("Major"), tr("Total"), tr("Present"), tr("Percentage")]
         )
         self.configure_table(self.dashboard_classes)
         class_layout.addWidget(self.dashboard_classes)
@@ -3612,13 +3616,13 @@ class MainWindow(QMainWindow):
         absent_box = QFrame()
         absent_box.setObjectName("panel")
         absent_layout = QVBoxLayout(absent_box)
-        absent_title = QLabel("غایبان امروز")
+        absent_title = QLabel(tr("Absent students today"))
         absent_title.setObjectName("sectionTitle")
         absent_layout.addWidget(absent_title)
 
         self.dashboard_absent = QTableWidget(0, 3)
         self.dashboard_absent.setHorizontalHeaderLabels(
-            ["نام", "کلاس", "رشته"]
+            [tr("Name"), tr("Class"), tr("Major")]
         )
         self.configure_table(self.dashboard_absent)
         absent_layout.addWidget(self.dashboard_absent)
@@ -3633,16 +3637,16 @@ class MainWindow(QMainWindow):
 
         toolbar = QHBoxLayout()
         self.student_search = QLineEdit()
-        self.student_search.setPlaceholderText("جست‌وجو بر اساس نام یا کد...")
+        self.student_search.setPlaceholderText(tr("Search by name or code…"))
         self.student_search.textChanged.connect(self.filter_students_table)
 
         buttons = [
-            ("افزودن دانش‌آموز", self.add_student_dialog),
-            ("ویرایش", self.edit_selected_student),
-            ("ثبت دوباره چهره", self.reenroll_selected_student),
-            ("حذف", self.delete_selected_student),
-            ("ورود Excel/CSV", self.import_students),
-            ("بازخوانی", self.refresh_students),
+            (tr("Add student"), self.add_student_dialog),
+            (tr("Edit"), self.edit_selected_student),
+            (tr("Re-enroll face"), self.reenroll_selected_student),
+            (tr("Delete"), self.delete_selected_student),
+            (tr("Import Excel/CSV"), self.import_students),
+            (tr("Refresh"), self.refresh_students),
         ]
 
         toolbar.addWidget(self.student_search, 1)
@@ -3655,7 +3659,7 @@ class MainWindow(QMainWindow):
 
         self.students_table = QTableWidget(0, 8)
         self.students_table.setHorizontalHeaderLabels(
-            ["شناسه", "کد", "نام", "پایه", "رشته", "کلاس", "چهره", "ایجاد"]
+            [tr("ID"), tr("Code"), tr("Name"), tr("Grade"), tr("Major"), tr("Class"), tr("Face"), tr("Created")]
         )
         self.configure_table(self.students_table)
         self.students_table.setColumnHidden(0, True)
@@ -3672,7 +3676,7 @@ class MainWindow(QMainWindow):
 
         toolbar = QHBoxLayout()
 
-        toolbar.addWidget(QLabel("سال تحصیلی"))
+        toolbar.addWidget(QLabel(tr("Academic year")))
         self.class_year_combo = QComboBox()
         self.class_year_combo.currentIndexChanged.connect(
             lambda _: self.refresh_classes()
@@ -3680,13 +3684,13 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self.class_year_combo, 1)
 
         for label, handler in (
-            ("افزودن سال", self.add_academic_year_dialog),
-            ("ویرایش سال", self.edit_academic_year_dialog),
-            ("فعال‌کردن سال", self.set_active_year),
-            ("تقویم مدرسه", self.open_school_calendar_dialog),
-            ("افزودن کلاس", self.add_class_dialog),
-            ("ویرایش", self.edit_selected_class),
-            ("حذف", self.delete_selected_class),
+            (tr("Add year"), self.add_academic_year_dialog),
+            (tr("Edit year"), self.edit_academic_year_dialog),
+            (tr("Activate year"), self.set_active_year),
+            (tr("School calendar"), self.open_school_calendar_dialog),
+            (tr("Add class"), self.add_class_dialog),
+            (tr("Edit"), self.edit_selected_class),
+            (tr("Delete"), self.delete_selected_class),
         ):
             button = QPushButton(label)
             button.clicked.connect(handler)
@@ -3696,7 +3700,7 @@ class MainWindow(QMainWindow):
 
         self.classes_table = QTableWidget(0, 7)
         self.classes_table.setHorizontalHeaderLabels(
-            ["شناسه", "کلاس", "پایه", "رشته", "سال تحصیلی", "دانش‌آموز", "وضعیت"]
+            [tr("ID"), tr("Class"), tr("Grade"), tr("Major"), tr("Academic year"), tr("Student"), tr("Status")]
         )
         self.configure_table(self.classes_table)
         self.classes_table.setColumnHidden(0, True)
@@ -3710,10 +3714,10 @@ class MainWindow(QMainWindow):
 
         toolbar = QHBoxLayout()
         for label, handler in (
-            ("افزودن رشته", self.add_major_dialog),
-            ("ویرایش", self.edit_selected_major),
-            ("حذف", self.delete_selected_major),
-            ("بازخوانی", self.refresh_majors),
+            (tr("Add major"), self.add_major_dialog),
+            (tr("Edit"), self.edit_selected_major),
+            (tr("Delete"), self.delete_selected_major),
+            (tr("Refresh"), self.refresh_majors),
         ):
             button = QPushButton(label)
             button.clicked.connect(handler)
@@ -3723,7 +3727,7 @@ class MainWindow(QMainWindow):
 
         self.majors_table = QTableWidget(0, 3)
         self.majors_table.setHorizontalHeaderLabels(
-            ["شناسه", "رشته", "ایجاد"]
+            [tr("ID"), tr("Major"), tr("Created")]
         )
         self.configure_table(self.majors_table)
         self.majors_table.setColumnHidden(0, True)
@@ -3753,18 +3757,18 @@ class MainWindow(QMainWindow):
             lambda _: self.refresh_attendance()
         )
 
-        toolbar.addWidget(QLabel("تاریخ"))
+        toolbar.addWidget(QLabel(tr("Date")))
         toolbar.addWidget(self.attendance_date)
-        toolbar.addWidget(QLabel("رشته"))
+        toolbar.addWidget(QLabel(tr("Major")))
         toolbar.addWidget(self.attendance_major_combo, 1)
-        toolbar.addWidget(QLabel("کلاس"))
+        toolbar.addWidget(QLabel(tr("Class")))
         toolbar.addWidget(self.attendance_class_combo, 1)
 
-        edit_button = QPushButton("ویرایش وضعیت")
+        edit_button = QPushButton(tr("Edit status"))
         edit_button.clicked.connect(self.edit_selected_attendance)
         toolbar.addWidget(edit_button)
 
-        refresh_button = QPushButton("بازخوانی")
+        refresh_button = QPushButton(tr("Refresh"))
         refresh_button.clicked.connect(self.refresh_attendance)
         toolbar.addWidget(refresh_button)
 
@@ -3777,15 +3781,15 @@ class MainWindow(QMainWindow):
         self.attendance_table = QTableWidget(0, 9)
         self.attendance_table.setHorizontalHeaderLabels(
             [
-                "شناسه",
-                "کد",
-                "نام",
-                "کلاس",
-                "وضعیت",
-                "زمان",
-                "دوربین",
-                "توضیح",
-                "منبع",
+                tr("ID"),
+                tr("Code"),
+                tr("Name"),
+                tr("Class"),
+                tr("Status"),
+                tr("Time"),
+                tr("Camera"),
+                tr("Notes"),
+                tr("Source"),
             ]
         )
         self.configure_table(self.attendance_table)
@@ -3833,30 +3837,30 @@ class MainWindow(QMainWindow):
             lambda _: self.refresh_report()
         )
 
-        filter_layout.addWidget(QLabel("از تاریخ"), 0, 0)
+        filter_layout.addWidget(QLabel(tr("From date")), 0, 0)
         filter_layout.addWidget(self.report_start, 0, 1)
-        filter_layout.addWidget(QLabel("تا تاریخ"), 0, 2)
+        filter_layout.addWidget(QLabel(tr("To date")), 0, 2)
         filter_layout.addWidget(self.report_end, 0, 3)
-        filter_layout.addWidget(QLabel("رشته"), 1, 0)
+        filter_layout.addWidget(QLabel(tr("Major")), 1, 0)
         filter_layout.addWidget(self.report_major_combo, 1, 1)
-        filter_layout.addWidget(QLabel("کلاس"), 1, 2)
+        filter_layout.addWidget(QLabel(tr("Class")), 1, 2)
         filter_layout.addWidget(self.report_class_combo, 1, 3)
 
         range_actions = QHBoxLayout()
-        for label, days_back in (("امروز", 0), ("۷ روز", 6), ("۳۰ روز", 29)):
+        for label, days_back in ((tr("Today"), 0), (tr("7 days"), 6), (tr("30 days"), 29)):
             button = QPushButton(label)
             button.clicked.connect(
                 lambda checked=False, days=days_back: self.set_report_range(days)
             )
             range_actions.addWidget(button)
-        refresh_button = QPushButton("به‌روزرسانی")
+        refresh_button = QPushButton(tr("Update"))
         refresh_button.setObjectName("primaryAction")
         refresh_button.clicked.connect(self.refresh_report)
         range_actions.addWidget(refresh_button)
         range_actions.addStretch(1)
-        csv_button = QPushButton("خروجی دانش‌آموزان CSV")
+        csv_button = QPushButton(tr("Export students CSV"))
         csv_button.clicked.connect(lambda: self.export_report("csv"))
-        xlsx_button = QPushButton("خروجی دانش‌آموزان Excel")
+        xlsx_button = QPushButton(tr("Export students Excel"))
         xlsx_button.clicked.connect(lambda: self.export_report("xlsx"))
         range_actions.addWidget(csv_button)
         range_actions.addWidget(xlsx_button)
@@ -3882,13 +3886,13 @@ class MainWindow(QMainWindow):
 
         cards = QHBoxLayout()
         cards.setSpacing(10)
-        card, self.report_total_label = self.make_card("دانش‌آموزان در فیلتر")
+        card, self.report_total_label = self.make_card(tr("Students in filter"))
         cards.addWidget(card)
-        card, self.report_avg_label = self.make_card("میانگین حضور")
+        card, self.report_avg_label = self.make_card(tr("Average attendance"))
         cards.addWidget(card)
-        card, self.report_absent_days_label = self.make_card("کل غیبت‌ها")
+        card, self.report_absent_days_label = self.make_card(tr("Total absences"))
         cards.addWidget(card)
-        card, self.report_late_days_label = self.make_card("کل دیرکردها")
+        card, self.report_late_days_label = self.make_card(tr("Total late arrivals"))
         cards.addWidget(card)
         for card_index in range(cards.count()):
             widget = cards.itemAt(card_index).widget()
@@ -3906,7 +3910,7 @@ class MainWindow(QMainWindow):
         trend_panel.setObjectName("panel")
         trend_layout = QVBoxLayout(trend_panel)
         trend_layout.setContentsMargins(12, 12, 12, 12)
-        title = QLabel("روند درصد حضور روزانه")
+        title = QLabel(tr("Daily attendance percentage"))
         title.setObjectName("sectionTitle")
         trend_layout.addWidget(title)
         self.report_trend_chart = AttendanceTrendChart()
@@ -3919,7 +3923,7 @@ class MainWindow(QMainWindow):
         class_panel.setObjectName("panel")
         class_layout = QVBoxLayout(class_panel)
         class_layout.setContentsMargins(12, 12, 12, 12)
-        title = QLabel("مقایسه کلاس‌ها")
+        title = QLabel(tr("Compare classes"))
         title.setObjectName("sectionTitle")
         class_layout.addWidget(title)
         self.report_class_chart = ClassAttendanceChart()
@@ -3932,7 +3936,7 @@ class MainWindow(QMainWindow):
         status_panel.setObjectName("panel")
         status_layout = QVBoxLayout(status_panel)
         status_layout.setContentsMargins(12, 12, 12, 12)
-        title = QLabel("توزیع وضعیت")
+        title = QLabel(tr("Status distribution"))
         title.setObjectName("sectionTitle")
         status_layout.addWidget(title)
         self.report_status_chart = StatusDonutChart()
@@ -3943,7 +3947,7 @@ class MainWindow(QMainWindow):
 
         overview_layout.addLayout(chart_row)
         overview_layout.addStretch(1)
-        self.report_tabs.addTab(overview_tab, "نمای کلی")
+        self.report_tabs.addTab(overview_tab, tr("Overview"))
 
         # Tab 2: the event stream plus an explicit human-review action.
         events_tab = QWidget()
@@ -3952,27 +3956,27 @@ class MainWindow(QMainWindow):
         events_layout.setSpacing(10)
 
         event_toolbar = QHBoxLayout()
-        event_toolbar.addWidget(QLabel("نوع رویداد"))
+        event_toolbar.addWidget(QLabel(tr("Event type")))
         self.report_event_filter = QComboBox()
-        self.report_event_filter.addItem("همه رویدادهای مهم", "all")
-        self.report_event_filter.addItem("خروج زودهنگام", "EARLY_DEPARTURE")
-        self.report_event_filter.addItem("خروج غیرمنتظره", "UNEXPECTED_EXIT")
-        self.report_event_filter.addItem("ورود", "PERSON_ENTERED")
-        self.report_event_filter.addItem("خروج", "PERSON_EXITED")
-        self.report_event_filter.addItem("دیرکرد", "LATE_ARRIVAL")
-        self.report_event_filter.addItem("اختلاف هویت", "IDENTITY_MISMATCH")
+        self.report_event_filter.addItem(tr("All important events"), "all")
+        self.report_event_filter.addItem(tr("Early departure"), "EARLY_DEPARTURE")
+        self.report_event_filter.addItem(tr("Unexpected exit"), "UNEXPECTED_EXIT")
+        self.report_event_filter.addItem(tr("Sign in"), "PERSON_ENTERED")
+        self.report_event_filter.addItem(tr("Departure"), "PERSON_EXITED")
+        self.report_event_filter.addItem(tr("Late"), "LATE_ARRIVAL")
+        self.report_event_filter.addItem(tr("Identity mismatch"), "IDENTITY_MISMATCH")
         self.report_event_filter.currentIndexChanged.connect(
             self.apply_report_event_filter
         )
         event_toolbar.addWidget(self.report_event_filter, 1)
-        self.report_events_note = QLabel("رویدادها بر اساس بازه و فیلترهای بالا")
+        self.report_events_note = QLabel(tr("Events within the selected dates and filters"))
         self.report_events_note.setObjectName("muted")
         event_toolbar.addWidget(self.report_events_note, 2)
         events_layout.addLayout(event_toolbar)
 
         self.report_events_table = QTableWidget(0, 8)
         self.report_events_table.setHorizontalHeaderLabels(
-            ["تاریخ و ساعت", "دانش‌آموز", "رویداد", "دوربین", "اطمینان", "جزئیات", "تصویر دوربین", "بازبینی انسانی"]
+            [tr("Date and time"), tr("Student"), tr("Event"), tr("Camera"), tr("Match score"), tr("Details"), tr("Camera image"), tr("Human review")]
         )
         self.configure_table(self.report_events_table)
         self.report_events_table.setMinimumHeight(300)
@@ -3988,43 +3992,41 @@ class MainWindow(QMainWindow):
         events_layout.addWidget(self.report_events_table, 1)
 
         review_row = QHBoxLayout()
-        self.report_review_button = QPushButton("بازبینی تصویر / نتیجه")
+        self.report_review_button = QPushButton(tr("Review image / result"))
         self.report_review_button.setObjectName("primaryAction")
         self.report_review_button.clicked.connect(self.review_selected_event)
         review_row.addWidget(self.report_review_button)
-        self.report_events_export_button = QPushButton("خروجی رویدادها CSV")
+        self.report_events_export_button = QPushButton(tr("Export events CSV"))
         self.report_events_export_button.clicked.connect(self.export_report_events)
         review_row.addWidget(self.report_events_export_button)
         review_row.addStretch(1)
         events_layout.addLayout(review_row)
 
         evidence_note = QLabel(
-            "تصویر فریم کامل و حاشیه‌نویسی‌شده دوربین به‌صورت محلی در پوشه data/early_exit_review ذخیره می‌شود؛ "
-            "ممکن است افراد دیگری هم در کادر باشند. بعد از بررسی می‌توانید تصویر را حذف کنید. "
-            "در صورت خطا، ابتدا حضور/غیاب را جداگانه اصلاح کنید و سپس وضعیت «اصلاح دستی انجام شد» را انتخاب کنید."
+            tr("The full annotated camera frame is saved locally in data/early_exit_review and may include other people. You may delete it after review. If a result is wrong, correct attendance separately first, then select Incorrect; manually corrected.")
         )
         evidence_note.setObjectName("muted")
         evidence_note.setWordWrap(True)
         events_layout.addWidget(evidence_note)
-        self.report_tabs.addTab(events_tab, "رویدادها و بازبینی")
+        self.report_tabs.addTab(events_tab, tr("Events and review"))
 
         # Tab 3: student-level detail table with enough vertical room.
         details_tab = QWidget()
         details_layout = QVBoxLayout(details_tab)
         details_layout.setContentsMargins(8, 10, 8, 8)
         details_title_row = QHBoxLayout()
-        details_title = QLabel("جزئیات تجمیعی دانش‌آموزان")
+        details_title = QLabel(tr("Student totals"))
         details_title.setObjectName("sectionTitle")
         details_title_row.addWidget(details_title)
         details_title_row.addStretch(1)
-        details_help = QLabel("تعدادهای حاضر، دیرکرد، غیبت و موجه در بازه انتخابی")
+        details_help = QLabel(tr("Present, late, absent and excused counts in the selected period"))
         details_help.setObjectName("muted")
         details_title_row.addWidget(details_help)
         details_layout.addLayout(details_title_row)
 
         self.report_table = QTableWidget(0, 11)
         self.report_table.setHorizontalHeaderLabels(
-            ["شناسه", "کد", "نام", "پایه", "رشته", "کلاس", "حاضر", "دیرکرد", "غیبت", "موجه", "درصد حضور"]
+            [tr("ID"), tr("Code"), tr("Name"), tr("Grade"), tr("Major"), tr("Class"), tr("Present"), tr("Late"), tr("Absences"), tr("Excused"), tr("Attendance percentage")]
         )
         self.configure_table(self.report_table)
         self.report_table.setColumnHidden(0, True)
@@ -4040,7 +4042,7 @@ class MainWindow(QMainWindow):
         self.report_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.report_table.setWordWrap(False)
         details_layout.addWidget(self.report_table, 1)
-        self.report_tabs.addTab(details_tab, "جزئیات دانش‌آموزان")
+        self.report_tabs.addTab(details_tab, tr("Student details"))
 
         layout.addWidget(self.report_tabs, 1)
         self.stack.addWidget(page)
@@ -4064,22 +4066,22 @@ class MainWindow(QMainWindow):
         camera_panel.setObjectName("panel")
         camera_layout = QVBoxLayout(camera_panel)
 
-        camera_title = QLabel("تنظیمات دوربین")
+        camera_title = QLabel(tr("Camera settings"))
         camera_title.setObjectName("sectionTitle")
         camera_layout.addWidget(camera_title)
 
         camera_form = QFormLayout()
 
-        self.settings_camera1_enabled = QCheckBox("فعال")
+        self.settings_camera1_enabled = QCheckBox(tr("Enabled"))
         self.settings_camera1_enabled.setChecked(True)
         self.settings_camera1_combo = QComboBox()
 
-        self.settings_camera2_enabled = QCheckBox("فعال")
+        self.settings_camera2_enabled = QCheckBox(tr("Enabled"))
         self.settings_camera2_enabled.setChecked(False)
         self.settings_camera2_combo = QComboBox()
 
         self.settings_camera_combo = self.settings_camera1_combo
-        self.settings_refresh_cameras_button = QPushButton("بازخوانی دوربین‌ها")
+        self.settings_refresh_cameras_button = QPushButton(tr("Refresh cameras"))
         self.settings_refresh_cameras_button.clicked.connect(
             self.refresh_camera_choices
         )
@@ -4096,18 +4098,17 @@ class MainWindow(QMainWindow):
         self.settings_fps_combo = QComboBox()
         self.settings_fps_combo.addItem("30 FPS", 30)
         self.settings_fps_combo.addItem(
-            "60 FPS (در صورت پشتیبانی دوربین)",
+            tr("60 FPS (if supported by the camera)"),
             60,
         )
 
-        camera_form.addRow("دوربین ۱", camera1_row)
-        camera_form.addRow("دوربین ۲", camera2_row)
-        camera_form.addRow("نرخ هدف هر دوربین", self.settings_fps_combo)
+        camera_form.addRow(tr("Camera 1"), camera1_row)
+        camera_form.addRow(tr("Camera 2"), camera2_row)
+        camera_form.addRow(tr("Target rate per camera"), self.settings_fps_combo)
         camera_layout.addLayout(camera_form)
 
         info = QLabel(
-            "رزولوشن 1280×720 درخواست می‌شود. نرخ 60 فقط وقتی واقعی است که "
-            "خود دوربین و درایور آن این حالت را پشتیبانی کنند."
+            tr("1280×720 is requested. 60 FPS is only achievable when the camera and driver support that mode.")
         )
         info.setObjectName("muted")
         info.setWordWrap(True)
@@ -4118,7 +4119,7 @@ class MainWindow(QMainWindow):
         gate_panel.setObjectName("panel")
         gate_layout = QVBoxLayout(gate_panel)
 
-        gate_title = QLabel("ورودی / خروجی و خط مجازی هر دوربین")
+        gate_title = QLabel(tr("Camera role and virtual line"))
         gate_title.setObjectName("sectionTitle")
         gate_layout.addWidget(gate_title)
 
@@ -4137,13 +4138,13 @@ class MainWindow(QMainWindow):
             box_layout.addLayout(header)
 
             role = QComboBox()
-            role.addItem("فقط ثبت ورود", "entry")
-            role.addItem("فقط ثبت خروج", "exit")
-            role.addItem("بدون خط / فقط تصویر", "observe")
+            role.addItem(tr("Record arrivals only"), "entry")
+            role.addItem(tr("Record departures only"), "exit")
+            role.addItem(tr("No line / preview only"), "observe")
 
             orientation = QComboBox()
-            orientation.addItem("عمودی — چپ / راست", "vertical")
-            orientation.addItem("افقی — بالا / پایین", "horizontal")
+            orientation.addItem(tr("Vertical — left / right"), "vertical")
+            orientation.addItem(tr("Horizontal — top / bottom"), "horizontal")
 
             position = QDoubleSpinBox()
             position.setRange(5.0, 95.0)
@@ -4152,19 +4153,19 @@ class MainWindow(QMainWindow):
             position.setSuffix(" %")
 
             direction = QComboBox()
-            direction.addItem("مثبت", "positive")
-            direction.addItem("منفی", "negative")
+            direction.addItem(tr("Positive"), "positive")
+            direction.addItem(tr("Negative"), "negative")
 
             cooldown = QSpinBox()
             cooldown.setRange(5, 300)
-            cooldown.setSuffix(" فریم")
+            cooldown.setSuffix(tr(" frames"))
 
             fields = [
-                ("نقش دوربین", role),
-                ("جهت خط", orientation),
-                ("موقعیت خط", position),
-                ("جهت عبور اصلی", direction),
-                ("فاصله ضدتکرار", cooldown),
+                (tr("Camera role"), role),
+                (tr("Line orientation"), orientation),
+                (tr("Line position"), position),
+                (tr("Primary crossing direction"), direction),
+                (tr("Duplicate suppression interval"), cooldown),
             ]
             grid = QGridLayout()
             grid.setHorizontalSpacing(12)
@@ -4183,11 +4184,11 @@ class MainWindow(QMainWindow):
             box_layout.addLayout(grid)
 
             line_actions = QHBoxLayout()
-            draw_line = QPushButton("رسم خط روی تصویر…")
+            draw_line = QPushButton(tr("Draw line on image…"))
             draw_line.clicked.connect(
                 lambda checked=False, camera_slot=slot: self.open_gate_line_editor(camera_slot)
             )
-            reset_line = QPushButton("استفاده از خط ساده")
+            reset_line = QPushButton(tr("Use simple line"))
             reset_line.clicked.connect(
                 lambda checked=False, camera_slot=slot: self.reset_gate_line(camera_slot)
             )
@@ -4200,7 +4201,7 @@ class MainWindow(QMainWindow):
             role.currentIndexChanged.connect(
                 lambda _index, camera_slot=slot: self._update_gate_line_status(camera_slot)
             )
-            line_status = QLabel("خط ساده فعال است؛ برای رسم خط دلخواه روی تصویر کلیک کن.")
+            line_status = QLabel(tr("The simple line is active. Click to draw a custom line on the image."))
             line_status.setObjectName("muted")
             line_status.setWordWrap(True)
             box_layout.addWidget(line_status)
@@ -4216,13 +4217,11 @@ class MainWindow(QMainWindow):
 
             gate_layout.addWidget(box)
 
-        add_camera_gate_controls(1, "دوربین ۱")
-        add_camera_gate_controls(2, "دوربین ۲")
+        add_camera_gate_controls(1, tr("Camera 1"))
+        add_camera_gate_controls(2, tr("Camera 2"))
 
         gate_info = QLabel(
-            "«فقط ثبت ورود» فقط عبور ورود را ثبت می‌کند؛ «فقط ثبت خروج» فقط عبور خروج را ثبت می‌کند. "
-            "در حالت «بدون خط / فقط تصویر»، هیچ رویداد ورود‌وخروجی از آن دوربین ثبت نمی‌شود. "
-            "نقش دوربین‌ها برای اتصال یک Track بین دو دوربین نیز استفاده می‌شود."
+            tr("Arrival only records inward crossings; departure only records outward crossings. No line / preview only records no entry or exit events. Camera roles are also used for track handoff between cameras.")
         )
         gate_info.setObjectName("muted")
         gate_info.setWordWrap(True)
@@ -4235,11 +4234,11 @@ class MainWindow(QMainWindow):
         global_layout.setContentsMargins(18, 16, 18, 16)
         global_layout.setSpacing(12)
 
-        global_title = QLabel("Identity Link بین دوربین‌ها")
+        global_title = QLabel(tr("Cross-camera identity link"))
         global_title.setObjectName("globalIdentityTitle")
         global_layout.addWidget(global_title)
 
-        self.settings_global_link_enabled = QCheckBox("فعال بودن اتصال بین دوربین‌ها")
+        self.settings_global_link_enabled = QCheckBox(tr("Enable cross-camera linking"))
         self.settings_global_link_enabled.setChecked(True)
         self.settings_global_link_enabled.setObjectName("globalIdentityCheck")
 
@@ -4247,7 +4246,7 @@ class MainWindow(QMainWindow):
         self.settings_global_link_window.setRange(1.0, 120.0)
         self.settings_global_link_window.setDecimals(1)
         self.settings_global_link_window.setSingleStep(1.0)
-        self.settings_global_link_window.setSuffix(" ثانیه")
+        self.settings_global_link_window.setSuffix(tr(" seconds"))
 
         self.settings_global_link_similarity = QDoubleSpinBox()
         self.settings_global_link_similarity.setRange(0.70, 0.97)
@@ -4262,12 +4261,12 @@ class MainWindow(QMainWindow):
             self.settings_global_link_enabled, 0, 0, 2, 1
         )
 
-        window_label = QLabel("پنجره Hand-off")
+        window_label = QLabel(tr("Handoff window"))
         window_label.setObjectName("fieldLabel")
         global_grid.addWidget(window_label, 0, 1)
         global_grid.addWidget(self.settings_global_link_window, 1, 1)
 
-        similarity_label = QLabel("حداقل شباهت Re-ID")
+        similarity_label = QLabel(tr("Minimum Re-ID similarity"))
         similarity_label.setObjectName("fieldLabel")
         global_grid.addWidget(similarity_label, 0, 2)
         global_grid.addWidget(self.settings_global_link_similarity, 1, 2)
@@ -4278,9 +4277,7 @@ class MainWindow(QMainWindow):
         global_layout.addLayout(global_grid)
 
         global_info = QLabel(
-            "اگر دانش‌آموز قبلاً با چهره شناسایی شده باشد، ظاهر ثبت‌شده‌اش به یک حافظه مشترک "
-            "می‌رود. Track ناشناس دوربین دیگر فقط وقتی به او وصل می‌شود که شباهت کافی باشد "
-            "و یا دانش‌آموز هنوز حاضر باشد یا Hand-off زمانی معقولی وجود داشته باشد."
+            tr("When a student has already been recognized by face, their appearance enters shared memory. An unknown track in another camera is linked only with sufficient similarity and either current presence or a plausible timed handoff.")
         )
         global_info.setObjectName("muted")
         global_info.setWordWrap(True)
@@ -4291,7 +4288,7 @@ class MainWindow(QMainWindow):
         attendance_panel.setObjectName("panel")
         attendance_layout = QVBoxLayout(attendance_panel)
 
-        attendance_title = QLabel("قوانین حضور و غیاب")
+        attendance_title = QLabel(tr("Attendance rules"))
         attendance_title.setObjectName("sectionTitle")
         attendance_layout.addWidget(attendance_title)
 
@@ -4301,18 +4298,18 @@ class MainWindow(QMainWindow):
         self.settings_school_end = QLineEdit()
         self.settings_school_end.setPlaceholderText("15:00")
         self.settings_late_events = QCheckBox(
-            "ثبت دیرکرد هنگام ورود بعد از زمان شروع"
+            tr("Mark late arrivals after school start")
         )
         self.settings_early_events = QCheckBox(
-            "ثبت خروج زودهنگام قبل از زمان پایان"
+            tr("Record early departures before school end")
         )
         self.settings_late_events.setChecked(True)
         self.settings_early_events.setChecked(True)
 
-        attendance_form.addRow("شروع مدرسه", self.settings_school_start)
-        attendance_form.addRow("پایان مدرسه", self.settings_school_end)
-        attendance_form.addRow("دیرکرد", self.settings_late_events)
-        attendance_form.addRow("خروج زودهنگام", self.settings_early_events)
+        attendance_form.addRow(tr("School start"), self.settings_school_start)
+        attendance_form.addRow(tr("School end"), self.settings_school_end)
+        attendance_form.addRow(tr("Late"), self.settings_late_events)
+        attendance_form.addRow(tr("Early departure"), self.settings_early_events)
         attendance_layout.addLayout(attendance_form)
         layout.addWidget(attendance_panel)
 
@@ -4322,13 +4319,11 @@ class MainWindow(QMainWindow):
         schedule_layout.setContentsMargins(18, 16, 18, 16)
         schedule_layout.setSpacing(10)
 
-        weekdays_title = QLabel("برنامه هفتگی مدرسه")
+        weekdays_title = QLabel(tr("Weekly school schedule"))
         weekdays_title.setObjectName("sectionTitle")
         schedule_layout.addWidget(weekdays_title)
         weekdays_note = QLabel(
-            "روزهای فعال و تاریخ‌های استثنا در تقویم سال تحصیلی ذخیره می‌شوند. "
-            "ساعت شروع و پایان فعلی مشترک است؛ هشدار خروج زودهنگام در این نسخه "
-            "بر اساس ساعت پایان عمومی است و هنوز تعطیلی هر روز را جداگانه بررسی نمی‌کند."
+            tr("Active weekdays and exceptions are stored in the academic-year calendar. Start and end times are shared. Early-departure alerts currently use the general end time and do not separately check each day's closure.")
         )
         weekdays_note.setObjectName("muted")
         weekdays_note.setWordWrap(True)
@@ -4338,7 +4333,7 @@ class MainWindow(QMainWindow):
         weekday_row.setSpacing(6)
         self.settings_weekday_checks = {}
         for weekday, day_name in SchoolCalendarDialog.WEEKDAYS:
-            day_button = QPushButton(day_name)
+            day_button = QPushButton(tr(day_name))
             day_button.setCheckable(True)
             day_button.setMinimumHeight(40)
             day_button.setMinimumWidth(65)
@@ -4350,12 +4345,12 @@ class MainWindow(QMainWindow):
         schedule_layout.addLayout(weekday_row)
 
         schedule_actions = QHBoxLayout()
-        save_schedule_button = QPushButton("ذخیره برنامه هفتگی")
+        save_schedule_button = QPushButton(tr("Save weekly schedule"))
         save_schedule_button.setObjectName("primaryAction")
         save_schedule_button.setMinimumHeight(42)
         save_schedule_button.clicked.connect(self.save_school_schedule)
         schedule_actions.addWidget(save_schedule_button)
-        exceptions_button = QPushButton("تعطیلات و روزهای جبرانی…")
+        exceptions_button = QPushButton(tr("Holidays and extra school days…"))
         exceptions_button.setMinimumHeight(42)
         exceptions_button.clicked.connect(self.open_settings_school_calendar)
         schedule_actions.addWidget(exceptions_button)
@@ -4367,17 +4362,17 @@ class MainWindow(QMainWindow):
         reid_panel.setObjectName("panel")
         reid_layout = QVBoxLayout(reid_panel)
 
-        reid_title = QLabel("Tracking و Re-ID")
+        reid_title = QLabel(tr("Tracking and Re-ID"))
         reid_title.setObjectName("sectionTitle")
         reid_layout.addWidget(reid_title)
 
         reid_form = QFormLayout()
-        self.settings_reid_enabled = QCheckBox("فعال باشد")
+        self.settings_reid_enabled = QCheckBox(tr("Enable tracking"))
         self.settings_reid_enabled.setChecked(True)
 
         self.settings_reid_device = QComboBox()
         self.settings_reid_device.addItem(
-            "خودکار (GPU در صورت وجود)",
+            tr("Automatic (GPU if available)"),
             "",
         )
         self.settings_reid_device.addItem("CPU", "cpu")
@@ -4385,15 +4380,15 @@ class MainWindow(QMainWindow):
 
         self.settings_reid_interval = QSpinBox()
         self.settings_reid_interval.setRange(3, 30)
-        self.settings_reid_interval.setSuffix(" فریم")
+        self.settings_reid_interval.setSuffix(tr(" frames"))
         self.settings_reid_interval.setToolTip(
-            "در CPU حداقل فاصله 10 فریم اعمال می‌شود تا سیستم مدرسه سبک‌تر بماند."
+            tr("On CPU, appearance updates are at least 10 frames apart to reduce load.")
         )
 
         reid_form.addRow("Re-ID", self.settings_reid_enabled)
-        reid_form.addRow("دستگاه", self.settings_reid_device)
+        reid_form.addRow(tr("Device"), self.settings_reid_device)
         reid_form.addRow(
-            "فاصله به‌روزرسانی ظاهر",
+            tr("Appearance update interval"),
             self.settings_reid_interval,
         )
         reid_layout.addLayout(reid_form)
@@ -4403,7 +4398,7 @@ class MainWindow(QMainWindow):
         self.settings_camera_status.setObjectName("muted")
         layout.addWidget(self.settings_camera_status)
 
-        apply_button = QPushButton("ذخیره و راه‌اندازی مجدد دوربین")
+        apply_button = QPushButton(tr("Save and restart cameras"))
         apply_button.clicked.connect(self.apply_camera_settings)
         layout.addWidget(apply_button)
 
@@ -4416,8 +4411,8 @@ class MainWindow(QMainWindow):
         if not active_year:
             QMessageBox.information(
                 self,
-                "تقویم مدرسه",
-                "ابتدا از بخش کلاس‌ها یک سال تحصیلی ایجاد و فعال کنید.",
+                tr("School calendar"),
+                tr("Create and activate an academic year in Classes first."),
             )
             return
         dialog = SchoolCalendarDialog(
@@ -4437,15 +4432,15 @@ class MainWindow(QMainWindow):
         except ValueError:
             QMessageBox.warning(
                 self,
-                "ساعت نامعتبر",
-                "ساعت شروع و پایان را به‌شکل 08:00 وارد کنید.",
+                tr("Invalid time"),
+                tr("Enter start and end times in HH:MM format, for example 08:00."),
             )
             return
         if start_time >= end_time:
             QMessageBox.warning(
                 self,
-                "بازه زمانی نامعتبر",
-                "ساعت پایان باید بعد از ساعت شروع باشد.",
+                tr("Invalid time range"),
+                tr("School end must follow school start."),
             )
             return
 
@@ -4453,8 +4448,8 @@ class MainWindow(QMainWindow):
         if not active_year:
             QMessageBox.information(
                 self,
-                "سال تحصیلی",
-                "برای ذخیره روزهای هفته، ابتدا یک سال تحصیلی را فعال کنید.",
+                tr("Academic year"),
+                tr("Activate an academic year before saving weekdays."),
             )
             return
 
@@ -4465,8 +4460,8 @@ class MainWindow(QMainWindow):
         if not weekdays:
             QMessageBox.warning(
                 self,
-                "روزهای مدرسه",
-                "حداقل یک روز مدرسه را انتخاب کنید.",
+                tr("School weekdays"),
+                tr("Select at least one school day."),
             )
             return
 
@@ -4477,19 +4472,18 @@ class MainWindow(QMainWindow):
             set_setting("enable_late_events", int(self.settings_late_events.isChecked()))
             set_setting("enable_early_events", int(self.settings_early_events.isChecked()))
             self.settings_camera_status.setText(
-                f"برنامه هفتگی ذخیره شد • {len(weekdays)} روز فعال • "
-                f"{start_text} تا {end_text}"
+                tr("Weekly schedule saved • {0} active days • {1} to {2}").format(len(weekdays), start_text, end_text)
             )
             self.refresh_event_alert()
             QMessageBox.information(
                 self,
-                "برنامه مدرسه",
-                "روزهای فعال، ساعت مدرسه و قوانین دیرکرد/خروج زودهنگام ذخیره شدند.",
+                tr("School schedule"),
+                tr("Active weekdays, school hours and late/early-departure rules saved."),
             )
         except Exception as exc:
             QMessageBox.critical(
                 self,
-                "ذخیره برنامه ناموفق بود",
+                tr("Could not save the schedule"),
                 str(exc),
             )
 
@@ -4699,7 +4693,7 @@ class MainWindow(QMainWindow):
                 combo.addItem(camera["label"], camera["id"])
 
             if not cameras:
-                combo.addItem("هیچ دوربینی پیدا نشد", None)
+                combo.addItem(tr("No camera found"), None)
                 combo.setEnabled(False)
             else:
                 combo.setEnabled(True)
@@ -4710,7 +4704,7 @@ class MainWindow(QMainWindow):
             combo.blockSignals(False)
 
         self.settings_camera_status.setText(
-            f"{len(cameras)} دوربین پیدا شد • دوربین ۲ در صورت فعال‌سازی باید Device جدا داشته باشد."
+            tr("{0} cameras found • Camera 2 requires a separate device when enabled.").format(len(cameras))
         )
 
     def _latest_camera_image_copy(self, camera_slot):
@@ -4746,11 +4740,11 @@ class MainWindow(QMainWindow):
                 widget.setEnabled(not observe_only)
 
         if observe_only:
-            label.setText("خط و ثبت ورود‌وخروج برای این دوربین غیرفعال است؛ فقط تصویر و رهگیری نمایش داده می‌شود.")
+            label.setText(tr("The line and crossing events are disabled for this camera. Only preview and tracking are shown."))
         elif custom_active:
-            label.setText("خط تصویری تنظیم شده است؛ سبز = داخل و نارنجی = خارج. برای اعمال، تنظیمات دوربین را ذخیره کن.")
+            label.setText(tr("The image line is configured: green = inside, orange = outside. Save camera settings to apply it."))
         else:
-            label.setText("خط ساده فعال است؛ برای رسم خط دلخواه روی تصویر کلیک کن.")
+            label.setText(tr("The simple line is active. Click to draw a custom line on the image."))
 
     def reset_gate_line(self, camera_slot):
         setattr(self, f"settings_camera{camera_slot}_line_points", None)
@@ -4762,8 +4756,8 @@ class MainWindow(QMainWindow):
         if frame is None:
             QMessageBox.information(
                 self,
-                "تصویر دوربین موجود نیست",
-                "ابتدا دوربین را فعال کن و صبر کن تصویر زنده در برنامه نمایش داده شود؛ سپس خط را رسم کن.",
+                tr("No camera image"),
+                tr("Enable the camera and wait for its live image before drawing a line."),
             )
             return
         points = getattr(self, f"settings_camera{camera_slot}_line_points", None)
@@ -4794,16 +4788,16 @@ class MainWindow(QMainWindow):
         if self.settings_camera1_enabled.isChecked() and camera1_id is None:
             QMessageBox.warning(
                 self,
-                "دوربین ۱ یافت نشد",
-                "برای فعال بودن دوربین ۱ یک Device معتبر انتخاب کنید.",
+                tr("Camera 1 not found"),
+                tr("Select a valid device for Camera 1."),
             )
             return
 
         if self.settings_camera2_enabled.isChecked() and camera2_id is None:
             QMessageBox.warning(
                 self,
-                "دوربین ۲ یافت نشد",
-                "برای فعال بودن دوربین ۲ یک Device معتبر انتخاب کنید.",
+                tr("Camera 2 not found"),
+                tr("Select a valid device for Camera 2."),
             )
             return
 
@@ -4854,8 +4848,8 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             QMessageBox.warning(
                 self,
-                "تنظیمات نامعتبر",
-                "زمان‌ها باید به شکل HH:MM باشند و مقادیر انتخاب‌شده معتبر باشند.",
+                tr("Invalid settings"),
+                tr("Times must use HH:MM format and all selections must be valid."),
             )
             return
 
@@ -4866,8 +4860,8 @@ class MainWindow(QMainWindow):
         ):
             QMessageBox.warning(
                 self,
-                "دوربین تکراری",
-                "دوربین ۱ و دوربین ۲ نمی‌توانند یک Device یکسان داشته باشند.",
+                tr("Duplicate camera"),
+                tr("Camera 1 and Camera 2 cannot use the same device."),
             )
             return
 
@@ -4932,8 +4926,8 @@ class MainWindow(QMainWindow):
                 )
                 QMessageBox.critical(
                     self,
-                    "ذخیره خط ناموفق بود",
-                    f"خط دوربین {slot} درست از پایگاه داده بازخوانی نشد؛ دوربین راه‌اندازی مجدد نشد.",
+                    tr("Could not save the line"),
+                    tr("Camera {0} line could not be read back correctly from the database; the camera was not restarted.").format(slot),
                 )
                 return
             logger.info(
@@ -4990,7 +4984,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(
                 self,
-                "راه‌اندازی دوربین ناموفق بود",
+                tr("Could not start the camera"),
                 str(exc),
             )
             return
@@ -5004,17 +4998,16 @@ class MainWindow(QMainWindow):
             if enabled
         ]
         role_labels = {
-            "entry": "فقط ورود",
-            "exit": "فقط خروج",
-            "observe": "بدون خط / فقط تصویر",
+            "entry": tr("Arrival only"),
+            "exit": tr("Departure only"),
+            "observe": tr("No line / preview only"),
         }
         role_summary = " / ".join(
-            f"دوربین {slot}: {role_labels.get(camera_gate_values[slot]['role'], camera_gate_values[slot]['role'])}"
+            tr("Camera {0}: {1}").format(slot, role_labels.get(camera_gate_values[slot]['role'], camera_gate_values[slot]['role']))
             for slot in enabled_slots
-        ) or "بدون دوربین"
+        ) or tr("No camera")
         self.settings_camera_status.setText(
-            f"تنظیمات ذخیره شد • {len(enabled_slots)} دوربین فعال • "
-            f"{role_summary} • Global Link {'فعال' if self.settings_global_link_enabled.isChecked() else 'خاموش'}"
+            tr("Settings saved • {0} active cameras • {1} • Global Link {2}").format(len(enabled_slots), role_summary, tr('Enabled') if self.settings_global_link_enabled.isChecked() else tr('Off'))
         )
 
     def start_camera(self):
@@ -5177,7 +5170,7 @@ class MainWindow(QMainWindow):
             self._preview_timer.start()
 
         if hasattr(self, "camera_previews") and 2 not in self.camera_workers:
-            self.camera_previews[2].setText("Camera 2 غیرفعال است.")
+            self.camera_previews[2].setText(tr("Camera 2 is disabled."))
 
     def _camera_worker_finished(self, slot, worker):
         """Restart the whole camera pipeline after an unexpected worker stop."""
@@ -5192,7 +5185,7 @@ class MainWindow(QMainWindow):
             return
 
         self.camera_error(
-            f"Camera {slot}: worker stopped unexpectedly; restarting cameras."
+            tr("Camera {0}: worker stopped unexpectedly; restarting cameras.").format(slot)
         )
         if self._camera_restart_pending:
             return
@@ -5272,7 +5265,7 @@ class MainWindow(QMainWindow):
         self.camera_status.setText(message)
 
     def camera_error(self, message):
-        self.camera_status.setText(f"خطای دوربین: {message}")
+        self.camera_status.setText(tr("Camera error: {0}").format(message))
 
     def attendance_event(self, event):
         self.refresh_dashboard()
@@ -5281,7 +5274,7 @@ class MainWindow(QMainWindow):
             self.refresh_attendance()
 
         self.camera_status.setText(
-            f"ثبت شد: {event['name']} • {event['time']}"
+            tr("Recorded: {0} • {1}").format(event['name'], event['time'])
         )
 
     def _early_event_snapshot_path(self, event_id):
@@ -5356,14 +5349,14 @@ class MainWindow(QMainWindow):
         if row < 0:
             QMessageBox.information(
                 self,
-                "انتخاب رویداد",
-                "ابتدا یک رویداد را از جدول انتخاب کنید.",
+                tr("Select an event"),
+                tr("Select an event from the table first."),
             )
             return
         item = self.report_events_table.item(row, 0)
         event_id = item.data(Qt.UserRole) if item else None
         if event_id is None:
-            QMessageBox.warning(self, "رویداد نامعتبر", "شناسه‌ی این رویداد در دسترس نیست.")
+            QMessageBox.warning(self, tr("Invalid event"), tr("The event identifier is unavailable."))
             return
 
         matching_event = next(
@@ -5374,14 +5367,14 @@ class MainWindow(QMainWindow):
         if matching_event is None or matching_event[1] != "EARLY_DEPARTURE":
             QMessageBox.information(
                 self,
-                "بازبینی تصویر",
-                "تصویر و بازبینی انسانی در این نسخه فقط برای رویداد خروج زودهنگام تعریف شده است.",
+                tr("Image review"),
+                tr("Image and human review are currently available only for early-departure events."),
             )
             return
 
         path = self._early_event_snapshot_path(event_id)
         dialog = QDialog(self)
-        dialog.setWindowTitle("بازبینی انسانی رویداد")
+        dialog.setWindowTitle(tr("Human event review"))
         dialog.resize(1000, 760)
         root = QVBoxLayout(dialog)
         root.setContentsMargins(18, 18, 18, 18)
@@ -5406,31 +5399,28 @@ class MainWindow(QMainWindow):
                     pixmap.scaled(950, 560, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 )
             else:
-                image_label.setText("فایل تصویر قابل‌خواندن نیست.")
+                image_label.setText(tr("The image file cannot be read."))
         else:
             image_label.setText(
-                "برای این رویداد تصویری ذخیره نشده است.\n"
-                "تصویر فقط برای رویدادهای جدیدی که بعد از بازشدن برنامه ثبت شوند "
-                "و فریم تازه‌ی دوربین در دسترس باشد ذخیره می‌شود."
+                tr("No image was saved for this event.\nImages are saved only for new events after the application starts, when a fresh camera frame is available.")
             )
         root.addWidget(image_label, 1)
 
         disclaimer = QLabel(
-            "این تصویر فریم کامل دوربین در حوالی زمان رویداد است و ممکن است چند نفر را نشان دهد؛ "
-            "به‌تنهایی اثبات هویت نیست. نتیجه را بر اساس تصویر و اطلاعات مدرسه با احتیاط انتخاب کنید."
+            tr("This is a full camera frame near the event time and may show several people. It alone does not establish identity. Review the image and school records carefully.")
         )
         disclaimer.setWordWrap(True)
         disclaimer.setObjectName("muted")
         root.addWidget(disclaimer)
 
         status_row = QHBoxLayout()
-        status_row.addWidget(QLabel("نتیجه بازبینی"))
+        status_row.addWidget(QLabel(tr("Review result")))
         review_combo = QComboBox()
-        review_combo.addItem("در انتظار بررسی", "pending")
-        review_combo.addItem("هویت درست تأیید شد", "confirmed")
-        review_combo.addItem("تشخیص/انتساب اشتباه بود", "false_match")
-        review_combo.addItem("اشتباه بود؛ اصلاح دستی انجام شد", "corrected")
-        review_combo.addItem("از تصویر قابل‌تشخیص نیست", "inconclusive")
+        review_combo.addItem(tr("Pending review"), "pending")
+        review_combo.addItem(tr("Identity confirmed"), "confirmed")
+        review_combo.addItem(tr("Recognition/association was incorrect"), "false_match")
+        review_combo.addItem(tr("Incorrect; manually corrected"), "corrected")
+        review_combo.addItem(tr("Cannot determine from the image"), "inconclusive")
         setting_key = f"event_review_{int(event_id)}"
         current_review = str(get_setting(setting_key, "pending") or "pending")
         found = review_combo.findData(current_review)
@@ -5439,22 +5429,22 @@ class MainWindow(QMainWindow):
         root.addLayout(status_row)
 
         buttons = QHBoxLayout()
-        save_button = QPushButton("ذخیره نتیجه بازبینی")
+        save_button = QPushButton(tr("Save review result"))
         save_button.setObjectName("primaryAction")
-        delete_image_button = QPushButton("حذف تصویر")
-        delete_image_button.setToolTip("تصویر محلی این رویداد را پس از بررسی حذف می‌کند.")
-        cancel_button = QPushButton("بستن")
+        delete_image_button = QPushButton(tr("Delete image"))
+        delete_image_button.setToolTip(tr("Delete this event's local image after review."))
+        cancel_button = QPushButton(tr("Close"))
         save_button.clicked.connect(dialog.accept)
         cancel_button.clicked.connect(dialog.reject)
 
         def delete_review_image():
             if not path.exists():
-                QMessageBox.information(dialog, "تصویر", "برای این رویداد تصویری ذخیره نشده است.")
+                QMessageBox.information(dialog, tr("Image"), tr("No image was saved for this event."))
                 return
             answer = QMessageBox.question(
                 dialog,
-                "حذف تصویر",
-                "تصویر محلی این رویداد حذف شود؟ این کار قابل بازگشت نیست.",
+                tr("Delete image"),
+                tr("Delete this event's local image? This cannot be undone."),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
@@ -5463,10 +5453,10 @@ class MainWindow(QMainWindow):
             try:
                 path.unlink(missing_ok=True)
                 image_label.setPixmap(QPixmap())
-                image_label.setText("تصویر این رویداد حذف شد.")
+                image_label.setText(tr("The event image was deleted."))
                 self.apply_report_event_filter()
             except Exception as exc:
-                QMessageBox.critical(dialog, "حذف تصویر ناموفق بود", str(exc))
+                QMessageBox.critical(dialog, tr("Could not delete the image"), str(exc))
 
         delete_image_button.clicked.connect(delete_review_image)
         buttons.addWidget(save_button)
@@ -5481,11 +5471,11 @@ class MainWindow(QMainWindow):
                 self.refresh_report_events()
                 QMessageBox.information(
                     self,
-                    "بازبینی ذخیره شد",
-                    "نتیجه‌ی بازبینی ذخیره شد. این کار به‌تنهایی هیچ رکورد حضور و غیابی را تغییر نمی‌دهد.",
+                    tr("Review saved"),
+                    tr("The review result was saved. This alone does not change any attendance record."),
                 )
             except Exception as exc:
-                QMessageBox.critical(self, "ذخیره بازبینی ناموفق بود", str(exc))
+                QMessageBox.critical(self, tr("Could not save the review"), str(exc))
 
     def refresh_event_alert(self):
         if not hasattr(self, "global_alert"):
@@ -5532,21 +5522,21 @@ class MainWindow(QMainWindow):
 
         latest = unresolved[0]
         _, _, _, code, name, _, camera_id, timestamp, _, metadata = latest
-        display_name = name or code or "دانش‌آموز شناسایی‌شده"
-        event_time = timestamp.split(" ")[-1] if timestamp else "زمان نامشخص"
+        display_name = name or code or tr("Recognized student")
+        event_time = timestamp.split(" ")[-1] if timestamp else tr("Unknown time")
         expected_end = (metadata or {}).get("school_end_time")
         score = latest[8]
         review_state = str(get_setting(f"event_review_{int(latest[0])}", "pending") or "pending")
         if review_state == "false_match":
-            message = f"نیازمند اصلاح دستی: انتساب هویت {display_name} اشتباه گزارش شده است • {event_time}"
+            message = tr("Manual correction required: identity association for {0} was reported incorrect • {1}").format(display_name, event_time)
         elif score is not None and float(score) < 0.5:
-            message = f"خروج زودهنگام احتمالی — امتیاز تطبیق پایین؛ تصویر را بررسی کنید: {display_name} • {event_time}"
+            message = tr("Possible early departure — low match score; review the image: {0} • {1}").format(display_name, event_time)
         else:
-            message = f"خروج زودهنگام ثبت‌شده — نیازمند بازبینی: {display_name} • ساعت {event_time}"
+            message = tr("Early departure recorded — review required: {0} • time {1}").format(display_name, event_time)
         if expected_end:
-            message += f" (پایان برنامه مدرسه: {expected_end})"
+            message += tr(" (school end: {0})").format(expected_end)
         if len(unresolved) > 1:
-            message += f" • {len(unresolved)} مورد بررسی‌نشده امروز"
+            message += tr(" • {0} unreviewed events today").format(len(unresolved))
         self.global_alert_label.setText(message)
         self.global_alert.show()
 
@@ -5572,7 +5562,7 @@ class MainWindow(QMainWindow):
         self.recent_table.setRowCount(len(recent))
         for row, (code, name, timestamp, class_name, status) in enumerate(recent):
             self.recent_table.setItem(row, 0, QTableWidgetItem(f"{name} ({code})"))
-            self.recent_table.setItem(row, 1, QTableWidgetItem(class_name or "بدون کلاس"))
+            self.recent_table.setItem(row, 1, QTableWidgetItem(class_name or tr("No class")))
             self.recent_table.setItem(row, 2, QTableWidgetItem(timestamp.split(" ")[-1]))
             self.recent_table.setItem(row, 3, QTableWidgetItem(self.status_label(status)))
 
@@ -5622,7 +5612,7 @@ class MainWindow(QMainWindow):
         self.dashboard_absent.setRowCount(len(absent_rows))
         for row, record in enumerate(absent_rows):
             _, code, name, timestamp, camera, status, notes, class_name, major_name = record
-            vals = [name, class_name or "بدون کلاس", major_name or "—"]
+            vals = [name, class_name or tr("No class"), major_name or "—"]
             for col, value in enumerate(vals):
                 self.dashboard_absent.setItem(
                     row,
@@ -5632,11 +5622,11 @@ class MainWindow(QMainWindow):
 
     def status_label(self, status):
         return {
-            "present": "حاضر",
-            "late": "دیرکرد",
-            "excused": "موجه",
-            "absent": "غایب",
-        }.get(status, "غایب")
+            "present": tr("Present"),
+            "late": tr("Late"),
+            "excused": tr("Excused"),
+            "absent": tr("Absent"),
+        }.get(status, tr("Absent"))
 
     def refresh_students(self):
         rows = list_students()
@@ -5658,7 +5648,7 @@ class MainWindow(QMainWindow):
                 name,
                 grade or "—",
                 major_name or "—",
-                class_name or "بدون کلاس",
+                class_name or tr("No class"),
                 str(face_count),
                 created_at,
             ]
@@ -5707,15 +5697,15 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 QMessageBox.critical(
                     self,
-                    "افزودن دانش‌آموز ناموفق بود",
+                    tr("Could not add the student"),
                     str(exc),
                 )
                 return
 
             QMessageBox.information(
                 self,
-                "انجام شد",
-                f"{dialog.name_edit.text().strip()} با {len(dialog.embeddings)} نمونه چهره ثبت شد.",
+                tr("Done"),
+                tr("{0} enrolled with {1} face samples.").format(dialog.name_edit.text().strip(), len(dialog.embeddings)),
             )
             self.refresh_all()
         finally:
@@ -5724,7 +5714,7 @@ class MainWindow(QMainWindow):
     def edit_selected_student(self):
         student_id = self.selected_student_id()
         if student_id is None:
-            QMessageBox.information(self, "انتخاب دانش‌آموز", "ابتدا یک دانش‌آموز را انتخاب کنید.")
+            QMessageBox.information(self, tr("Select a student"), tr("Select a student first."))
             return
 
         student = get_student(student_id)
@@ -5733,7 +5723,7 @@ class MainWindow(QMainWindow):
 
         _, old_code, old_name, _ = student
         dialog = QDialog(self)
-        dialog.setWindowTitle("ویرایش دانش‌آموز")
+        dialog.setWindowTitle(tr("Edit student"))
         dialog.resize(520, 270)
 
         layout = QVBoxLayout(dialog)
@@ -5742,7 +5732,7 @@ class MainWindow(QMainWindow):
         code_edit = QLineEdit(old_code)
         name_edit = QLineEdit(old_name)
         class_combo = QComboBox()
-        class_combo.addItem("بدون کلاس", None)
+        class_combo.addItem(tr("No class"), None)
 
         active = get_active_academic_year()
         current_class = get_student_class(student_id)
@@ -5750,7 +5740,7 @@ class MainWindow(QMainWindow):
         if active:
             for item in list_classes(active[0]):
                 class_id, class_name, grade, major_name, year_id, year_name, count = item
-                label = f"{class_name} — پایه {grade}"
+                label = tr("{0} — Grade {1}").format(class_name, grade)
                 if major_name:
                     label += f" — {major_name}"
                 class_combo.addItem(label, class_id)
@@ -5760,15 +5750,15 @@ class MainWindow(QMainWindow):
             if index >= 0:
                 class_combo.setCurrentIndex(index)
 
-        form.addRow("کد دانش‌آموزی", code_edit)
-        form.addRow("نام", name_edit)
-        form.addRow("کلاس", class_combo)
+        form.addRow(tr("Student code"), code_edit)
+        form.addRow(tr("Name"), name_edit)
+        form.addRow(tr("Class"), class_combo)
         layout.addLayout(form)
 
         buttons = QHBoxLayout()
         buttons.addStretch()
-        save = QPushButton("ذخیره")
-        cancel = QPushButton("لغو")
+        save = QPushButton(tr("Save"))
+        cancel = QPushButton(tr("Cancel"))
         save.clicked.connect(dialog.accept)
         cancel.clicked.connect(dialog.reject)
         buttons.addWidget(cancel)
@@ -5779,7 +5769,7 @@ class MainWindow(QMainWindow):
             return
 
         if not code_edit.text().strip() or not name_edit.text().strip():
-            QMessageBox.warning(self, "اطلاعات ناقص", "کد و نام الزامی هستند.")
+            QMessageBox.warning(self, tr("Missing information"), tr("Code and name are required."))
             return
 
         try:
@@ -5799,12 +5789,12 @@ class MainWindow(QMainWindow):
             self.refresh_all()
             self.restart_camera()
         except Exception as exc:
-            QMessageBox.critical(self, "ویرایش ناموفق بود", str(exc))
+            QMessageBox.critical(self, tr("Could not save the changes"), str(exc))
 
     def reenroll_selected_student(self):
         student_id = self.selected_student_id()
         if student_id is None:
-            QMessageBox.information(self, "انتخاب دانش‌آموز", "ابتدا یک دانش‌آموز را انتخاب کنید.")
+            QMessageBox.information(self, tr("Select a student"), tr("Select a student first."))
             return
 
         student = get_student(student_id)
@@ -5814,10 +5804,10 @@ class MainWindow(QMainWindow):
         name = student[2]
         if not confirm_action(
             self,
-            "ثبت دوباره چهره",
-            f"نمونه‌های چهره {name} جایگزین شوند؟",
-            "جایگزین کن",
-            "لغو",
+            tr("Re-enroll face"),
+            tr("Replace face samples for {0}?").format(name),
+            tr("Replace"),
+            tr("Cancel"),
         ):
             return
 
@@ -5838,8 +5828,8 @@ class MainWindow(QMainWindow):
 
             QMessageBox.information(
                 self,
-                "انجام شد",
-                f"{len(dialog.embeddings)} نمونه جدید برای {name} ذخیره شد.",
+                tr("Done"),
+                tr("{0} new samples saved for {1}.").format(len(dialog.embeddings), name),
             )
             self.refresh_all()
         finally:
@@ -5848,7 +5838,7 @@ class MainWindow(QMainWindow):
     def delete_selected_student(self):
         student_id = self.selected_student_id()
         if student_id is None:
-            QMessageBox.information(self, "انتخاب دانش‌آموز", "ابتدا یک دانش‌آموز را انتخاب کنید.")
+            QMessageBox.information(self, tr("Select a student"), tr("Select a student first."))
             return
 
         student = get_student(student_id)
@@ -5859,10 +5849,10 @@ class MainWindow(QMainWindow):
         code = student[1]
         if not confirm_action(
             self,
-            "حذف دانش‌آموز",
-            f"{name} ({code}) حذف شود؟\n\nسوابق چهره و حضور او نیز حذف می‌شود.",
-            "حذف",
-            "لغو",
+            tr("Delete student"),
+            tr("Delete {0} ({1})?\n\nTheir face and attendance records will also be deleted.").format(name, code),
+            tr("Delete"),
+            tr("Cancel"),
         ):
             return
 
@@ -5871,7 +5861,7 @@ class MainWindow(QMainWindow):
             self.refresh_all()
             self.restart_camera()
         except Exception as exc:
-            QMessageBox.critical(self, "حذف ناموفق بود", str(exc))
+            QMessageBox.critical(self, tr("Could not delete"), str(exc))
 
     def refresh_year_combo(self):
         current = self.class_year_combo.currentData()
@@ -5883,9 +5873,9 @@ class MainWindow(QMainWindow):
         for year_id, name, start_date, end_date, is_active in list_academic_years():
             label = name
             if start_date and end_date:
-                label += f" • {start_date} تا {end_date}"
+                label += tr(" • {0} to {1}").format(start_date, end_date)
             if is_active:
-                label += " • فعال"
+                label += tr(" • active")
             self.class_year_combo.addItem(label, year_id)
 
         target = current
@@ -5908,8 +5898,8 @@ class MainWindow(QMainWindow):
         if not year_id:
             QMessageBox.information(
                 self,
-                "تقویم مدرسه",
-                "ابتدا یک سال تحصیلی بسازید.",
+                tr("School calendar"),
+                tr("Create an academic year first."),
             )
             return
 
@@ -5930,10 +5920,10 @@ class MainWindow(QMainWindow):
 
         make_active = confirm_action(
             self,
-            "فعال‌سازی سال تحصیلی",
-            f"سال {start_date[:4]}-{end_date[:4]} به‌عنوان سال فعال انتخاب شود؟",
-            "فعال کن",
-            "فعلاً نه",
+            tr("Activate academic year"),
+            tr("Select {0}-{1} as the active academic year?").format(start_date[:4], end_date[:4]),
+            tr("Activate"),
+            tr("Not now"),
         )
 
         try:
@@ -5952,7 +5942,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(
                 self,
-                "افزودن سال ناموفق بود",
+                tr("Could not add the year"),
                 str(exc),
             )
 
@@ -5961,8 +5951,8 @@ class MainWindow(QMainWindow):
         if not year_id:
             QMessageBox.information(
                 self,
-                "انتخاب سال",
-                "ابتدا یک سال تحصیلی را انتخاب کنید.",
+                tr("Select a year"),
+                tr("Select an academic year first."),
             )
             return
 
@@ -5994,7 +5984,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(
                 self,
-                "ویرایش سال ناموفق بود",
+                tr("Could not edit the year"),
                 str(exc),
             )
 
@@ -6006,7 +5996,7 @@ class MainWindow(QMainWindow):
             set_active_academic_year(year_id)
             self.refresh_all()
         except Exception as exc:
-            QMessageBox.critical(self, "تغییر سال ناموفق بود", str(exc))
+            QMessageBox.critical(self, tr("Could not change the year"), str(exc))
 
     def open_school_calendar_dialog(self):
         year_id = self.class_year_combo.currentData()
@@ -6018,8 +6008,8 @@ class MainWindow(QMainWindow):
         if not year_id:
             QMessageBox.information(
                 self,
-                "تقویم مدرسه",
-                "ابتدا یک سال تحصیلی بسازید.",
+                tr("School calendar"),
+                tr("Create an academic year first."),
             )
             return
 
@@ -6041,7 +6031,7 @@ class MainWindow(QMainWindow):
         years = list_academic_years()
         majors = list_majors()
         if not years:
-            QMessageBox.warning(self, "سال تحصیلی", "ابتدا یک سال تحصیلی بسازید.")
+            QMessageBox.warning(self, tr("Academic year"), tr("Create an academic year first."))
             return
 
         dialog = ClassDialog(years, majors, parent=self)
@@ -6050,7 +6040,7 @@ class MainWindow(QMainWindow):
 
         name, grade, major_id, year_id = dialog.values()
         if not name:
-            QMessageBox.warning(self, "اطلاعات ناقص", "نام کلاس الزامی است.")
+            QMessageBox.warning(self, tr("Missing information"), tr("Class name is required."))
             return
 
         try:
@@ -6066,8 +6056,8 @@ class MainWindow(QMainWindow):
             if existing is not None:
                 QMessageBox.warning(
                     self,
-                    "کلاس تکراری",
-                    f"کلاس «{name}» در این سال تحصیلی از قبل وجود دارد.",
+                    tr("Duplicate class"),
+                    tr("Class “{0}” already exists in this academic year.").format(name),
                 )
                 return
 
@@ -6082,8 +6072,8 @@ class MainWindow(QMainWindow):
 
             QMessageBox.information(
                 self,
-                "کلاس اضافه شد",
-                f"«{name}» با موفقیت ثبت شد.",
+                tr("Class added"),
+                tr("“{0}” saved successfully.").format(name),
             )
 
             index = self.classes_table.findItems(
@@ -6101,18 +6091,18 @@ class MainWindow(QMainWindow):
             message = str(exc)
 
             if "UNIQUE constraint failed" in message:
-                message = "این نام کلاس برای این سال تحصیلی قبلاً ثبت شده است."
+                message = tr("This class name already exists for the academic year.")
 
             QMessageBox.critical(
                 self,
-                "افزودن کلاس ناموفق بود",
+                tr("Could not add the class"),
                 message,
             )
 
     def edit_selected_class(self):
         class_id = self.selected_class_id()
         if class_id is None:
-            QMessageBox.information(self, "انتخاب کلاس", "ابتدا یک کلاس را انتخاب کنید.")
+            QMessageBox.information(self, tr("Select a class"), tr("Select a class first."))
             return
 
         rows = list_classes()
@@ -6129,20 +6119,20 @@ class MainWindow(QMainWindow):
             update_class(class_id, name, grade, major_id, year_id)
             self.refresh_all()
         except Exception as exc:
-            QMessageBox.critical(self, "ویرایش کلاس ناموفق بود", str(exc))
+            QMessageBox.critical(self, tr("Could not edit the class"), str(exc))
 
     def delete_selected_class(self):
         class_id = self.selected_class_id()
         if class_id is None:
-            QMessageBox.information(self, "انتخاب کلاس", "ابتدا یک کلاس را انتخاب کنید.")
+            QMessageBox.information(self, tr("Select a class"), tr("Select a class first."))
             return
 
         if not confirm_action(
             self,
-            "حذف کلاس",
-            "کلاس حذف شود؟ فقط کلاس‌های خالی قابل حذف هستند.",
-            "حذف",
-            "لغو",
+            tr("Delete class"),
+            tr("Delete the class? Only empty classes can be deleted."),
+            tr("Delete"),
+            tr("Cancel"),
         ):
             return
 
@@ -6150,7 +6140,7 @@ class MainWindow(QMainWindow):
             delete_class(class_id)
             self.refresh_all()
         except Exception as exc:
-            QMessageBox.critical(self, "حذف کلاس ناموفق بود", str(exc))
+            QMessageBox.critical(self, tr("Could not delete the class"), str(exc))
 
     def refresh_classes(self):
         self.refresh_year_combo()
@@ -6163,7 +6153,7 @@ class MainWindow(QMainWindow):
 
         for row, item in enumerate(rows):
             class_id, name, grade, major_name, year_id, year_name, count = item
-            status = "فعال" if year_id == active_id else ""
+            status = tr("Enabled") if year_id == active_id else ""
             values = [
                 str(class_id),
                 name,
@@ -6184,19 +6174,19 @@ class MainWindow(QMainWindow):
         return int(item.text())
 
     def add_major_dialog(self):
-        name, ok = QInputDialog.getText(self, "افزودن رشته", "نام رشته:")
+        name, ok = QInputDialog.getText(self, tr("Add major"), tr("Major name:"))
         if not ok or not name.strip():
             return
         try:
             add_major(name)
             self.refresh_all()
         except Exception as exc:
-            QMessageBox.critical(self, "افزودن رشته ناموفق بود", str(exc))
+            QMessageBox.critical(self, tr("Could not add the major"), str(exc))
 
     def edit_selected_major(self):
         major_id = self.selected_major_id()
         if major_id is None:
-            QMessageBox.information(self, "انتخاب رشته", "ابتدا یک رشته را انتخاب کنید.")
+            QMessageBox.information(self, tr("Select a major"), tr("Select a major first."))
             return
 
         rows = list_majors()
@@ -6206,8 +6196,8 @@ class MainWindow(QMainWindow):
 
         name, ok = QInputDialog.getText(
             self,
-            "ویرایش رشته",
-            "نام رشته:",
+            tr("Edit major"),
+            tr("Major name:"),
             text=existing[1],
         )
         if not ok or not name.strip():
@@ -6217,20 +6207,20 @@ class MainWindow(QMainWindow):
             update_major(major_id, name)
             self.refresh_all()
         except Exception as exc:
-            QMessageBox.critical(self, "ویرایش رشته ناموفق بود", str(exc))
+            QMessageBox.critical(self, tr("Could not edit the major"), str(exc))
 
     def delete_selected_major(self):
         major_id = self.selected_major_id()
         if major_id is None:
-            QMessageBox.information(self, "انتخاب رشته", "ابتدا یک رشته را انتخاب کنید.")
+            QMessageBox.information(self, tr("Select a major"), tr("Select a major first."))
             return
 
         if not confirm_action(
             self,
-            "حذف رشته",
-            "رشته حذف شود؟ اگر به کلاسی متصل باشد حذف نمی‌شود.",
-            "حذف",
-            "لغو",
+            tr("Delete major"),
+            tr("Delete the major? A major linked to a class cannot be deleted."),
+            tr("Delete"),
+            tr("Cancel"),
         ):
             return
 
@@ -6238,7 +6228,7 @@ class MainWindow(QMainWindow):
             delete_major(major_id)
             self.refresh_all()
         except Exception as exc:
-            QMessageBox.critical(self, "حذف رشته ناموفق بود", str(exc))
+            QMessageBox.critical(self, tr("Could not delete the major"), str(exc))
 
     def refresh_majors(self):
         rows = list_majors()
@@ -6252,7 +6242,7 @@ class MainWindow(QMainWindow):
         combo.blockSignals(True)
         current = combo.currentData()
         combo.clear()
-        combo.addItem("همه رشته‌ها", None)
+        combo.addItem(tr("All majors"), None)
         for major_id, name, _ in list_majors():
             combo.addItem(name, major_id)
         if current is not None:
@@ -6265,7 +6255,7 @@ class MainWindow(QMainWindow):
         combo.blockSignals(True)
         current = combo.currentData()
         combo.clear()
-        combo.addItem("همه کلاس‌ها", None)
+        combo.addItem(tr("All classes"), None)
 
         active = get_active_academic_year()
         if active:
@@ -6273,7 +6263,7 @@ class MainWindow(QMainWindow):
                 class_id, class_name, grade, major_name, year_id, year_name, count = item
                 if major_id and (not major_name or not self.major_id_for_class(class_id, major_id)):
                     continue
-                label = f"{class_name} — پایه {grade}"
+                label = tr("{0} — Grade {1}").format(class_name, grade)
                 if major_name:
                     label += f" — {major_name}"
                 combo.addItem(label, class_id)
@@ -6321,15 +6311,18 @@ class MainWindow(QMainWindow):
                 str(student_id),
                 code,
                 name,
-                class_name or "بدون کلاس",
+                class_name or tr("No class"),
                 self.status_label(status),
                 timestamp.split(" ")[-1] if timestamp else "—",
                 camera or "—",
                 notes or "",
-                "ثبت دستی" if camera == "manual" else "دوربین",
+                tr("Manual entry") if camera == "manual" else tr("Camera"),
             ]
             for col, value in enumerate(values):
-                self.attendance_table.setItem(row, col, QTableWidgetItem(value))
+                item = QTableWidgetItem(value)
+                if col == 4:
+                    item.setData(Qt.UserRole, status)
+                self.attendance_table.setItem(row, col, item)
 
         total, present, absent, late, excused = get_attendance_stats(
             date,
@@ -6337,7 +6330,7 @@ class MainWindow(QMainWindow):
             major_id,
         )
         self.attendance_summary.setText(
-            f"کل: {total} • حاضر: {present} • دیرکرد: {late} • موجه: {excused} • غایب: {absent}"
+            tr("Total: {0} • Present: {1} • Late: {2} • Excused: {3} • Absent: {4}").format(total, present, late, excused, absent)
         )
 
     def selected_attendance_student_id(self):
@@ -6350,16 +6343,15 @@ class MainWindow(QMainWindow):
     def edit_selected_attendance(self):
         student_id = self.selected_attendance_student_id()
         if student_id is None:
-            QMessageBox.information(self, "انتخاب دانش‌آموز", "ابتدا یک دانش‌آموز را انتخاب کنید.")
+            QMessageBox.information(self, tr("Select a student"), tr("Select a student first."))
             return
 
         row = self.attendance_table.currentRow()
-        current_status = {
-            "حاضر": "present",
-            "دیرکرد": "late",
-            "موجه": "excused",
-            "غایب": "absent",
-        }.get(self.attendance_table.item(row, 4).text(), "absent")
+        # Read the stable stored code, never reverse-map a translated label.
+        current_status = self.attendance_table.item(row, 4).data(Qt.UserRole)
+        if current_status not in {"present", "late", "excused", "absent"}:
+            QMessageBox.warning(self, tr("Error"), tr("Refresh attendance before editing this record."))
+            return
         notes = self.attendance_table.item(row, 7).text() if self.attendance_table.item(row, 7) else ""
 
         name = self.attendance_table.item(row, 2).text()
@@ -6380,7 +6372,7 @@ class MainWindow(QMainWindow):
             self.refresh_dashboard()
             self.refresh_attendance()
         except Exception as exc:
-            QMessageBox.critical(self, "ویرایش حضور ناموفق بود", str(exc))
+            QMessageBox.critical(self, tr("Could not edit attendance"), str(exc))
 
     def refresh_report_filters(self):
         self.populate_major_combo(self.report_major_combo)
@@ -6416,8 +6408,8 @@ class MainWindow(QMainWindow):
         if start > end:
             QMessageBox.warning(
                 self,
-                "بازه نامعتبر",
-                "تاریخ شروع باید قبل از تاریخ پایان باشد.",
+                tr("Invalid range"),
+                tr("The start date must precede the end date."),
             )
             return
 
@@ -6464,12 +6456,12 @@ class MainWindow(QMainWindow):
                 name,
                 grade,
                 major_name or "—",
-                class_name or "بدون کلاس",
+                class_name or tr("No class"),
                 str(present),
                 str(late),
                 str(absent),
                 str(excused),
-                f"{percent:.1f}٪",
+                tr("{0:.1f}%").format(percent),
             ]
 
             for col, value in enumerate(values):
@@ -6517,23 +6509,19 @@ class MainWindow(QMainWindow):
         )
 
         self.report_total_label.setText(str(len(rows)))
-        self.report_avg_label.setText(f"{avg:.1f}٪")
+        self.report_avg_label.setText(tr("{0:.1f}%").format(avg))
         self.report_absent_days_label.setText(str(total_absent))
         self.report_late_days_label.setText(str(total_late))
 
         active_days = len(daily)
         day_note = (
-            f" • {active_days} روز دارای ثبت حضور"
+            tr(" • {0} days with attendance records").format(active_days)
             if active_days
-            else " • در این بازه هیچ ثبت حضوری وجود ندارد"
+            else tr(" • No attendance records in this period")
         )
 
         self.report_summary.setText(
-            f"بازه {start} تا {end}{day_note} • "
-            f"حاضر: {total_present} • "
-            f"دیرکرد: {total_late} • "
-            f"غیبت: {total_absent} • "
-            f"موجه: {total_excused}"
+            tr("Period {0} to {1}{2} • Present: {3} • Late: {4} • Absent: {5} • Excused: {6}").format(start, end, day_note, total_present, total_late, total_absent, total_excused)
         )
         self.refresh_report_events()
 
@@ -6542,10 +6530,10 @@ class MainWindow(QMainWindow):
             return
         start = self.report_start.date().toString("yyyy-MM-dd")
         end = self.report_end.date().toString("yyyy-MM-dd")
-        default_path = BASE_DIR / "exports" / f"رویدادها_{start}_{end}.csv"
+        default_path = BASE_DIR / "exports" / tr("Events_{0}_{1}.csv").format(start, end)
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "ذخیره رویدادهای دوربین",
+            tr("Save camera events"),
             str(default_path),
             "CSV (*.csv)",
         )
@@ -6557,7 +6545,7 @@ class MainWindow(QMainWindow):
             Path(path).parent.mkdir(parents=True, exist_ok=True)
             with open(path, "w", newline="", encoding="utf-8-sig") as output:
                 writer = csv.writer(output)
-                writer.writerow(["شناسه رویداد", "تاریخ و ساعت", "دانش‌آموز", "رویداد", "دوربین", "اطمینان", "جزئیات", "تصویر دوربین", "بازبینی انسانی"])
+                writer.writerow([tr("Event ID"), tr("Date and time"), tr("Student"), tr("Event"), tr("Camera"), tr("Match score"), tr("Details"), tr("Camera image"), tr("Human review")])
                 for row in range(self.report_events_table.rowCount()):
                     first = self.report_events_table.item(row, 0)
                     event_id = first.data(Qt.UserRole) if first else ""
@@ -6571,11 +6559,11 @@ class MainWindow(QMainWindow):
                     ]))
             QMessageBox.information(
                 self,
-                "خروجی آماده شد",
-                f"{self.report_events_table.rowCount()} رویداد در فایل ذخیره شد.\\n{path}",
+                tr("Export ready"),
+                tr("{0} events saved to the file.\n{1}").format(self.report_events_table.rowCount(), path),
             )
         except Exception as exc:
-            QMessageBox.critical(self, "ذخیره خروجی ناموفق بود", str(exc))
+            QMessageBox.critical(self, tr("Could not save the export"), str(exc))
 
     def refresh_report_events(self):
         if not hasattr(self, "report_events_table"):
@@ -6648,19 +6636,19 @@ class MainWindow(QMainWindow):
             records = filtered
 
         labels = {
-            "EARLY_DEPARTURE": "⚠ خروج زودهنگام",
-            "LATE_ARRIVAL": "دیرکرد",
-            "PERSON_ENTERED": "ورود",
-            "PERSON_EXITED": "خروج",
-            "UNEXPECTED_EXIT": "خروج غیرمنتظره",
-            "IDENTITY_MISMATCH": "اختلاف هویت",
+            "EARLY_DEPARTURE": tr("⚠ Early departure"),
+            "LATE_ARRIVAL": tr("Late"),
+            "PERSON_ENTERED": tr("Sign in"),
+            "PERSON_EXITED": tr("Departure"),
+            "UNEXPECTED_EXIT": tr("Unexpected exit"),
+            "IDENTITY_MISMATCH": tr("Identity mismatch"),
         }
         review_labels = {
-            "pending": "در انتظار بررسی",
-            "confirmed": "تأیید شد",
-            "false_match": "اشتباه — نیازمند اصلاح",
-            "corrected": "اصلاح شد",
-            "inconclusive": "نامشخص",
+            "pending": tr("Pending review"),
+            "confirmed": tr("Confirmed"),
+            "false_match": tr("Incorrect — correction needed"),
+            "corrected": tr("Corrected"),
+            "inconclusive": tr("Inconclusive"),
         }
 
         self.report_events_table.setRowCount(len(records))
@@ -6683,16 +6671,16 @@ class MainWindow(QMainWindow):
                 detail = f"Track {track_id}" if track_id is not None else "—"
             score_low = confidence is not None and float(confidence) < 0.5
             confidence_label = (
-                f"{float(confidence):.2f} • پایین"
+                tr("{0:.2f} • low").format(float(confidence))
                 if score_low else
                 (f"{float(confidence):.2f}" if confidence is not None else "—")
             )
-            review_label = review_labels.get(review, "در انتظار بررسی")
+            review_label = review_labels.get(review, tr("Pending review"))
             if event_type == "EARLY_DEPARTURE" and score_low and review == "pending":
-                review_label = "⚠ بازبینی لازم"
-            display_identity = name or code or "ناشناس"
+                review_label = tr("⚠ Review required")
+            display_identity = name or code or tr("Unknown")
             if event_type == "EARLY_DEPARTURE" and score_low and (name or code):
-                display_identity = f"⚠ {display_identity} — هویت نامطمئن"
+                display_identity = tr("⚠ {0} — uncertain identity").format(display_identity)
             values = [
                 timestamp or "—",
                 display_identity,
@@ -6700,7 +6688,7 @@ class MainWindow(QMainWindow):
                 str(camera_id or "—"),
                 confidence_label,
                 str(detail),
-                "تصویر موجود" if has_image else ("بدون تصویر" if event_type == "EARLY_DEPARTURE" else "—"),
+                tr("Image available") if has_image else (tr("No image") if event_type == "EARLY_DEPARTURE" else "—"),
                 review_label if event_type == "EARLY_DEPARTURE" else "—",
             ]
             for col, value in enumerate(values):
@@ -6712,8 +6700,7 @@ class MainWindow(QMainWindow):
                 if event_type == "EARLY_DEPARTURE" and col == 4 and score_low:
                     item.setForeground(QColor("#b42318"))
                     item.setToolTip(
-                        "امتیاز تطبیق پایین است و احتمال انتساب اشتباه وجود دارد. "
-                        "این عدد احتمال آماریِ کالیبره‌شده نیست؛ تصویر را بازبینی کنید."
+                        tr("The match score is low and association may be incorrect. This is not a calibrated statistical probability. Review the image.")
                     )
                 if event_type == "EARLY_DEPARTURE" and col == 6 and has_image:
                     item.setForeground(QColor("#18794e"))
@@ -6725,17 +6712,17 @@ class MainWindow(QMainWindow):
                 self.report_events_table.setItem(row, col, item)
 
         note = (
-            "فقط ۹۰ روز پایانی نمایش داده می‌شود • "
+            tr("Only the last 90 days are shown • ")
             if getattr(self, "_report_events_truncated", False) else ""
         )
         scope = []
         if self.report_class_combo.currentData():
-            scope.append(f"کلاس: {self.report_class_combo.currentText()}")
+            scope.append(tr("Class: {0}").format(self.report_class_combo.currentText()))
         if self.report_major_combo.currentData() is not None:
-            scope.append(f"رشته: {self.report_major_combo.currentText()}")
-        scope_text = (" • " + "، ".join(scope)) if scope else " • همه کلاس‌ها و رشته‌ها"
+            scope.append(tr("Major: {0}").format(self.report_major_combo.currentText()))
+        scope_text = (" • " + tr(", ").join(scope)) if scope else tr(" • All classes and majors")
         self.report_events_note.setText(
-            f"{note}{len(records)} رویداد{scope_text}"
+            tr("{0}{1} events{2}").format(note, len(records), scope_text)
         )
 
     def export_report(self, fmt):
@@ -6745,8 +6732,8 @@ class MainWindow(QMainWindow):
         if start > end:
             QMessageBox.warning(
                 self,
-                "بازه نامعتبر",
-                "تاریخ شروع باید قبل از تاریخ پایان باشد.",
+                tr("Invalid range"),
+                tr("The start date must precede the end date."),
             )
             return
 
@@ -6775,17 +6762,17 @@ class MainWindow(QMainWindow):
         if not rows:
             QMessageBox.information(
                 self,
-                "گزارش خالی است",
-                "داده‌ای برای این فیلتر وجود ندارد.",
+                tr("Empty report"),
+                tr("No data matches this filter."),
             )
             return
 
         extension = "csv" if fmt == "csv" else "xlsx"
-        default_name = f"گزارش_حضور_{start}_{end}.{extension}"
+        default_name = tr("Attendance_report_{0}_{1}.{2}").format(start, end, extension)
 
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "ذخیره گزارش",
+            tr("Save report"),
             str(BASE_DIR / "exports" / default_name),
             "CSV (*.csv)" if fmt == "csv" else "Excel (*.xlsx)",
         )
@@ -6796,16 +6783,16 @@ class MainWindow(QMainWindow):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
 
         student_headers = [
-            "کد دانش‌آموزی",
-            "نام",
-            "پایه",
-            "رشته",
-            "کلاس",
-            "حاضر",
-            "دیرکرد",
-            "غیبت",
-            "موجه",
-            "درصد حضور",
+            tr("Student code"),
+            tr("Name"),
+            tr("Grade"),
+            tr("Major"),
+            tr("Class"),
+            tr("Present"),
+            tr("Late"),
+            tr("Absences"),
+            tr("Excused"),
+            tr("Attendance percentage"),
         ]
 
         try:
@@ -6841,7 +6828,7 @@ class MainWindow(QMainWindow):
                 workbook = Workbook()
 
                 student_sheet = workbook.active
-                student_sheet.title = "دانش‌آموزان"
+                student_sheet.title = tr("Students")
 
                 student_sheet.append(student_headers)
                 for record in rows:
@@ -6860,31 +6847,31 @@ class MainWindow(QMainWindow):
                         ])
                     )
 
-                daily_sheet = workbook.create_sheet("روزانه")
+                daily_sheet = workbook.create_sheet(tr("Daily"))
                 daily_sheet.append(
                     [
-                        "تاریخ",
-                        "حاضر",
-                        "دیرکرد",
-                        "غیبت",
-                        "موجه",
-                        "درصد حضور",
+                        tr("Date"),
+                        tr("Present"),
+                        tr("Late"),
+                        tr("Absences"),
+                        tr("Excused"),
+                        tr("Attendance percentage"),
                     ]
                 )
                 for record in daily:
                     daily_sheet.append(spreadsheet_row(record))
 
-                class_sheet = workbook.create_sheet("کلاس‌ها")
+                class_sheet = workbook.create_sheet(tr("Classes"))
                 class_sheet.append(
                     [
-                        "کلاس",
-                        "رشته",
-                        "دانش‌آموز",
-                        "حاضر",
-                        "دیرکرد",
-                        "غیبت",
-                        "موجه",
-                        "درصد حضور",
+                        tr("Class"),
+                        tr("Major"),
+                        tr("Student"),
+                        tr("Present"),
+                        tr("Late"),
+                        tr("Absences"),
+                        tr("Excused"),
+                        tr("Attendance percentage"),
                     ]
                 )
                 for record in classes:
@@ -6901,37 +6888,37 @@ class MainWindow(QMainWindow):
                         ])
                     )
 
-                summary_sheet = workbook.create_sheet("خلاصه")
-                summary_sheet.append(["شاخص", "مقدار"])
+                summary_sheet = workbook.create_sheet(tr("Summary"))
+                summary_sheet.append([tr("Metric"), tr("Value")])
                 total_students = len(rows)
                 average = (
                     sum(record[10] for record in rows) / total_students
                     if total_students
                     else 0
                 )
-                summary_sheet.append(["دانش‌آموزان", total_students])
-                summary_sheet.append(["میانگین حضور", round(average, 1)])
+                summary_sheet.append([tr("Students"), total_students])
+                summary_sheet.append([tr("Average attendance"), round(average, 1)])
                 summary_sheet.append(
                     [
-                        "کل حضور",
+                        tr("Total present"),
                         sum(record[6] for record in rows),
                     ]
                 )
                 summary_sheet.append(
                     [
-                        "کل دیرکرد",
+                        tr("Total late"),
                         sum(record[7] for record in rows),
                     ]
                 )
                 summary_sheet.append(
                     [
-                        "کل غیبت",
+                        tr("Total absent"),
                         sum(record[8] for record in rows),
                     ]
                 )
                 summary_sheet.append(
                     [
-                        "کل موجه",
+                        tr("Total excused"),
                         sum(record[9] for record in rows),
                     ]
                 )
@@ -6954,14 +6941,14 @@ class MainWindow(QMainWindow):
 
             QMessageBox.information(
                 self,
-                "گزارش آماده شد",
-                f"گزارش با موفقیت ذخیره شد.\n{path}",
+                tr("Report ready"),
+                tr("Report saved successfully.\n{0}").format(path),
             )
 
         except Exception as exc:
             QMessageBox.critical(
                 self,
-                "ذخیره گزارش ناموفق بود",
+                tr("Could not save the report"),
                 str(exc),
             )
 
@@ -6969,7 +6956,7 @@ class MainWindow(QMainWindow):
     def import_students(self):
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "انتخاب فایل دانش‌آموزان",
+            tr("Select student import file"),
             str(BASE_DIR),
             "Excel (*.xlsx);;CSV (*.csv)",
         )
@@ -6987,7 +6974,7 @@ class MainWindow(QMainWindow):
                 sheet = workbook.active
                 values = list(sheet.iter_rows(values_only=True))
                 if not values:
-                    raise ValueError("فایل خالی است.")
+                    raise ValueError(tr("The file is empty."))
                 headers = [str(v).strip() if v is not None else "" for v in values[0]]
                 for data_row in values[1:]:
                     rows.append(
@@ -6999,7 +6986,7 @@ class MainWindow(QMainWindow):
                     )
 
             if not rows:
-                raise ValueError("هیچ ردیفی برای ورود پیدا نشد.")
+                raise ValueError(tr("No rows were found to import."))
 
             def normalized(value):
                 return (
@@ -7112,20 +7099,20 @@ class MainWindow(QMainWindow):
 
             QMessageBox.information(
                 self,
-                "ورود اطلاعات کامل شد",
-                f"جدید: {imported}\nبه‌روزرسانی: {updated}\nردشده: {skipped}",
+                tr("Import completed"),
+                tr("New: {0}\nUpdated: {1}\nSkipped: {2}").format(imported, updated, skipped),
             )
 
         except Exception as exc:
-            QMessageBox.critical(self, "ورود اطلاعات ناموفق بود", str(exc))
+            QMessageBox.critical(self, tr("Import failed"), str(exc))
 
     def change_admin_password(self):
         dialog = AdminPasswordDialog(mode="change", parent=self)
         if dialog.exec() == QDialog.Accepted:
             QMessageBox.information(
                 self,
-                "انجام شد",
-                "رمز مدیر با موفقیت تغییر کرد.",
+                tr("Done"),
+                tr("Administrator password changed successfully."),
             )
 
     def closeEvent(self, event):
@@ -7211,14 +7198,6 @@ def main():
         from localization import configure, language
     configure(app)
     app.setStyle("Fusion")
-
-    # Load Qt's Persian translations when the local Qt installation provides them.
-    translator = QTranslator(app)
-    translations_path = QLibraryInfo.path(
-        QLibraryInfo.LibraryPath.TranslationsPath
-    )
-    if language() == "fa" and translator.load("qtbase_fa", translations_path):
-        app.installTranslator(translator)
 
     app.setStyleSheet(
         """
