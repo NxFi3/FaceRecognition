@@ -191,7 +191,13 @@ def bootstrap_accounts(target):
 
 def serve(origin, cert_path, key_path, port):
     from django.core.wsgi import get_wsgi_application
-    server = make_server("127.0.0.1", port, get_wsgi_application())
+    django_app = get_wsgi_application()
+    def tls_app(environ, start_response):
+        # WSGI's handler otherwise assumes HTTP even when its socket is TLS.
+        # Actual TLS termination remains mandatory; this is not a proxy header.
+        environ["wsgi.url_scheme"] = "https"
+        return django_app(environ, start_response)
+    server = make_server("127.0.0.1", port, tls_app)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
