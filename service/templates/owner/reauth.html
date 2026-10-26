@@ -1,18 +1,18 @@
-{% extends 'base.html' %}
-{% block title %}تأیید امنیتی مالک | NxFi Technologies{% endblock %}
+{% extends 'base.html' %}{% load i18n %}
+{% block title %}{% translate "Owner security verification | NxFi Technologies" %}{% endblock %}
 {% block content %}
 <section class="section narrow">
   <div class="form-card">
-    <span class="eyebrow">حفاظت از حساب مالک</span>
-    <h1>تأیید دوبارهٔ هویت</h1>
-    <p>برای عملیات مدیریتی حساس، رمز فعلی حساب خود را وارد کنید. اعتبار این تأیید کوتاه است و مجوز مالکیت به حساب مدرسه منتقل نمی‌شود.</p>
+    <span class="eyebrow">{% translate "Protecting the owner account" %}</span>
+    <h1>{% translate "Reauthenticate" %}</h1>
+    <p>{% translate "Enter your current password for sensitive administrative operations. This approval is short-lived and does not transfer owner authority to a school account." %}</p>
     <form method="post">
       {% csrf_token %}
       <input type="hidden" name="next" value="{{ next }}">
       {{ form.as_p }}
-      <button class="button button-primary" type="submit">تأیید و ادامه</button>
+      <button class="button button-primary" type="submit">{% translate "Verify and continue" %}</button>
     </form>
-    <a href="/owner/">بازگشت به نمای شرکت</a>
+    <a href="/owner/">{% translate "Back to company overview" %}</a>
   </div>
 </section>
 {% endblock %}
