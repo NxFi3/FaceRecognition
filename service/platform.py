@@ -1,5 +1,6 @@
 """Tenant-scoped commercial portal. No student or inference data enters this module."""
 from django.utils.translation import gettext_lazy as _
+from django.conf import settings
 import hashlib
 import json
 from pathlib import Path
@@ -238,7 +239,8 @@ def owner(request):
         payments = payments.filter(order__product_id=selected)
     totals = payments.aggregate(total=Sum('amount_irr'))
     # No license API/client keys are exposed in this overview.
-    return render(request, 'owner/dashboard.html', {'revenue': totals['total'] or 0,
+    dashboard_template = 'owner/control_dashboard.html' if getattr(settings, 'OWNER_ONLY_WEB', False) else 'owner/dashboard.html'
+    return render(request, dashboard_template, {'revenue': totals['total'] or 0,
         'unassigned_customers': CustomerProfile.objects.filter(user__school__isnull=True).exclude(user=request.user).select_related('user').order_by('-pk')[:100],
         'schools': School.objects.select_related('user').order_by('-created_at')[:100],
         'orders': Order.objects.select_related('school','product').filter(**({'product_id': selected} if selected else {})).order_by('-created_at')[:100],
@@ -420,7 +422,8 @@ def owner_school(request, school_id):
                 messages.success(request, _('School settings saved. This manual change records no payment or revenue.'))
                 return redirect('owner-school', school_id=school.pk)
     return render(request, 'owner/school.html', {'school': school, 'form': form,
-        'devices': Device.objects.filter(school=school)})
+        'devices': Device.objects.filter(school=school),
+        'backups': Backup.objects.filter(school=school).order_by('-created_at')[:20]})
 
 
 @owner_required(recent=True)
