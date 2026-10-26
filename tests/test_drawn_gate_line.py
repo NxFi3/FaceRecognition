@@ -1,6 +1,7 @@
 import unittest
 
 import numpy as np
+from src.database import MovementTransitionResult
 
 from src.engine.smart_camera_worker import (
     _camera_role_accepts_crossing,
@@ -161,9 +162,13 @@ class DrawnGateLineTests(unittest.TestCase):
         track.metadata["face_witnessed_for_crossing"] = True
         events = []
         marked = []
+        def commit_transition(**payload):
+            marked.append(payload)
+            events.append({'event_type': EVENT_PERSON_ENTERED})
+            return MovementTransitionResult(True, True, ((1, EVENT_PERSON_ENTERED, {}),))
         engine = AttendanceEventEngine(
             add_event_callback=lambda **payload: events.append(payload),
-            mark_attendance_callback=lambda *args: marked.append(args) or True,
+            commit_transition_callback=commit_transition,
             get_setting_callback=lambda key, default=None: {
                 "school_start_time": "23:59",
                 "enable_late_events": "1",
@@ -173,7 +178,7 @@ class DrawnGateLineTests(unittest.TestCase):
         emitted = engine.on_crossing(track, directions[0], camera_id=0)
         self.assertIn(EVENT_PERSON_ENTERED, emitted)
         self.assertTrue(any(item["event_type"] == EVENT_PERSON_ENTERED for item in events))
-        self.assertEqual(marked[0][0], 123)
+        self.assertEqual(marked[0]['student_id'], 123)
         self.assertIn(123, engine.present)
 
 

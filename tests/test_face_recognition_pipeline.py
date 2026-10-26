@@ -173,9 +173,15 @@ class DeferredCrossingTests(unittest.TestCase):
             emitted.append(event)
             return len(emitted)
 
+        def commit_transition_callback(**transition):
+            event_type = "PERSON_ENTERED" if transition["direction"] == "enter" else "PERSON_EXITED"
+            emitted.append({"event_type": event_type})
+            from src.database import MovementTransitionResult
+            return MovementTransitionResult(True, transition["direction"] == "enter", ((len(emitted), event_type, {}),))
+
         engine = AttendanceEventEngine(
             add_event_callback=add_event_callback,
-            mark_attendance_callback=lambda *args: True,
+            commit_transition_callback=commit_transition_callback,
             get_setting_callback=lambda key, default=None: default,
             state=state,
         )

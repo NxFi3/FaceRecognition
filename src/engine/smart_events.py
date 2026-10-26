@@ -36,12 +36,12 @@ class AttendanceEventEngine:
     def __init__(
         self,
         add_event_callback,
-        mark_attendance_callback,
+        commit_transition_callback,
         get_setting_callback,
         state=None,
     ):
         self._add_event = add_event_callback
-        self._mark_attendance = mark_attendance_callback
+        self._commit_transition = commit_transition_callback
         self._get_setting = get_setting_callback
         self._state = state or AttendancePresenceState()
 
@@ -266,9 +266,9 @@ class AttendanceEventEngine:
             )
             return [EVENT_UNKNOWN_PERSON]
 
-        # Both cameras share this state. Keep the check, durable event and
-        # in-memory transition together; a split check/add permits duplicate
-        # PERSON_ENTERED events even when SQLite deduplicates the daily row.
+        # Both cameras share this state. The database transaction also checks
+        # the latest durable movement, so a crash after commit but before this
+        # in-memory update remains retryable without another PERSON_ENTERED.
         with self._state.lock:
             if student_id in self.present:
                 return []
@@ -280,41 +280,34 @@ class AttendanceEventEngine:
             )
             is_late = late_enabled and datetime.now().time() > start
 
-            inserted = self._mark_attendance(
-                student_id,
-                f"camera_{camera_id}",
-                "late" if is_late else "present",
-                (
+            result = self._commit_transition(
+                student_id=student_id,
+                direction="enter",
+                camera_id=f"camera_{camera_id}",
+                track_id=track.track_id,
+                confidence=track.identity_confidence,
+                status="late" if is_late else "present",
+                notes=(
                     f"ورود بعد از زمان شروع مدرسه ({start.strftime('%H:%M')})"
                     if is_late
                     else ""
                 ),
+                auxiliary_event=EVENT_LATE_ARRIVAL if is_late else None,
+                auxiliary_metadata={"school_start_time": start.strftime("%H:%M")} if is_late else None,
             )
-
-            emitted = [EVENT_PERSON_ENTERED]
-            self._emit(
-                EVENT_PERSON_ENTERED,
-                track,
-                camera_id,
-                track.identity_confidence,
-            )
-            # Publish presence only after the durable movement event succeeded.
-            # If writing fails, the next observation can safely retry; the daily
-            # attendance row has its own UNIQUE(student_id,date) protection.
+            # A previous commit may have completed just before a worker crash.
+            # Synchronize RAM with that durable entry but publish no duplicate.
             self.present.add(student_id)
             self.last_entered[student_id] = datetime.now()
+            if not result.applied:
+                return []
+
+            emitted = [EVENT_PERSON_ENTERED]
 
             if is_late:
-                self._emit(
-                    EVENT_LATE_ARRIVAL,
-                    track,
-                    camera_id,
-                    track.identity_confidence,
-                    {"school_start_time": start.strftime("%H:%M")},
-                )
                 emitted.append(EVENT_LATE_ARRIVAL)
 
-            if inserted:
+            if result.attendance_inserted:
                 track.metadata["attendance_marked"] = True
 
             return emitted
@@ -334,31 +327,30 @@ class AttendanceEventEngine:
                 )
                 return [EVENT_UNEXPECTED_EXIT]
 
-            self._emit(
-                EVENT_PERSON_EXITED,
-                track,
-                camera_id,
-                track.identity_confidence,
-            )
-            # Preserve prior presence if the durable exit event cannot be written.
-            self.present.remove(student_id)
-            emitted = [EVENT_PERSON_EXITED]
-
             end = self._time_setting("school_end_time", "15:00")
-            if (
+            is_early = (
                 self._bool_setting(
                     self._get_setting("enable_early_events", "1"),
                     True,
                 )
                 and datetime.now().time() < end
-            ):
-                self._emit(
-                    EVENT_EARLY_DEPARTURE,
-                    track,
-                    camera_id,
-                    track.identity_confidence,
-                    {"school_end_time": end.strftime("%H:%M")},
-                )
+            )
+            result = self._commit_transition(
+                student_id=student_id,
+                direction="exit",
+                camera_id=f"camera_{camera_id}",
+                track_id=track.track_id,
+                confidence=track.identity_confidence,
+                auxiliary_event=EVENT_EARLY_DEPARTURE if is_early else None,
+                auxiliary_metadata={"school_end_time": end.strftime("%H:%M")} if is_early else None,
+            )
+            # Preserve prior presence if the database transaction fails.
+            self.present.remove(student_id)
+            if not result.applied:
+                return []
+
+            emitted = [EVENT_PERSON_EXITED]
+            if is_early:
                 emitted.append(EVENT_EARLY_DEPARTURE)
 
             return emitted

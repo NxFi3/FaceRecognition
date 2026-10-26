@@ -2,6 +2,7 @@ import json
 import sqlite3
 import logging
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -1884,6 +1885,85 @@ def add_event(
         )
         conn.commit()
         return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+@dataclass(frozen=True)
+class MovementTransitionResult:
+    applied: bool
+    attendance_inserted: bool
+    events: tuple[tuple[int, str, dict], ...]
+
+
+@profile.stage("db_movement_transition")
+def record_movement_transition(
+    *, student_id, direction, camera_id, track_id, confidence,
+    status="present", notes="", auxiliary_event=None, auxiliary_metadata=None,
+):
+    """Commit an entry/exit and its optional companion event as one unit.
+
+    BEGIN IMMEDIATE serializes the latest-movement check with writers in other
+    processes. After a commit, a crash before the worker updates RAM can be
+    retried: the persisted latest movement suppresses the duplicate event.
+    Existing manual attendance rows remain untouched by ON CONFLICT.
+    """
+    if direction not in ("enter", "exit"):
+        raise ValueError("Invalid movement direction")
+    expected_auxiliary = "LATE_ARRIVAL" if direction == "enter" else "EARLY_DEPARTURE"
+    if auxiliary_event not in (None, expected_auxiliary):
+        raise ValueError("Invalid companion movement event")
+
+    now = datetime.now()
+    timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+    date = now.strftime("%Y-%m-%d")
+    event_type = "PERSON_ENTERED" if direction == "enter" else "PERSON_EXITED"
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        latest = conn.execute(
+            """SELECT event_type FROM events
+               WHERE student_id = ? AND date(timestamp) = ?
+                 AND event_type IN ('PERSON_ENTERED', 'PERSON_EXITED', 'UNEXPECTED_EXIT')
+               ORDER BY id DESC LIMIT 1""",
+            (student_id, date),
+        ).fetchone()
+        last_movement = latest[0] if latest else None
+        if (direction == "enter" and last_movement == "PERSON_ENTERED") or (
+            direction == "exit" and last_movement in ("PERSON_EXITED", "UNEXPECTED_EXIT")
+        ):
+            conn.rollback()
+            return MovementTransitionResult(False, False, ())
+
+        attendance_inserted = False
+        if direction == "enter":
+            cursor = conn.execute(
+                """INSERT INTO attendance
+                   (student_id, date, timestamp, camera_id, status, notes, source, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, 'camera', ?)
+                   ON CONFLICT(student_id, date) DO NOTHING""",
+                (student_id, date, timestamp, camera_id, status, notes, timestamp),
+            )
+            attendance_inserted = cursor.rowcount == 1
+
+        persisted = []
+        for kind, metadata in ((event_type, {}), (auxiliary_event, auxiliary_metadata or {})):
+            if kind is None:
+                continue
+            cursor = conn.execute(
+                """INSERT INTO events
+                   (event_type, student_id, track_id, camera_id,
+                    timestamp, confidence, metadata)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (kind, student_id, track_id, str(camera_id), timestamp, confidence,
+                 json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))),
+            )
+            persisted.append((cursor.lastrowid, kind, metadata))
+        conn.commit()
+        return MovementTransitionResult(True, attendance_inserted, tuple(persisted))
+    except BaseException:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 

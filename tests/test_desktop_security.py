@@ -219,10 +219,8 @@ class FileBoundarySecurityTests(unittest.TestCase):
         worker = SmartCameraWorker()
         payloads = []
         worker.attendance_added.connect(payloads.append)
-        with patch('src.engine.smart_camera_worker.mark_attendance', return_value=True) as mark, \
-             patch('src.engine.smart_camera_worker.get_student', return_value=(7, 'SYN-7', 'Synthetic', '2026-01-01')):
-            worker._mark_attendance_event(7, 'camera_0')
-        mark.assert_called_once_with(7, 'camera_0', status='present', notes='')
+        with patch('src.engine.smart_camera_worker.get_student', return_value=(7, 'SYN-7', 'Synthetic', '2026-01-01')):
+            worker._notify_attendance_added(7, 'camera_0')
         self.assertEqual(len(payloads), 1)
         self.assertEqual(payloads[0]['student_code'], 'SYN-7')
         self.assertEqual(payloads[0]['name'], 'Synthetic')

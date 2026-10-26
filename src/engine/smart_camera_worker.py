@@ -33,10 +33,10 @@ from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QImage
 
 try:
-    from ..database import add_event, get_setting, get_student, mark_attendance
+    from ..database import add_event, get_setting, get_student, record_movement_transition
 except ImportError:
     # Supports direct execution where src/ is the import root.
-    from database import add_event, get_setting, get_student, mark_attendance
+    from database import add_event, get_setting, get_student, record_movement_transition
 from .smart_events import AttendanceEventEngine, AttendancePresenceState
 from .smart_tracking import (
     LineCrossing,
@@ -773,7 +773,7 @@ class SmartCameraWorker(QThread):
             matcher = FaceMatcher()
             event_engine = AttendanceEventEngine(
                 add_event_callback=self._record_event,
-                mark_attendance_callback=self._mark_attendance_event,
+                commit_transition_callback=self._commit_transition_event,
                 get_setting_callback=get_setting,
                 state=self.presence_state,
             )
@@ -1565,45 +1565,42 @@ class SmartCameraWorker(QThread):
             for metric in ("active_tracks", "stale_tracks", "unconsumed_face_futures", "unconsumed_cache_futures"):
                 profile.gauge(metric, 0)
 
-    def _mark_attendance_event(
-        self,
-        student_id,
-        camera_id,
-        status="present",
-        notes="",
-    ):
-        inserted = mark_attendance(
-            student_id,
-            camera_id,
-            status=status,
-            notes=notes,
-        )
-        if inserted:
-            student = None
-            try:
-                row = get_student(student_id)
-                if row is not None:
-                    student = {
-                        "student_id": row[0],
-                        "student_code": row[1],
-                        "name": row[2],
-                    }
-            except Exception:
-                pass
+    def _commit_transition_event(self, **kwargs):
+        result = record_movement_transition(**kwargs)
+        if result.attendance_inserted:
+            self._notify_attendance_added(kwargs["student_id"], kwargs["camera_id"])
+        # Neither the GUI nor in-memory presence sees a partial transaction.
+        for event_id, event_type, metadata in result.events:
+            self.event_added.emit({
+                "id": event_id,
+                "event_type": event_type,
+                "student_id": kwargs["student_id"],
+                "track_id": kwargs["track_id"],
+                "camera_id": kwargs["camera_id"],
+                "confidence": kwargs["confidence"],
+                "metadata": metadata,
+            })
+        return result
 
-            payload = student or {
-                "student_id": student_id,
-                "student_code": "",
-                "name": "",
-            }
-            payload.update(
-                {
-                    "time": time.strftime("%H:%M:%S"),
-                    "camera": camera_id,
+    def _notify_attendance_added(self, student_id, camera_id):
+        student = None
+        try:
+            row = get_student(student_id)
+            if row is not None:
+                student = {
+                    "student_id": row[0],
+                    "student_code": row[1],
+                    "name": row[2],
                 }
-            )
-            self.attendance_added.emit(payload)
-        return inserted
+        except Exception:
+            pass
+        payload = student or {
+            "student_id": student_id,
+            "student_code": "",
+            "name": "",
+        }
+        payload.update({"time": time.strftime("%H:%M:%S"), "camera": camera_id})
+        self.attendance_added.emit(payload)
 
 
 if __name__ == "__main__":

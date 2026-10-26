@@ -1,10 +1,13 @@
 """Synthetic release regressions: no camera, biometric matching or real pupils."""
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 import tempfile
 import sqlite3
+import subprocess
+import sys
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -25,6 +28,30 @@ def setting(key, default=None):
     return {'enable_late_events': '0', 'enable_early_events': '0'}.get(key, default)
 
 
+@contextmanager
+def fail_database_write(sql_fragment, message, occurrence=1):
+    """Inject a real connection failure after BEGIN, before SQLite commit."""
+    open_connection = database.get_connection
+    class FailingConnection:
+        def __init__(self, connection):
+            self.connection = connection
+            self.matches = 0
+        def execute(self, sql, *args):
+            if sql_fragment in sql:
+                self.matches += 1
+                if self.matches == occurrence:
+                    raise sqlite3.OperationalError(message)
+            return self.connection.execute(sql, *args)
+        def commit(self):
+            if sql_fragment == 'COMMIT':
+                raise sqlite3.OperationalError(message)
+            return self.connection.commit()
+        def __getattr__(self, name):
+            return getattr(self.connection, name)
+    with patch.object(database, 'get_connection', side_effect=lambda: FailingConnection(open_connection())):
+        yield
+
+
 class AttendanceReleaseTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -35,24 +62,25 @@ class AttendanceReleaseTests(unittest.TestCase):
         database.init_db()
         self.student = database.add_student('SYNTHETIC-RELEASE', 'Synthetic pupil')
 
-    def engine(self, state=None, add_event=None, mark=None):
-        return AttendanceEventEngine(add_event or database.add_event, mark or database.mark_attendance,
+    def engine(self, state=None, add_event=None, commit=None):
+        return AttendanceEventEngine(add_event or database.add_event,
+                                     commit or database.record_movement_transition,
                                      setting, state=state)
 
     def test_two_cameras_share_one_entry_transition_and_one_attendance_row(self):
         first_inside = threading.Event(); second_inside = threading.Event(); release = threading.Event()
         count_lock = threading.Lock(); calls = []; errors = []
-        def mark(*args):
+        def commit(**kwargs):
             with count_lock:
-                calls.append(args); position = len(calls)
+                calls.append(kwargs); position = len(calls)
             if position == 1:
                 first_inside.set()
                 if not release.wait(2): raise RuntimeError('Test release did not arrive')
             else:
                 second_inside.set()
-            return database.mark_attendance(*args)
+            return database.record_movement_transition(**kwargs)
         state = AttendancePresenceState()
-        engines = [self.engine(state=state, mark=mark), self.engine(state=state, mark=mark)]
+        engines = [self.engine(state=state, commit=commit), self.engine(state=state, commit=commit)]
         def crossing(index):
             try: engines[index].on_crossing(track(self.student, index+1), 'enter', index)
             except Exception as error: errors.append(error)
@@ -69,35 +97,207 @@ class AttendanceReleaseTests(unittest.TestCase):
         with closing(database.get_connection()) as conn:
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM attendance').fetchone()[0], 1)
 
-    def test_failed_entry_event_write_remains_retryable_without_duplicate_attendance(self):
-        state = AttendancePresenceState(); failures = []
-        def emit(**event):
-            if not failures:
-                failures.append(True); raise OSError('Synthetic disk full')
-            return database.add_event(**event)
-        engine = self.engine(state=state, add_event=emit)
+    def test_failed_entry_event_write_rolls_back_attendance_and_remains_retryable(self):
+        state = AttendancePresenceState()
+        engine = self.engine(state=state)
         observation = track(self.student)
-        with self.assertRaisesRegex(OSError, 'disk full'):
-            engine.on_crossing(observation, 'enter', 0)
+        with fail_database_write('INSERT INTO events', 'Synthetic disk full'):
+            with self.assertRaisesRegex(sqlite3.OperationalError, 'disk full'):
+                engine.on_crossing(observation, 'enter', 0)
         self.assertNotIn(self.student, state.present)
+        with closing(database.get_connection()) as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM attendance').fetchone()[0], 0)
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM events').fetchone()[0], 0)
         self.assertEqual(engine.on_crossing(observation, 'enter', 0), ['PERSON_ENTERED'])
         self.assertIn(self.student, database.get_current_presence_ids())
         with closing(database.get_connection()) as conn:
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM attendance').fetchone()[0], 1)
 
     def test_failed_exit_event_write_preserves_presence_until_successful_retry(self):
-        state = AttendancePresenceState(present={self.student}); failures = []
-        def emit(**event):
-            if not failures:
-                failures.append(True); raise PermissionError('Synthetic read-only event storage')
-            return database.add_event(**event)
-        engine = self.engine(state=state, add_event=emit)
+        state = AttendancePresenceState()
+        engine = self.engine(state=state)
         observation = track(self.student)
-        with self.assertRaises(PermissionError): engine.on_crossing(observation, 'exit', 1)
+        self.assertEqual(engine.on_crossing(observation, 'enter', 0), ['PERSON_ENTERED'])
+        with fail_database_write('INSERT INTO events', 'Synthetic read-only event storage'):
+            with self.assertRaisesRegex(sqlite3.OperationalError, 'read-only'):
+                engine.on_crossing(observation, 'exit', 1)
         self.assertIn(self.student, state.present)
+        self.assertIn(self.student, database.get_current_presence_ids())
         self.assertEqual(engine.on_crossing(observation, 'exit', 1), ['PERSON_EXITED'])
         self.assertNotIn(self.student, state.present)
-        self.assertEqual([row[1] for row in database.get_recent_events()], ['PERSON_EXITED'])
+        self.assertEqual([row[1] for row in database.get_recent_events()], ['PERSON_EXITED', 'PERSON_ENTERED'])
+
+    def test_failed_commit_rolls_back_attendance_and_movement(self):
+        engine = self.engine()
+        with fail_database_write('COMMIT', 'Synthetic commit failure'):
+            with self.assertRaisesRegex(sqlite3.OperationalError, 'commit failure'):
+                engine.on_crossing(track(self.student), 'enter', 0)
+        with closing(database.get_connection()) as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM attendance').fetchone()[0], 0)
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM events').fetchone()[0], 0)
+
+    def test_killed_process_between_attendance_and_event_leaves_neither_row(self):
+        marker = Path(self.directory.name)/'after-attendance.marker'
+        script = '''
+import sys, time
+from pathlib import Path
+from src import database
+database.DB_PATH = Path(sys.argv[1])
+original = database.get_connection
+class PausingConnection:
+    def __init__(self, connection): self.connection = connection
+    def execute(self, sql, *args):
+        result = self.connection.execute(sql, *args)
+        if 'INSERT INTO attendance' in sql:
+            Path(sys.argv[2]).write_text('uncommitted')
+            time.sleep(30)
+        return result
+    def __getattr__(self, name): return getattr(self.connection, name)
+database.get_connection = lambda: PausingConnection(original())
+database.record_movement_transition(
+    student_id=int(sys.argv[3]), direction='enter', camera_id='camera_0',
+    track_id=1, confidence=.9)
+'''
+        process = subprocess.Popen(
+            [sys.executable, '-c', script, str(self.dbpath), str(marker), str(self.student)],
+            cwd=str(Path(__file__).resolve().parents[1]),
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        )
+        try:
+            deadline = time.monotonic() + 5
+            while not marker.exists() and process.poll() is None and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.assertTrue(marker.exists(), 'Child did not reach the uncommitted attendance insert')
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.communicate(timeout=5)
+        with closing(database.get_connection()) as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM attendance').fetchone()[0], 0)
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM events').fetchone()[0], 0)
+
+    def test_second_companion_event_failure_rolls_back_first_event_and_attendance(self):
+        with fail_database_write('INSERT INTO events', 'Synthetic second event failure', occurrence=2):
+            with self.assertRaisesRegex(sqlite3.OperationalError, 'second event failure'):
+                database.record_movement_transition(
+                    student_id=self.student, direction='enter', camera_id='camera_0',
+                    track_id=1, confidence=.9, status='late',
+                    auxiliary_event='LATE_ARRIVAL',
+                    auxiliary_metadata={'school_start_time': '08:00'})
+        with closing(database.get_connection()) as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM attendance').fetchone()[0], 0)
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM events').fetchone()[0], 0)
+        result = database.record_movement_transition(
+            student_id=self.student, direction='enter', camera_id='camera_0',
+            track_id=1, confidence=.9, status='late',
+            auxiliary_event='LATE_ARRIVAL', auxiliary_metadata={'school_start_time': '08:00'})
+        self.assertTrue(result.applied)
+        self.assertTrue(result.attendance_inserted)
+        self.assertEqual([event[1] for event in result.events], ['PERSON_ENTERED', 'LATE_ARRIVAL'])
+
+    def test_early_departure_companion_failure_preserves_durable_entry(self):
+        entered = database.record_movement_transition(
+            student_id=self.student, direction='enter', camera_id='camera_0',
+            track_id=1, confidence=.9)
+        self.assertTrue(entered.applied)
+        with fail_database_write('INSERT INTO events', 'Synthetic second exit event failure', occurrence=2):
+            with self.assertRaisesRegex(sqlite3.OperationalError, 'second exit event failure'):
+                database.record_movement_transition(
+                    student_id=self.student, direction='exit', camera_id='camera_1',
+                    track_id=2, confidence=.9, auxiliary_event='EARLY_DEPARTURE',
+                    auxiliary_metadata={'school_end_time': '15:00'})
+        self.assertIn(self.student, database.get_current_presence_ids())
+        self.assertEqual([row[1] for row in database.get_recent_events()], ['PERSON_ENTERED'])
+
+    def test_retry_after_commit_before_ram_update_does_not_duplicate_entry(self):
+        state = AttendancePresenceState()
+        calls = []
+        def crash_after_commit(**kwargs):
+            result = database.record_movement_transition(**kwargs)
+            calls.append(result)
+            if len(calls) == 1:
+                raise RuntimeError('Synthetic process interruption after SQLite commit')
+            return result
+        engine = self.engine(state=state, commit=crash_after_commit)
+        observation = track(self.student)
+        with self.assertRaisesRegex(RuntimeError, 'process interruption'):
+            engine.on_crossing(observation, 'enter', 0)
+        self.assertNotIn(self.student, state.present)
+        self.assertEqual(engine.on_crossing(observation, 'enter', 0), [])
+        self.assertIn(self.student, state.present)
+        self.assertEqual([row[1] for row in database.get_recent_events()], ['PERSON_ENTERED'])
+        with closing(database.get_connection()) as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM attendance').fetchone()[0], 1)
+
+    def test_retry_after_exit_commit_before_ram_update_does_not_duplicate_exit(self):
+        state = AttendancePresenceState()
+        observation = track(self.student)
+        self.assertEqual(self.engine(state=state).on_crossing(observation, 'enter', 0), ['PERSON_ENTERED'])
+        calls = []
+        def crash_after_commit(**kwargs):
+            result = database.record_movement_transition(**kwargs)
+            calls.append(result)
+            if len(calls) == 1:
+                raise RuntimeError('Synthetic exit interruption after SQLite commit')
+            return result
+        engine = self.engine(state=state, commit=crash_after_commit)
+        with self.assertRaisesRegex(RuntimeError, 'exit interruption'):
+            engine.on_crossing(observation, 'exit', 1)
+        self.assertIn(self.student, state.present)
+        self.assertEqual(engine.on_crossing(observation, 'exit', 1), [])
+        self.assertNotIn(self.student, state.present)
+        self.assertEqual([row[1] for row in database.get_recent_events()], ['PERSON_EXITED', 'PERSON_ENTERED'])
+
+    def test_independent_worker_states_are_deduplicated_by_sqlite(self):
+        engines = [self.engine(), self.engine()]
+        barrier = threading.Barrier(2)
+        results = []; errors = []
+        def crossing(index):
+            try:
+                barrier.wait(timeout=2)
+                results.append(engines[index].on_crossing(track(self.student, index+1), 'enter', index))
+            except Exception as error:
+                errors.append(error)
+        threads = [threading.Thread(target=crossing, args=(index,)) for index in (0, 1)]
+        for thread in threads: thread.start()
+        for thread in threads: thread.join(3)
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual(errors, [])
+        self.assertEqual(sorted(results), [[], ['PERSON_ENTERED']])
+        self.assertEqual([row[1] for row in database.get_recent_events()], ['PERSON_ENTERED'])
+
+    def test_genuine_exit_and_reentry_keep_one_daily_attendance_row(self):
+        engine = self.engine()
+        observation = track(self.student)
+        self.assertEqual(engine.on_crossing(observation, 'enter', 0), ['PERSON_ENTERED'])
+        self.assertEqual(engine.on_crossing(observation, 'exit', 1), ['PERSON_EXITED'])
+        self.assertEqual(engine.on_crossing(observation, 'enter', 0), ['PERSON_ENTERED'])
+        self.assertEqual([row[1] for row in database.get_recent_events()],
+                         ['PERSON_ENTERED', 'PERSON_EXITED', 'PERSON_ENTERED'])
+        with closing(database.get_connection()) as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM attendance').fetchone()[0], 1)
+
+    def test_worker_publishes_signals_only_after_atomic_commit(self):
+        from src.engine.smart_camera_worker import SmartCameraWorker
+        worker = SmartCameraWorker()
+        notifications = []
+        def observed(kind, payload):
+            with closing(database.get_connection()) as conn:
+                counts = (conn.execute('SELECT COUNT(*) FROM attendance').fetchone()[0],
+                          conn.execute('SELECT COUNT(*) FROM events').fetchone()[0])
+            notifications.append((kind, payload, counts))
+        worker.attendance_added.connect(lambda payload: observed('attendance', payload))
+        worker.event_added.connect(lambda payload: observed('event', payload))
+        kwargs = dict(student_id=self.student, direction='enter', camera_id='camera_0',
+                      track_id=1, confidence=.9)
+        with fail_database_write('INSERT INTO events', 'Synthetic event write error'):
+            with self.assertRaises(sqlite3.OperationalError):
+                worker._commit_transition_event(**kwargs)
+        self.assertEqual(notifications, [])
+        result = worker._commit_transition_event(**kwargs)
+        self.assertTrue(result.applied)
+        self.assertEqual([item[0] for item in notifications], ['attendance', 'event'])
+        self.assertTrue(all(item[2] == (1, 1) for item in notifications))
 
     def test_unknown_or_unwitnessed_identity_never_marks_attendance(self):
         engine = self.engine()
