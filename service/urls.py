@@ -1,3 +1,4 @@
+from django.utils.translation import gettext_lazy as _
 from django.contrib import admin
 from django.contrib.auth import views as auth
 from django.urls import path
@@ -31,8 +32,8 @@ urlpatterns = [
     path("api/v1/backups/", backups.listing), path("api/v1/backups/upload/", backups.upload),
     path("api/v1/backups/<uuid:backup_id>/", backups.download),
 ]
-admin.site.site_header = "مدیریت اشتراک مدارس"
-admin.site.site_title = "مدیریت اشتراک"
+admin.site.site_header = _('School subscription management')
+admin.site.site_title = _('Subscription management')
 
 
 # Corporate pages and the complete first-product journey have distinct canonical URLs.

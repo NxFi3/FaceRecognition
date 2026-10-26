@@ -1,9 +1,11 @@
+from django.utils.text import format_lazy
 """Transactional commerce boundary. Browser claims never grant an entitlement.
 
 Only verified manual payments are implemented. Future gateway implementations
 must authenticate server-to-server confirmation and return VerifiedEvidence;
 a redirect, query string or customer-provided receipt is never that evidence.
 """
+from django.utils.translation import gettext_lazy as _
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import re
@@ -14,6 +16,7 @@ from typing import Protocol
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction, IntegrityError
 from django.utils import timezone
+from django.utils.translation import override
 
 from .models import AuditEvent, School, Device
 from .commerce_models import (Order, Plan, VerifiedPayment, ProductSubscription,
@@ -44,9 +47,9 @@ def sync_face_subscription(school, source_order=None):
                 ('status', 'starts_at', 'expires_at', 'student_limit', 'device_limit')}
     if source_order is not None:
         if source_order.school_id != school.pk or source_order.product_id != FACE_PRODUCT_SLUG:
-            raise CommerceError('سفارش و مدرسه برای استحقاق این محصول یکسان نیستند.')
+            raise CommerceError(_('The order and school do not match this product entitlement.'))
         defaults['source_order'] = source_order
-    subscription, _ = ProductSubscription.objects.update_or_create(
+    subscription, _created = ProductSubscription.objects.update_or_create(
         school=school, product_id=FACE_PRODUCT_SLUG, defaults=defaults)
     return subscription
 
@@ -65,9 +68,9 @@ class FaceRecognitionFulfillment:
 
     def validate_capacity(self, school, contract):
         if Device.objects.filter(school=school, revoked=False, token_digest__isnull=False).count() > contract.device_limit:
-            raise CommerceError('ابتدا نصب‌های اضافه را صریحاً لغو کنید؛ تعداد دستگاه‌های سفارش کافی نیست.')
+            raise CommerceError(_('Explicitly revoke excess installations first. This order does not allow enough devices.'))
         if school.entitled and (contract.student_limit < school.student_limit or contract.device_limit < school.device_limit):
-            raise CommerceError('کاهش ظرفیت در میانهٔ دوره نیازمند بررسی پشتیبانی است.')
+            raise CommerceError(_('Reducing capacity during an active term requires support review.'))
 
     def apply(self, school, order, starts_at, expires_at):
         school.starts_at, school.expires_at = starts_at, expires_at
@@ -89,7 +92,7 @@ def supported_product_slugs():
 def _product_handler(product):
     handler = PRODUCT_FULFILLMENT.get(product.pk)
     if not product.is_published or handler is None:
-        raise CommerceError('این محصول برای خرید یا فعال‌سازی عرضه نشده است.')
+        raise CommerceError(_('This product is not available for purchase or activation.'))
     return handler
 
 
@@ -108,49 +111,52 @@ class PaymentProvider(Protocol):
 def _owner(actor):
     from .owner_auth import is_company_owner
     if not is_company_owner(actor):
-        raise PermissionDenied('این عملیات فقط برای مالک تعیین‌شده مجاز است.')
+        raise PermissionDenied(_('Only the designated owner may perform this action.'))
 
 
 def normalize_reference(value):
     if not isinstance(value, str):
-        raise CommerceError('شناسهٔ پرداخت معتبر نیست.')
+        raise CommerceError(_('Invalid payment reference.'))
     value = unicodedata.normalize('NFKC', value).strip().upper()
     value = ''.join(str(unicodedata.decimal(c)) if c.isdecimal() else c for c in value)
     if not re.fullmatch(r'[A-Z0-9][A-Z0-9._/\-]{5,79}', value):
-        raise CommerceError('شناسهٔ پرداخت باید ۶ تا ۸۰ حرف لاتین یا رقم باشد؛ پیشوند بانک را نیز وارد کنید.')
+        raise CommerceError(_('Payment references must contain 6–80 Latin letters or digits. Include the bank prefix.'))
     return value
 
 
 def _notify(order, subject, body, suffix):
     # Durable outbox in the SAME transaction; SMTP is never inside payment locks.
     from .models import EmailOutbox
-    EmailOutbox.objects.get_or_create(dedupe_key=f'order:{order.pk}:{suffix}', defaults={
-        'recipient': order.billing_email, 'subject': subject, 'body': body, 'available_at': timezone.now()})
+    from .models import CustomerProfile
+    profile = CustomerProfile.objects.filter(user_id=order.school.user_id).first()
+    with override(profile.preferred_language if profile else 'en'):
+        EmailOutbox.objects.get_or_create(dedupe_key=f'order:{order.pk}:{suffix}', defaults={
+            'recipient': order.billing_email, 'subject': str(subject), 'body': str(body), 'available_at': timezone.now()})
 
 
 def create_order(school, plan_id, idempotency_key, product_slug=FACE_PRODUCT_SLUG):
     try:
         key = uuid.UUID(str(idempotency_key))
     except (ValueError, TypeError, AttributeError) as exc:
-        raise CommerceError('شناسهٔ درخواست معتبر نیست؛ صفحهٔ خرید را دوباره باز کنید.') from exc
+        raise CommerceError(_('Invalid request identifier. Reload the checkout page.')) from exc
     with transaction.atomic():
         school = School.objects.select_for_update().select_related('user').get(pk=school.pk)
         if not school.user.is_active or (product_slug == FACE_PRODUCT_SLUG and school.status == School.Status.BANNED):
-            raise CommerceError('حساب برای سفارش مجاز نیست؛ با پشتیبانی تماس بگیرید.')
+            raise CommerceError(_('This account cannot create orders. Contact support.'))
         prior = Order.objects.filter(school=school, idempotency_key=key).first()
         if prior:
             if str(prior.plan_id) != str(plan_id) or prior.product_id != product_slug:
-                raise CommerceError('شناسهٔ درخواست قبلاً برای طرح دیگری استفاده شده است.')
+                raise CommerceError(_('This request identifier was already used for another plan.'))
             _validate_product_binding(prior)
             return prior
         try:
             plan = Plan.objects.select_for_update().get(pk=plan_id, product_id=product_slug, is_active=True, is_public=True)
         except (Plan.DoesNotExist, ValueError, TypeError) as exc:
-            raise CommerceError('طرح انتخاب‌شده در حال حاضر قابل سفارش نیست.') from exc
+            raise CommerceError(_('The selected plan is not currently available to order.')) from exc
         try:
             plan.full_clean()
         except ValidationError as exc:
-            raise CommerceError('تنظیمات این طرح کامل نیست؛ با پشتیبانی تماس بگیرید.') from exc
+            raise CommerceError(_('This plan is not fully configured. Contact support.')) from exc
         handler = _product_handler(plan.product)
         current = handler.current_entitlement(school, plan.product)
         now = timezone.now()
@@ -163,7 +169,7 @@ def create_order(school, plan_id, idempotency_key, product_slug=FACE_PRODUCT_SLU
         if pending:
             return pending
         if plan.is_trial and Order.objects.filter(school=school, product_id=plan.product_id, is_trial=True, status=Order.Status.FULFILLED).exists():
-            raise CommerceError('دورهٔ آزمایشی این مدرسه قبلاً استفاده شده است.')
+            raise CommerceError(_('This school has already used its trial.'))
         handler.validate_capacity(school, plan)
         order = Order.objects.create(school=school, plan=plan, product=plan.product, product_name=plan.product.name, idempotency_key=key,
             purpose=Order.Purpose.TRIAL if plan.is_trial else (Order.Purpose.RENEWAL if current.expires_at else Order.Purpose.PURCHASE),
@@ -172,7 +178,7 @@ def create_order(school, plan_id, idempotency_key, product_slug=FACE_PRODUCT_SLU
             student_limit=plan.student_limit, device_limit=plan.device_limit,
             is_trial=plan.is_trial, expires_at=now+timedelta(days=7))
         AuditEvent.objects.create(actor=school.user, school=school, action='order.created', object_id=str(order.pk))
-        _notify(order, f'سفارش {order.product_name} ثبت شد', f'سفارش {order.invoice_number} ثبت شد. تا تأیید مستقل پرداخت یا تأیید آزمایش، اشتراک فعال نمی‌شود. مبلغ: {order.amount_irr} ریال. اعتبار سفارش: {order.expires_at.isoformat()}', 'created')
+        _notify(order, format_lazy(_('Order {v0} created'), v0=order.product_name), format_lazy(_('Order {v0} created. Subscription stays inactive until independent payment or trial approval. Amount: {v1} IRR. Order expires: {v2}.'), v0=order.invoice_number, v1=order.amount_irr, v2=order.expires_at.isoformat()), 'created')
         return order
 
 
@@ -184,14 +190,14 @@ def submit_manual_payment(school, order_id, reference):
         school = School.objects.select_for_update().get(pk=school.pk)
         order = Order.objects.select_for_update().filter(pk=order_id, school=school).first()
         if order is None:
-            raise PermissionDenied('سفارش متعلق به این حساب نیست.')
+            raise PermissionDenied(_('The order does not belong to this account.'))
         if order.is_trial:
-            raise CommerceError('طرح آزمایشی پرداخت ندارد؛ منتظر تأیید پشتیبانی بمانید.')
+            raise CommerceError(_('Trials require no payment. Wait for support approval.'))
         if not order.can_cancel or order.expires_at <= timezone.now():
-            raise CommerceError('این سفارش برای ثبت پرداخت باز نیست.')
+            raise CommerceError(_('This order is not open for payment submission.'))
         if order.status == Order.Status.PAYMENT_SUBMITTED:
             if order.receipt_reference != reference:
-                raise CommerceError('شناسهٔ دیگری برای این سفارش ثبت شده است؛ اصلاح را از پشتیبانی بخواهید.')
+                raise CommerceError(_('Another reference was already submitted for this order. Contact support to correct it.'))
             return order
         order.receipt_reference, order.status = reference, Order.Status.PAYMENT_SUBMITTED
         order.save(update_fields=['receipt_reference', 'status'])
@@ -206,11 +212,11 @@ def cancel_order(school, order_id):
         school = School.objects.select_for_update().get(pk=school.pk)
         order = Order.objects.select_for_update().filter(pk=order_id, school=school).first()
         if order is None:
-            raise PermissionDenied('سفارش متعلق به این حساب نیست.')
+            raise PermissionDenied(_('The order does not belong to this account.'))
         if order.status == Order.Status.CANCELLED:
             return order
         if not order.can_cancel:
-            raise CommerceError('سفارش فعال‌شده قابل لغو خودکار نیست؛ درخواست پشتیبانی ثبت کنید.')
+            raise CommerceError(_('Fulfilled orders cannot be cancelled automatically. Open a support request.'))
         order.status = Order.Status.CANCELLED
         order.save(update_fields=['status'])
         AuditEvent.objects.create(actor=school.user, school=school, action='order.cancelled', object_id=str(order.pk))
@@ -227,18 +233,18 @@ def _locked_order(order_id):
 
 def _validate_product_binding(order):
     if order.product_id != order.plan.product_id:
-        raise CommerceError('محصول سفارش و طرح ثبت‌شده مطابقت ندارد؛ پشتیبانی باید بررسی کند.')
+        raise CommerceError(_('The order product does not match the recorded plan. Contact support.'))
     return _product_handler(order.product)
 
 
 def _validate_fulfillment(school, order):
     handler = _validate_product_binding(order)
     if not school.user.is_active or (order.product_id == FACE_PRODUCT_SLUG and school.status == School.Status.BANNED):
-        raise CommerceError('حساب غیرفعال یا مسدود است؛ پرداخت باعث رفع مسدودی نمی‌شود.')
+        raise CommerceError(_('The account is inactive or banned. A payment does not remove a ban.'))
     if order.status not in (Order.Status.AWAITING_PAYMENT, Order.Status.PAYMENT_SUBMITTED):
-        raise CommerceError('سفارش برای فعال‌سازی باز نیست.')
+        raise CommerceError(_('The order is not open for activation.'))
     if order.expires_at <= timezone.now():
-        raise CommerceError('اعتبار قیمت سفارش پایان یافته؛ سفارش تازه یا بررسی پشتیبانی لازم است.')
+        raise CommerceError(_('The recorded price has expired. Create a new order or contact support.'))
     handler.validate_capacity(school, order)
 
 
@@ -256,7 +262,7 @@ def _fulfill(school, order, actor):
     order.subscription_starts_at, order.subscription_expires_at = start, expires_at
     order.save(update_fields=['status', 'fulfilled_at', 'approved_by', 'subscription_starts_at', 'subscription_expires_at'])
     AuditEvent.objects.create(actor=actor, school=school, action='order.fulfilled', object_id=str(order.pk))
-    _notify(order, f'اشتراک {order.product_name} فعال شد', f'سفارش {order.invoice_number} تأیید شد. اعتبار اشتراک: {expires_at.isoformat()}. ظرفیت: {order.student_limit} دانش‌آموز و {order.device_limit} دستگاه. برای دریافت مجوز امضاشده، در برنامه بررسی آنلاین انجام دهید.', 'fulfilled')
+    _notify(order, format_lazy(_('Subscription {v0} activated'), v0=order.product_name), format_lazy(_('Order {v0} confirmed. Subscription expires: {v1}. Capacity: {v2} students and {v3} devices. Synchronize online in the application to receive the signed license.'), v0=order.invoice_number, v1=expires_at.isoformat(), v2=order.student_limit, v3=order.device_limit), 'fulfilled')
     return order
 
 
@@ -265,28 +271,30 @@ def verify_manual_payment(order_id, actor, reference, amount_irr, verification_n
     _owner(actor)
     reference = normalize_reference(reference)
     if type(amount_irr) is not int or not 0 < amount_irr <= 10**12:
-        raise CommerceError('مبلغ تأییدشده باید عدد صحیح مثبت به ریال باشد.')
+        raise CommerceError(_('The verified amount must be a positive integer in IRR.'))
     if not isinstance(verification_note, str) or len(verification_note) > 1000:
-        raise CommerceError('یادداشت تأیید بیش از حد طولانی است.')
+        raise CommerceError(_('The verification note is too long.'))
     with transaction.atomic():
         school, order = _locked_order(order_id)
+        from .owner_auth import locked_company_owner
+        locked_company_owner(actor)
         _validate_product_binding(order)
         payment = VerifiedPayment.objects.filter(order=order).first()
         if payment:
             if payment.provider != 'manual' or payment.reference != reference or payment.amount_irr != amount_irr:
-                raise CommerceError('این سفارش قبلاً با اطلاعات پرداخت دیگری تأیید شده است.')
+                raise CommerceError(_('This order was already verified using different payment details.'))
             return order
         if order.is_trial or amount_irr != order.amount_irr:
-            raise CommerceError('مبلغ واقعیِ واریز باید دقیقاً با مبلغ ثبت‌شدهٔ سفارش برابر باشد.')
+            raise CommerceError(_('The amount actually received must exactly match the recorded order amount.'))
         _validate_fulfillment(school, order)
         if VerifiedPayment.objects.filter(provider='manual', reference=reference).exists():
-            raise CommerceError('این شناسهٔ پرداخت قبلاً برای سفارش دیگری استفاده شده است.')
+            raise CommerceError(_('This payment reference has already been used for another order.'))
         try:
             with transaction.atomic():
                 VerifiedPayment.objects.create(order=order, provider='manual', reference=reference,
                     amount_irr=amount_irr, verified_by=actor, verification_note=verification_note)
         except IntegrityError as exc:
-            raise CommerceError('این پرداخت هم‌زمان برای سفارش دیگری تأیید شده است؛ وضعیت را دوباره بررسی کنید.') from exc
+            raise CommerceError(_('This payment was verified for another order concurrently. Check its status again.')) from exc
         AuditEvent.objects.create(actor=actor, school=school, action='payment.verified', object_id=str(order.pk))
         return _fulfill(school, order, actor)
 
@@ -295,14 +303,16 @@ def approve_trial(order_id, actor):
     _owner(actor)
     with transaction.atomic():
         school, order = _locked_order(order_id)
+        from .owner_auth import locked_company_owner
+        locked_company_owner(actor)
         _validate_product_binding(order)
         if order.status == Order.Status.FULFILLED and order.is_trial:
             return order
         if not order.is_trial or order.amount_irr != 0:
-            raise CommerceError('این سفارش، درخواست آزمایشی نیست.')
+            raise CommerceError(_('This order is not a trial request.'))
         _validate_fulfillment(school, order)
         if Order.objects.filter(school=school, product_id=order.product_id, is_trial=True, status=Order.Status.FULFILLED).exclude(pk=order.pk).exists():
-            raise CommerceError('دورهٔ آزمایشی قبلاً استفاده شده است.')
+            raise CommerceError(_('The trial has already been used.'))
         AuditEvent.objects.create(actor=actor, school=school, action='trial.approved', object_id=str(order.pk))
         return _fulfill(school, order, actor)
 
@@ -312,20 +322,22 @@ def reject_manual_payment(order_id, actor, reason):
     """Owner rejects an unpaid claim; never refunds/reverses a verified settlement."""
     _owner(actor)
     if not isinstance(reason, str) or not 1 <= len(reason.strip()) <= 1000:
-        raise CommerceError('دلیل رد باید بین ۱ تا ۱۰۰۰ نویسه و فاقد اطلاعات محرمانهٔ بانکی باشد.')
+        raise CommerceError(_('The rejection reason must contain 1–1000 characters without sensitive bank information.'))
     reason = reason.strip()
     with transaction.atomic():
         school, order = _locked_order(order_id)
+        from .owner_auth import locked_company_owner
+        locked_company_owner(actor)
         if order.is_trial:
-            raise CommerceError('درخواست آزمایشی پرداختی ندارد؛ رد یا لغو درخواست را از مسیر پشتیبانی پیگیری کنید.')
+            raise CommerceError(_('Trial requests have no payment. Contact support to reject or cancel the request.'))
         if order.status == Order.Status.REJECTED:
             if order.rejection_reason != reason:
-                raise CommerceError('این سفارش قبلاً با دلیل دیگری رد شده است؛ تصمیم ثبت‌شده بی‌صدا تغییر نمی‌کند.')
+                raise CommerceError(_('This order was already rejected for another reason. The recorded decision cannot be silently changed.'))
             return order
         if order.status not in (Order.Status.AWAITING_PAYMENT, Order.Status.PAYMENT_SUBMITTED) or VerifiedPayment.objects.filter(order=order).exists():
-            raise CommerceError('سفارش پرداخت‌شده، بسته یا لغوشده قابل رد پرداخت نیست؛ رسیدگی را از پشتیبانی پیگیری کنید.')
+            raise CommerceError(_('Paid, closed or cancelled orders cannot have their payment rejected. Contact support.'))
         order.status, order.rejection_reason = Order.Status.REJECTED, reason
         order.save(update_fields=['status', 'rejection_reason'])
         AuditEvent.objects.create(actor=actor, school=school, action='order.payment_rejected', object_id=str(order.pk))
-        _notify(order, f'نتیجهٔ بررسی پرداخت {order.product_name}', f'پرداخت سفارش {order.invoice_number} تأیید نشد. دلیل: {reason}\nهیچ اشتراک جدیدی فعال نشده است. برای پیگیری با پشتیبانی تماس بگیرید؛ در صورت نیاز سفارش تازه بسازید.', 'rejected')
+        _notify(order, format_lazy(_('Payment review for {v0}'), v0=order.product_name), format_lazy(_('Payment for order {v0} was not verified. Reason: {v1}\nNo new subscription has been activated. Contact support; create a new order if needed.'), v0=order.invoice_number, v1=reason), 'rejected')
         return order

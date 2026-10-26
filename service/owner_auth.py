@@ -1,4 +1,5 @@
 """Company-owner authorization and short, password-bound step-up sessions."""
+from django.utils.translation import gettext_lazy as _
 from functools import wraps
 import logging
 import math
@@ -6,9 +7,11 @@ import time
 
 from django import forms
 from django.conf import settings
-from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth import update_session_auth_hash, get_user_model
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, HttpResponseForbidden
+from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.shortcuts import redirect, render
 from django.utils.crypto import constant_time_compare
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -27,8 +30,26 @@ STEP_UP_SESSION_KEY = 'company_owner_step_up'
 def is_company_owner(user):
     """Query explicit authority on every check, so replacement revokes old sessions."""
     return bool(user.is_authenticated and user.is_active and
-                CompanyOwner.objects.filter(pk=1, user_id=user.pk).exists() and
+                CompanyOwner.objects.filter(pk=1, user_id=user.pk, user__is_active=True).exists() and
                 not School.objects.filter(user_id=user.pk).exists())
+
+
+def locked_company_owner(actor):
+    """Recheck current role and credentials after mutation-row acquisition.
+
+    The authority and actor rows remain locked until the surrounding mutation
+    commits. Owner replacement uses the same authority→actor lock order. Call
+    after any School/Order row locks, consistently across commercial mutations.
+    """
+    if not transaction.get_connection().in_atomic_block:
+        raise RuntimeError('Fresh owner authority requires an atomic transaction')
+    authority = CompanyOwner.objects.select_for_update().filter(pk=1).first()
+    user = get_user_model().objects.select_for_update().filter(pk=getattr(actor, 'pk', None)).first()
+    if (authority is None or user is None or authority.user_id != user.pk or not user.is_active
+            or School.objects.filter(user=user).exists()
+            or not constant_time_compare(user.get_session_auth_hash(), actor.get_session_auth_hash())):
+        raise PermissionDenied(_('Only the designated owner may perform this action.'))
+    return authority
 
 
 def has_recent_owner_auth(request):
@@ -64,7 +85,7 @@ def owner_required(view=None, *, recent=False):
         @login_required
         def wrapped(request, *args, **kwargs):
             if not is_company_owner(request.user):
-                return render(request, 'error.html', {'code': 403, 'message': 'این بخش فقط برای مالک مجاز شرکت است.'}, status=403)
+                return render(request, 'error.html', {'code': 403, 'message': _('This section is restricted to the authorized company owner.')}, status=403)
             if recent and not has_recent_owner_auth(request):
                 from urllib.parse import urlencode
                 return redirect('/owner/reauth/?' + urlencode({'next': request.get_full_path()}))
@@ -74,7 +95,7 @@ def owner_required(view=None, *, recent=False):
 
 
 class OwnerReauthenticationForm(forms.Form):
-    password = forms.CharField(label='رمز فعلی حساب مالک', strip=False, max_length=1024,
+    password = forms.CharField(label=_('Current owner password'), strip=False, max_length=1024,
         widget=forms.PasswordInput(attrs={'autocomplete': 'current-password', 'autofocus': True}))
 
 
@@ -94,7 +115,7 @@ def owner_reauthenticate(request):
             limited = throttled(request, 'owner-step-up', str(request.user.pk), limit=5, seconds=300)
         except Exception:
             logger.error('Owner step-up protection backend unavailable')
-            return HttpResponse('بررسی امنیتی موقتاً در دسترس نیست؛ دوباره تلاش کنید.', status=503)
+            return HttpResponse(_('The security check is temporarily unavailable. Please try again.'), status=503)
         if limited:
             return too_many()
         if form.is_valid():
@@ -104,6 +125,6 @@ def owner_reauthenticate(request):
                 mark_owner_reauthenticated(request)
                 AuditEvent.objects.create(actor=request.user, action='owner.reauthenticated')
                 return redirect(next_url)
-            form.add_error('password', 'رمز حساب درست نیست.')
+            form.add_error('password', _('The account password is incorrect.'))
             AuditEvent.objects.create(actor=request.user, action='owner.reauthentication_failed')
     return render(request, 'owner/reauth.html', {'form': form, 'next': next_url})

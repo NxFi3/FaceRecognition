@@ -1,4 +1,5 @@
 """Explicit, singleton company authority. Neither staff nor superuser implies ownership."""
+from django.utils.translation import gettext_lazy as _
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -12,7 +13,7 @@ class CompanyOwner(models.Model):
 
     class Meta:
         constraints = [models.CheckConstraint(condition=models.Q(id=1), name='single_company_owner')]
-        verbose_name = 'مالک صریح شرکت'
+        verbose_name = _('Explicit company owner')
 
     def clean(self):
         if self.pk != 1:

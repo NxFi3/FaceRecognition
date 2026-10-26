@@ -1,8 +1,9 @@
+from django.utils.translation import gettext_lazy as _
 from django.contrib import admin
 from django import forms
 from django.db import transaction
 from .models import AuditEvent, Backup, Device, School
-from .owner_auth import is_company_owner
+from .owner_auth import is_company_owner, locked_company_owner
 
 
 class OwnerModelAdmin(admin.ModelAdmin):
@@ -29,7 +30,7 @@ class SchoolAdminForm(forms.ModelForm):
         user = self.cleaned_data['user']
         if CompanyOwner.objects.filter(user_id=user.pk).exists():
             raise forms.ValidationError(
-                'حساب مالک شرکت باید از حساب مدرسه جدا بماند؛ یک حساب مستقل برای مدرسه انتخاب کنید.',
+                _('The company owner account must remain separate from school accounts. Choose a separate school account.'),
                 code='owner_cannot_be_school')
         return user
 
@@ -45,7 +46,7 @@ class SchoolAdminForm(forms.ModelForm):
                                                token_digest__isnull=False).count()
                 if bound > allowance:
                     self.add_error('device_limit', forms.ValidationError(
-                        'ابتدا دستگاه‌های اضافی را صریحاً لغو کنید؛ کاهش ظرفیت دستگاه، نصب آفلاین را بی‌صدا لغو نمی‌کند.',
+                        _('Explicitly revoke extra devices first. Reducing the allowance does not silently revoke offline installations.'),
                         code='active_devices_exceed_allowance'))
         return cleaned
 
@@ -62,6 +63,7 @@ class SchoolAdmin(OwnerModelAdmin):
         # account/license explicitly; privacy erasure requires a reviewed process.
         return False
     def save_model(self, request, obj, form, change):
+        locked_company_owner(request.user)
         super().save_model(request, obj, form, change)
         from .commerce import sync_face_subscription
         sync_face_subscription(obj)
@@ -84,6 +86,7 @@ class DeviceAdmin(OwnerModelAdmin):
         with transaction.atomic():
             School.objects.select_for_update().get(pk=obj.school_id)
             Device.objects.select_for_update().filter(pk=obj.pk).first()
+            locked_company_owner(request.user)
             # Only revocation is editable here. The form instance may predate a
             # completed login; never restore its old token/stamp/expiry columns.
             obj.save(update_fields=['revoked'])

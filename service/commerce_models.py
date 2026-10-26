@@ -46,7 +46,7 @@ class ProductSubscription(models.Model):
     """Product-scoped commercial ledger; School remains the legacy Face authority."""
     school = models.ForeignKey('service.School', on_delete=models.PROTECT, related_name='product_subscriptions')
     product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name='subscriptions')
-    status = models.CharField(max_length=16, choices=[('active', 'فعال'), ('suspended', 'تعلیق'), ('banned', 'مسدود')], default='suspended')
+    status = models.CharField(max_length=16, choices=[('active', _('Active')), ('suspended', _('Suspended')), ('banned', _('Banned'))], default='suspended')
     starts_at = models.DateTimeField(null=True, blank=True)
     expires_at = models.DateTimeField(null=True, blank=True)
     student_limit = models.PositiveIntegerField(default=0, validators=[MaxValueValidator(1000000)])
@@ -93,15 +93,15 @@ class Plan(models.Model):
 
     def clean(self):
         if self.is_trial and (self.price_irr != 0 or self.duration_days > 30):
-            raise ValidationError('طرح آزمایشی باید رایگان و حداکثر ۳۰ روزه باشد.')
+            raise ValidationError(_('Trials must be free and no longer than 30 days.'))
         if self.is_active and not self.is_trial and self.price_irr <= 0:
-            raise ValidationError('پیش از فعال‌کردن طرح پولی، قیمت واقعی را وارد کنید.')
+            raise ValidationError(_('Enter a real price before activating a paid plan.'))
 
     def save(self, *args, **kwargs):
         if not self._state.adding:
             previous = type(self).objects.filter(pk=self.pk).values_list('product_id', flat=True).first()
             if previous is not None and previous != self.product_id:
-                raise ValidationError('محصولِ طرح ثبت‌شده قابل جابه‌جایی نیست؛ طرح تازه بسازید.')
+                raise ValidationError(_('An existing plan cannot move to another product. Create a new plan.'))
         return super().save(*args, **kwargs)
 
     def __str__(self):
@@ -110,16 +110,16 @@ class Plan(models.Model):
 
 class Order(models.Model):
     class Status(models.TextChoices):
-        AWAITING_PAYMENT = 'awaiting_payment', 'در انتظار پرداخت'
-        PAYMENT_SUBMITTED = 'payment_submitted', 'در انتظار بررسی پرداخت'
-        FULFILLED = 'fulfilled', 'فعال‌شده'
-        CANCELLED = 'cancelled', 'لغوشده'
-        REJECTED = 'rejected', 'پرداخت ردشده'
-        EXPIRED = 'expired', 'مهلت سفارش پایان یافته'
+        AWAITING_PAYMENT = 'awaiting_payment', _('Awaiting payment')
+        PAYMENT_SUBMITTED = 'payment_submitted', _('Awaiting payment review')
+        FULFILLED = 'fulfilled', _('Fulfilled')
+        CANCELLED = 'cancelled', _('Cancelled')
+        REJECTED = 'rejected', _('Payment rejected')
+        EXPIRED = 'expired', _('Order expired')
     class Purpose(models.TextChoices):
-        PURCHASE = 'purchase', 'خرید'
-        RENEWAL = 'renewal', 'تمدید'
-        TRIAL = 'trial', 'درخواست آزمایش'
+        PURCHASE = 'purchase', _('Purchase')
+        RENEWAL = 'renewal', _('Renewal')
+        TRIAL = 'trial', _('Trial request')
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     school = models.ForeignKey('service.School', on_delete=models.PROTECT, related_name='orders')
@@ -175,9 +175,9 @@ class Order(models.Model):
         if not self._state.adding:
             previous = type(self).objects.filter(pk=self.pk).values(*self.SNAPSHOT_FIELDS, 'rejection_reason').first()
             if previous and any(previous[name] != getattr(self, name) for name in self.SNAPSHOT_FIELDS):
-                raise ValidationError('جزئیات مالی سفارش ثبت‌شده قابل تغییر نیست؛ سفارش جدید بسازید.')
+                raise ValidationError(_('Recorded order terms cannot be changed. Create a new order.'))
             if previous and previous['rejection_reason'] and previous['rejection_reason'] != self.rejection_reason:
-                raise ValidationError('دلیل ردِ ثبت‌شده قابل بازنویسی نیست؛ توضیح تکمیلی را در پشتیبانی ثبت کنید.')
+                raise ValidationError(_('A recorded rejection reason cannot be overwritten. Add further details through support.'))
         return super().save(*args, **kwargs)
 
 

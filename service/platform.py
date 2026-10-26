@@ -1,4 +1,5 @@
 """Tenant-scoped commercial portal. No student or inference data enters this module."""
+from django.utils.translation import gettext_lazy as _
 import hashlib
 import json
 from pathlib import Path
@@ -14,6 +15,7 @@ from django.http import Http404, FileResponse, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.translation import override, get_language
 from django.views.decorators.http import require_POST
 
 from .models import School, Device, Backup, AuditEvent, CustomerProfile
@@ -21,7 +23,7 @@ from .portal_models import ContactRequest, SupportTicket, TicketReply, Release, 
 from .platform_forms import (ContactForm, SchoolProfileForm, TicketForm, ReplyForm,
     ManualPaymentForm, VerifyPaymentForm, ReleaseForm)
 from .security import throttled, too_many
-from .owner_auth import owner_required, is_company_owner
+from .owner_auth import owner_required, is_company_owner, locked_company_owner
 from .commerce_models import Plan, Order, VerifiedPayment, Product, ProductSubscription, FACE_PRODUCT_SLUG
 from .commerce import create_order, submit_manual_payment, verify_manual_payment, approve_trial, cancel_order, reject_manual_payment
 
@@ -30,9 +32,10 @@ def school_for(request):
     return get_object_or_404(School, user=request.user)
 
 
-def notify(recipient, subject, body, key):
-    EmailOutbox.objects.get_or_create(dedupe_key=key, defaults={'recipient': recipient,
-        'subject': subject, 'body': body, 'available_at': timezone.now()})
+def notify(recipient, subject, body, key, language=None):
+    with override(language or get_language()):
+        EmailOutbox.objects.get_or_create(dedupe_key=key, defaults={'recipient': recipient,
+            'subject': str(subject), 'body': str(body), 'available_at': timezone.now()})
 
 
 def contact(request):
@@ -43,10 +46,10 @@ def contact(request):
         if form.is_valid():
             with transaction.atomic():
                 entry = form.save()
-                notify(entry.email, 'درخواست شما در NxFi ثبت شد', 'درخواست شما ثبت شده است. این پیام به معنی تأیید خرید یا فعال‌سازی اشتراک نیست. لطفاً اطلاعات دانش‌آموز یا چهره ارسال نکنید.', 'contact:'+str(entry.pk))
-            messages.success(request, 'درخواست ثبت شد. پاسخ از طریق ایمیل پیگیری می‌شود.')
+                notify(entry.email, _('Your NxFi request has been received'), _('Your request has been received. This does not confirm a purchase or activate a subscription. Do not send student information or face images.'), 'contact:'+str(entry.pk))
+            messages.success(request, _('Request received. We will follow up by email.'))
             return redirect('contact')
-    return render(request, 'marketing/contact.html', {'form': form, 'title': 'تماس و درخواست نمایش', 'description': 'گفت‌وگو دربارهٔ پایلوت و نیازهای مدرسه', 'canonical_url': settings.PUBLIC_URL+reverse('contact'), 'indexable': True, 'page_title': 'تماس و درخواست نمایش', 'meta_description': 'ارتباط با تیم NxFi برای بررسی پایلوت مدرسه'})
+    return render(request, 'marketing/contact.html', {'form': form, 'title': _('Contact and demonstration requests'), 'description': _('Discuss a pilot and school requirements'), 'canonical_url': settings.PUBLIC_URL+reverse('contact'), 'indexable': True, 'page_title': _('Contact and demonstration requests'), 'meta_description': _('Contact NxFi to discuss a school pilot')})
 
 
 @login_required
@@ -70,9 +73,9 @@ def profile(request):
             school.name = form.cleaned_data['name']
             school.save(update_fields=['name'])
             AuditEvent.objects.create(actor=request.user, school=school, action='school.profile.updated', object_id=str(school.pk))
-        messages.success(request, 'نام مدرسه به‌روز شد؛ تغییر ایمیل از مسیر پشتیبانی انجام می‌شود.')
+        messages.success(request, _('School name updated. Contact support to change the account email.'))
         return redirect('profile')
-    return render(request, 'portal/form.html', {'title': 'مشخصات مدرسه', 'form': form, 'school': school})
+    return render(request, 'portal/form.html', {'title': _('School profile'), 'form': form, 'school': school})
 
 
 @login_required
@@ -108,7 +111,7 @@ def checkout(request, order_id):
             except (ValidationError, ValueError) as exc:
                 form.add_error(None, str(exc))
             else:
-                messages.success(request, 'شناسه ثبت شد؛ اشتراک فقط پس از تأیید مستقل مالک فعال می‌شود.')
+                messages.success(request, _('Reference received. Only independent owner verification activates the subscription.'))
                 return redirect('checkout', order_id=order.pk)
     return render(request, 'portal/checkout.html', {'order': order, 'form': form,
         'instructions': settings.MANUAL_PAYMENT_INSTRUCTIONS})
@@ -173,7 +176,7 @@ def checked_artifact(release):
     root = Path(settings.RELEASE_ROOT).resolve()
     path = root / release.artifact_name
     if path.resolve().parent != root or path.is_symlink():
-        raise ValidationError('مسیر فایل انتشار مجاز نیست.')
+        raise ValidationError(_('The release file path is not allowed.'))
     stream = path.open('rb')
     try:
         digest, size = hashlib.sha256(), 0
@@ -181,7 +184,7 @@ def checked_artifact(release):
             digest.update(chunk)
             size += len(chunk)
         if size != release.size_bytes or digest.hexdigest() != release.sha256:
-            raise ValidationError('حجم یا SHA-256 فایل با ثبت انتشار مطابقت ندارد.')
+            raise ValidationError(_('The artifact size or SHA-256 does not match the release record.'))
         stream.seek(0)
         return stream
     except BaseException:
@@ -191,9 +194,14 @@ def checked_artifact(release):
 
 @login_required
 def release_download(request, release_id):
-    school = school_for(request)  # Expired owners may download recovery software too.
+    # A verified company account must be able to download before creating a
+    # school or buying a license. Downloading never grants operational access.
+    school = School.objects.filter(user=request.user).first()
+    if school is None and not (is_company_owner(request.user) or CustomerProfile.objects.filter(
+            user=request.user, email_verified_at__isnull=False).exists()):
+        raise Http404
     release = get_object_or_404(Release, pk=release_id, is_published=True, product_id=FACE_PRODUCT_SLUG)
-    if throttled(request, 'release-download', str(school.pk), limit=10, seconds=3600):
+    if throttled(request, 'release-download', str(school.pk) if school else 'user:'+str(request.user.pk), limit=10, seconds=3600):
         return too_many()
     try:
         stream = checked_artifact(release)
@@ -250,7 +258,7 @@ def owner_payment(request, order_id):
         except (ValidationError, ValueError) as exc:
             form.add_error(None, str(exc))
         else:
-            messages.success(request, 'پرداخت تأیید و اشتراک به‌صورت اتمی اعمال شد.')
+            messages.success(request, _('Payment verified and subscription applied atomically.'))
             return redirect('owner')
     return render(request, 'owner/payment.html', {'order': order, 'form': form})
 
@@ -274,14 +282,26 @@ def owner_plan(request, plan_id=None):
     form = form_class(request.POST or None, instance=item)
     form.fields['product'].queryset = Product.objects.filter(pk=item.product_id if item else FACE_PRODUCT_SLUG)
     form.fields['product'].disabled = item is not None
-    form.fields['product'].label = 'محصول'
+    form.fields['product'].label = _('Product')
+    form.fields['slug'].label = _('Plan code')
+    form.fields['name'].label = _('Name')
+    form.fields['description'].label = _('Description')
+    form.fields['price_irr'].label = _('Price (IRR)')
+    form.fields['duration_days'].label = _('Duration (days)')
+    form.fields['student_limit'].label = _('Student capacity')
+    form.fields['device_limit'].label = _('Device allowance')
+    form.fields['is_trial'].label = _('Trial plan')
+    form.fields['is_active'].label = _('Active')
+    form.fields['is_public'].label = _('Publicly listed')
+    form.fields['sort_order'].label = _('Display order')
     if request.method == 'POST' and form.is_valid():
         with transaction.atomic():
+            locked_company_owner(request.user)
             item = form.save()
             AuditEvent.objects.create(actor=request.user, action='plan.updated', object_id=str(item.pk))
-        messages.success(request, 'طرح ذخیره شد؛ سفارش‌های قبلی مبلغ ثبت‌شدهٔ خود را نگه می‌دارند.')
+        messages.success(request, _('Plan saved. Existing orders retain their recorded prices.'))
         return redirect('owner')
-    return render(request, 'portal/form.html', {'title': 'تعریف / ویرایش طرح', 'form': form})
+    return render(request, 'portal/form.html', {'title': _('Create or edit plan'), 'form': form})
 
 
 @owner_required(recent=True)
@@ -297,10 +317,11 @@ def owner_release(request):
             form.add_error(None, str(exc))
         else:
             with transaction.atomic():
+                locked_company_owner(request.user)
                 item.save()
                 AuditEvent.objects.create(actor=request.user, action='release.published' if item.is_published else 'release.registered', object_id=str(item.pk))
             return redirect('owner')
-    return render(request, 'portal/form.html', {'title': 'ثبت انتشار — فایل باید توسط اپراتور روی سرور نصب شده باشد', 'form': form})
+    return render(request, 'portal/form.html', {'title': _('Publish a release — the operator must install the artifact on the server first'), 'form': form})
 
 
 @owner_required(recent=True)
@@ -308,6 +329,7 @@ def owner_release(request):
 def owner_release_withdraw(request, release_id):
     with transaction.atomic():
         item = get_object_or_404(Release.objects.select_for_update(), pk=release_id)
+        locked_company_owner(request.user)
         item.is_published = False
         item.save(update_fields=['is_published'])
         AuditEvent.objects.create(actor=request.user, action='release.withdrawn', object_id=str(item.pk))
@@ -321,10 +343,12 @@ def owner_ticket(request, ticket_id):
     if request.method == 'POST' and form.is_valid():
         with transaction.atomic():
             item = SupportTicket.objects.select_for_update().get(pk=item.pk)
+            locked_company_owner(request.user)
             reply = TicketReply.objects.create(ticket=item, author=request.user, body=form.cleaned_data['body'])
             item.status = 'closed' if request.POST.get('close') == 'yes' else 'open'
             item.save(update_fields=['status','updated_at'])
-            notify(item.school.user.email, 'پاسخ تیکت NxFi', 'پاسخ درخواست شما در پرتال امن مدرسه قابل مشاهده است.', 'ticket-reply:'+str(reply.pk))
+            recipient_profile = CustomerProfile.objects.filter(user_id=item.school.user_id).first()
+            notify(item.school.user.email, _('NxFi support reply'), _('A reply to your request is available in your secure school portal.'), 'ticket-reply:'+str(reply.pk), language=recipient_profile.preferred_language if recipient_profile else 'en')
             AuditEvent.objects.create(actor=request.user, school=item.school, action='ticket.replied', object_id=str(item.pk))
         return redirect('owner-ticket', ticket_id=item.pk)
     return render(request, 'portal/ticket.html', {'ticket': item, 'form': form, 'owner_view': True})
@@ -335,6 +359,7 @@ def owner_ticket(request, ticket_id):
 def owner_contact(request, contact_id):
     with transaction.atomic():
         item = get_object_or_404(ContactRequest.objects.select_for_update(), pk=contact_id)
+        locked_company_owner(request.user)
         item.handled = True
         item.save(update_fields=['handled'])
         AuditEvent.objects.create(actor=request.user, action='contact.handled', object_id=str(item.pk))
@@ -371,7 +396,7 @@ def owner_reject_payment(request, order_id):
     except (ValidationError, ValueError) as exc:
         messages.error(request, str(exc))
     else:
-        messages.success(request, 'ادعای پرداخت رد شد؛ هیچ پرداخت یا اشتراکی فعال نشد.')
+        messages.success(request, _('Payment claim rejected. No payment or subscription was activated.'))
     return redirect('owner-payment', order_id=order_id)
 
 
@@ -387,11 +412,12 @@ def owner_school(request, school_id):
         # Keep the form's School row lock until the complete update is durable.
         with transaction.atomic():
             if form.is_valid():
+                locked_company_owner(request.user)
                 updated_school = form.save()
                 from .commerce import sync_face_subscription
                 sync_face_subscription(updated_school)
                 AuditEvent.objects.create(actor=request.user, school=school, action='subscription.owner_updated', object_id=str(school.pk))
-                messages.success(request, 'تنظیم مدرسه ذخیره شد؛ این تغییر دستی، پرداخت یا درآمدی ثبت نمی‌کند.')
+                messages.success(request, _('School settings saved. This manual change records no payment or revenue.'))
                 return redirect('owner-school', school_id=school.pk)
     return render(request, 'owner/school.html', {'school': school, 'form': form,
         'devices': Device.objects.filter(school=school)})
@@ -403,6 +429,7 @@ def owner_device_revoke(request, school_id, device_id):
     with transaction.atomic():
         school = get_object_or_404(School.objects.select_for_update(), pk=school_id)
         device = get_object_or_404(Device, pk=device_id, school=school)
+        locked_company_owner(request.user)
         device.revoked = True
         device.save(update_fields=['revoked'])  # Digest retained for signed revocation sync.
         AuditEvent.objects.create(actor=request.user, school=school, action='device.owner_revoked', object_id=str(device.pk))
@@ -417,4 +444,4 @@ def workspace(request):
     product = Product.objects.filter(pk=FACE_PRODUCT_SLUG).first()
     subscriptions = ProductSubscription.objects.filter(school=school, product_id=FACE_PRODUCT_SLUG).select_related('product')
     return render(request, 'portal/workspace.html', {'school': school, 'product': product,
-        'subscriptions': subscriptions, 'page_title': 'حساب NxFi Technologies'})
+        'subscriptions': subscriptions, 'page_title': _('NxFi Technologies account')})

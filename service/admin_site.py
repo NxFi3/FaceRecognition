@@ -1,4 +1,5 @@
 """The legacy Django administration is also gated by explicit owner + step-up."""
+from django.utils.translation import gettext_lazy as _
 from django.contrib.admin import AdminSite
 from django.contrib.admin.forms import AdminAuthenticationForm
 from django.core.exceptions import ValidationError
@@ -12,14 +13,14 @@ class OwnerAdminAuthenticationForm(AdminAuthenticationForm):
     def confirm_login_allowed(self, user):
         super().confirm_login_allowed(user)
         if not is_company_owner(user):
-            raise ValidationError('ورود به مدیریت فقط برای مالک مجاز شرکت ممکن است.', code='invalid_login')
+            raise ValidationError(_('Only the authorized company owner may sign in to administration.'), code='invalid_login')
 
 
 class OwnerAdminSite(AdminSite):
     login_form = OwnerAdminAuthenticationForm
-    site_header = 'NxFi Technologies — مدیریت'
-    site_title = 'مدیریت NxFi'
-    index_title = 'مدیریت فنی'
+    site_header = _('NxFi Technologies — administration')
+    site_title = _('NxFi administration')
+    index_title = _('Technical administration')
 
     def has_permission(self, request):
         return bool(request.user.is_active and request.user.is_staff and has_recent_owner_auth(request))

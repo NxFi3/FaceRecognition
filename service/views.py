@@ -147,7 +147,7 @@ def web_download(request, backup_id):
     try:
         response = download_response(backup)
     except (OSError, ValueError, InvalidTag):
-        return HttpResponse("فایل پشتیبان در دسترس نیست؛ با پشتیبانی تماس بگیرید.", status=503)
+        return HttpResponse(_('The backup file is unavailable. Contact support.'), status=503)
     AuditEvent.objects.create(actor=request.user, school=school, action="backup.downloaded", object_id=str(backup.pk))
     return response
 
@@ -194,5 +194,5 @@ def delete_backup(request, backup_id):
         backup.delete()
         transaction.on_commit(lambda: path.unlink(missing_ok=True), robust=True)
         AuditEvent.objects.create(actor=request.user, school=school, action='backup.deleted', object_id=identifier)
-    messages.success(request, 'بکاپ انتخاب‌شده حذف شد؛ نسخه‌های جداگانهٔ بازیابی سرور تابع سیاست نگهداری خود هستند.')
+    messages.success(request, _('The selected backup was deleted. Independent server recovery copies follow their own retention policy.'))
     return redirect('account')

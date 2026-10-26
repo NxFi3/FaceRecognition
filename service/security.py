@@ -1,3 +1,4 @@
+from django.utils.translation import gettext_lazy as _
 import hashlib
 import logging
 import unicodedata
@@ -24,7 +25,7 @@ class SecurityHeaders:
                 # Fail closed without running authentication, but make a temporary
                 # protection outage distinguishable from an internal application bug.
                 logger.error('Authentication rate-limit backend unavailable')
-                response = HttpResponse('بررسی امنیتی موقتاً در دسترس نیست؛ دوباره تلاش کنید.', status=503)
+                response = HttpResponse(_('The security check is temporarily unavailable. Please try again.'), status=503)
             else:
                 if limited:
                     response = too_many()
@@ -64,6 +65,6 @@ def throttled(request, scope, identity="", limit=20, seconds=600):
 
 
 def too_many():
-    response = HttpResponse("تعداد درخواست زیاد است؛ چند دقیقه بعد تلاش کنید.", status=429)
+    response = HttpResponse(_('Too many requests. Please try again in a few minutes.'), status=429)
     response["Retry-After"] = "600"
     return response

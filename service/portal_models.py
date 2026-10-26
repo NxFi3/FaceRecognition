@@ -1,4 +1,5 @@
 """Business records only. Student records/templates never belong in these tables."""
+from django.utils.translation import gettext_lazy as _
 import uuid
 from django.conf import settings
 from django.core.validators import RegexValidator, MinValueValidator
@@ -10,7 +11,7 @@ class ContactRequest(models.Model):
     name = models.CharField(max_length=120)
     email = models.EmailField()
     school_name = models.CharField(max_length=160, blank=True)
-    kind = models.CharField(max_length=16, choices=[('demo', 'درخواست نمایش'), ('contact', 'تماس')])
+    kind = models.CharField(max_length=16, choices=[('demo', _('Demonstration request')), ('contact', _('Contact'))])
     body = models.TextField(max_length=4000)
     consent = models.BooleanField(default=False)
     handled = models.BooleanField(default=False)
@@ -22,9 +23,9 @@ class SupportTicket(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     school = models.ForeignKey('service.School', on_delete=models.PROTECT)
     subject = models.CharField(max_length=160)
-    category = models.CharField(max_length=20, choices=[('support', 'پشتیبانی'), ('renewal', 'تمدید'), ('upgrade', 'ارتقا'), ('cancellation', 'لغو قرارداد'), ('privacy', 'خروجی / حذف اطلاعات تجاری')])
+    category = models.CharField(max_length=20, choices=[('support', _('Support')), ('renewal', _('Renewal')), ('upgrade', _('Upgrade')), ('cancellation', _('Cancellation request')), ('privacy', _('Export or delete business information'))])
     body = models.TextField(max_length=6000)
-    status = models.CharField(max_length=12, choices=[('open', 'باز'), ('closed', 'بسته')], default='open')
+    status = models.CharField(max_length=12, choices=[('open', _('Open')), ('closed', _('Closed'))], default='open')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     class Meta:
@@ -45,7 +46,7 @@ class Release(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     version = models.CharField(max_length=80)
     platform = models.CharField(max_length=24, default='windows-x64', choices=[('windows-x64', 'Windows x64')])
-    artifact_name = models.CharField(max_length=160, validators=[RegexValidator(r'\A[A-Za-z0-9][A-Za-z0-9._-]*\.(zip|exe)\Z', 'نام فایل فقط حروف لاتین، عدد و ._- و پسوند zip/exe باشد.')])
+    artifact_name = models.CharField(max_length=160, validators=[RegexValidator(r'\A[A-Za-z0-9][A-Za-z0-9._-]*\.(zip|exe)\Z', _('Artifact names may contain only Latin letters, digits, ._- and a zip/exe extension.'))])
     sha256 = models.CharField(max_length=64, validators=[RegexValidator(r'\A[0-9a-f]{64}\Z')])
     size_bytes = models.PositiveBigIntegerField(validators=[MinValueValidator(1)])
     notes = models.TextField(max_length=6000)
