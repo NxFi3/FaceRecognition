@@ -8,6 +8,11 @@ from pathlib import Path
 import numpy as np
 
 try:
+    from .localization import text as tr
+except ImportError:
+    from localization import text as tr
+
+try:
     from .engine.runtime_profile import profile
 except ImportError:
     from engine.runtime_profile import profile
@@ -401,7 +406,7 @@ def set_school_weekdays(academic_year_id, weekdays):
     weekdays = sorted({int(day) for day in weekdays})
 
     if not weekdays or any(day < 0 or day > 6 for day in weekdays):
-        raise ValueError("حداقل یک روز مدرسه باید انتخاب شود.")
+        raise ValueError(tr('Select at least one school day.'))
 
     conn = get_connection()
     try:
@@ -411,7 +416,7 @@ def set_school_weekdays(academic_year_id, weekdays):
         ).fetchone()
 
         if not exists:
-            raise ValueError("سال تحصیلی انتخاب‌شده پیدا نشد.")
+            raise ValueError(tr('The selected academic year was not found.'))
 
         conn.execute(
             "DELETE FROM school_weekdays WHERE academic_year_id = ?",
@@ -453,7 +458,7 @@ def set_school_day_override(academic_year_id, date, is_school_day, note=""):
     try:
         parsed = datetime.strptime(date, "%Y-%m-%d")
     except ValueError as exc:
-        raise ValueError("تاریخ استثنا نامعتبر است.") from exc
+        raise ValueError(tr('Invalid calendar override date.')) from exc
 
     conn = get_connection()
     try:
@@ -467,17 +472,17 @@ def set_school_day_override(academic_year_id, date, is_school_day, note=""):
         ).fetchone()
 
         if year is None:
-            raise ValueError("سال تحصیلی انتخاب‌شده پیدا نشد.")
+            raise ValueError(tr('The selected academic year was not found.'))
 
         if year[0]:
             start = datetime.strptime(year[0], "%Y-%m-%d").date()
             if parsed.date() < start:
-                raise ValueError("تاریخ خارج از بازه سال تحصیلی است.")
+                raise ValueError(tr('The date is outside the academic year.'))
 
         if year[1]:
             end = datetime.strptime(year[1], "%Y-%m-%d").date()
             if parsed.date() > end:
-                raise ValueError("تاریخ خارج از بازه سال تحصیلی است.")
+                raise ValueError(tr('The date is outside the academic year.'))
 
         conn.execute(
             """
@@ -580,10 +585,10 @@ def add_academic_year(start_date, end_date, active=False):
         start = datetime.strptime(start_date, "%Y-%m-%d")
         end = datetime.strptime(end_date, "%Y-%m-%d")
     except ValueError as exc:
-        raise ValueError("تاریخ سال تحصیلی نامعتبر است.") from exc
+        raise ValueError(tr('Invalid academic year date.')) from exc
 
     if end <= start:
-        raise ValueError("تاریخ پایان باید بعد از تاریخ شروع باشد.")
+        raise ValueError(tr('The end date must be after the start date.'))
 
     conn = get_connection()
     try:
@@ -601,7 +606,7 @@ def add_academic_year(start_date, end_date, active=False):
 
         if overlap:
             raise ValueError(
-                f"بازه انتخاب‌شده با سال تحصیلی «{overlap[1]}» هم‌پوشانی دارد."
+                tr('The selected range overlaps academic year “{name}”.').format(name=overlap[1])
             )
 
         name = f"{start.year:04d}-{end.year:04d}"
@@ -644,10 +649,10 @@ def update_academic_year(year_id, start_date, end_date):
         start = datetime.strptime(start_date, "%Y-%m-%d")
         end = datetime.strptime(end_date, "%Y-%m-%d")
     except ValueError as exc:
-        raise ValueError("تاریخ سال تحصیلی نامعتبر است.") from exc
+        raise ValueError(tr('Invalid academic year date.')) from exc
 
     if end <= start:
-        raise ValueError("تاریخ پایان باید بعد از تاریخ شروع باشد.")
+        raise ValueError(tr('The end date must be after the start date.'))
 
     conn = get_connection()
     try:
@@ -666,7 +671,7 @@ def update_academic_year(year_id, start_date, end_date):
 
         if overlap:
             raise ValueError(
-                f"بازه انتخاب‌شده با سال تحصیلی «{overlap[1]}» هم‌پوشانی دارد."
+                tr('The selected range overlaps academic year “{name}”.').format(name=overlap[1])
             )
 
         name = f"{start.year:04d}-{end.year:04d}"
@@ -693,7 +698,7 @@ def set_active_academic_year(year_id):
         ).fetchone()
 
         if not exists:
-            raise ValueError("سال تحصیلی انتخاب‌شده پیدا نشد.")
+            raise ValueError(tr('The selected academic year was not found.'))
 
         conn.execute("UPDATE academic_years SET is_active = 0")
         conn.execute(
@@ -722,7 +727,7 @@ def list_majors():
 def add_major(name):
     name = name.strip()
     if not name:
-        raise ValueError("نام رشته الزامی است.")
+        raise ValueError(tr('A major name is required.'))
     conn = get_connection()
     try:
         cursor = conn.execute(
@@ -738,7 +743,7 @@ def add_major(name):
 def update_major(major_id, name):
     name = name.strip()
     if not name:
-        raise ValueError("نام رشته الزامی است.")
+        raise ValueError(tr('A major name is required.'))
     conn = get_connection()
     try:
         conn.execute(
@@ -758,7 +763,7 @@ def delete_major(major_id):
             (major_id,),
         ).fetchone()[0]
         if used:
-            raise ValueError("این رشته به یک یا چند کلاس متصل است.")
+            raise ValueError(tr('This major is assigned to one or more classes.'))
         conn.execute("DELETE FROM majors WHERE id = ?", (major_id,))
         conn.commit()
     finally:
@@ -817,11 +822,11 @@ def add_class(name, grade, major_id, academic_year_id):
     grade = grade.strip()
 
     if not name:
-        raise ValueError("نام کلاس الزامی است.")
+        raise ValueError(tr('A class name is required.'))
     if not grade:
-        raise ValueError("پایه الزامی است.")
+        raise ValueError(tr('A grade is required.'))
     if not academic_year_id:
-        raise ValueError("سال تحصیلی انتخاب نشده است.")
+        raise ValueError(tr('Select an academic year.'))
 
     conn = get_connection()
     try:
@@ -844,11 +849,11 @@ def update_class(class_id, name, grade, major_id, academic_year_id):
     grade = grade.strip()
 
     if not name:
-        raise ValueError("نام کلاس الزامی است.")
+        raise ValueError(tr('A class name is required.'))
     if not grade:
-        raise ValueError("پایه الزامی است.")
+        raise ValueError(tr('A grade is required.'))
     if not academic_year_id:
-        raise ValueError("سال تحصیلی انتخاب نشده است.")
+        raise ValueError(tr('Select an academic year.'))
 
     conn = get_connection()
     try:
@@ -879,7 +884,7 @@ def delete_class(class_id):
             (class_id,),
         ).fetchone()[0]
         if used:
-            raise ValueError("این کلاس دانش‌آموز دارد و قابل حذف نیست.")
+            raise ValueError(tr('This class contains students and cannot be deleted.'))
         conn.execute("DELETE FROM school_classes WHERE id = ?", (class_id,))
         conn.commit()
     finally:
@@ -924,7 +929,7 @@ def assign_student_class(student_id, class_id):
             (class_id,),
         ).fetchone()
         if row is None:
-            raise ValueError("کلاس انتخاب‌شده پیدا نشد.")
+            raise ValueError(tr('The selected class was not found.'))
 
         conn.execute(
             """
@@ -1044,7 +1049,7 @@ def add_student(student_code, name, class_id=None):
                 (class_id,),
             ).fetchone()
             if row is None:
-                raise ValueError("کلاس انتخاب‌شده پیدا نشد.")
+                raise ValueError(tr('The selected class was not found.'))
             conn.execute(
                 """
                 INSERT INTO student_enrollments
@@ -1078,7 +1083,7 @@ def update_student(student_id, student_code, name, class_id=None):
                 (class_id,),
             ).fetchone()
             if row is None:
-                raise ValueError("کلاس انتخاب‌شده پیدا نشد.")
+                raise ValueError(tr('The selected class was not found.'))
             conn.execute(
                 """
                 INSERT INTO student_enrollments
@@ -1260,7 +1265,7 @@ def set_attendance_status(
 ):
     status = status.strip().lower()
     if status not in {"present", "late", "excused", "absent"}:
-        raise ValueError("وضعیت حضور نامعتبر است.")
+        raise ValueError(tr('Invalid attendance status.'))
 
     if timestamp is None:
         timestamp = f"{date} {datetime.now().strftime('%H:%M:%S')}"
@@ -1577,14 +1582,16 @@ def get_class_report_summary(
     finally:
         conn.close()
 
-    active_dates = _filter_school_dates(
+    active_dates = set(_filter_school_dates(
         sorted({row[3] for row in attendance}),
         school_weekdays,
         school_overrides,
-    )
+    ))
 
     counters = {}
     for student_id, status, class_id_value, date in attendance:
+        if date not in active_dates:
+            continue
         counters.setdefault(
             class_id_value,
             {
@@ -1778,7 +1785,7 @@ def get_report_rows(
 
     result = []
 
-    for student_id, code, name, class_name, major_name, grade in students:
+    for student_id, code, name, grade, major_name, class_name in students:
         statuses = by_student.get(student_id, {})
 
         present = 0

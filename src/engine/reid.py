@@ -8,6 +8,11 @@ Install the optional dependencies from requirements-reid.txt first.
 
 from __future__ import annotations
 
+try:
+    from ..localization import text as tr
+except ImportError:
+    from localization import text as tr
+
 from pathlib import Path
 from typing import Iterable
 
@@ -29,7 +34,7 @@ class OSNetReID:
             import torchreid
         except ImportError as exc:
             raise RuntimeError(
-                "OSNet support is optional. Install requirements-reid.txt."
+                tr('OSNet support is optional. Install requirements-reid.txt.')
             ) from exc
 
         self._extractor = torchreid.utils.FeatureExtractor(
@@ -51,7 +56,7 @@ class OSNetReID:
     @profile.stage("osnet_single")
     def embed(self, image_bgr: np.ndarray) -> np.ndarray:
         if image_bgr is None or image_bgr.size == 0:
-            raise ValueError("image_bgr must be a non-empty image")
+            raise ValueError(tr('image_bgr must be a non-empty image'))
 
         features = self._extractor([image_bgr])
         if hasattr(features, "detach"):

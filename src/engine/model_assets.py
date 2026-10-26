@@ -5,6 +5,11 @@ This is a packaging compatibility layer, not a model or inference replacement.
 """
 from importlib.util import find_spec
 from pathlib import Path
+
+try:
+    from ..localization import text as tr
+except ImportError:
+    from localization import text as tr
 import sys
 
 _legacy_directory = None
@@ -18,7 +23,7 @@ def model_directory():
     else:
         spec = find_spec('face_recognition_models')
         if spec is None or spec.origin is None:
-            raise RuntimeError('Install face_recognition_models==0.3.0')
+            raise RuntimeError(tr('Install face_recognition_models==0.3.0'))
         root = Path(spec.origin).parent / 'models'
     return root
 

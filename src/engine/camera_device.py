@@ -1,5 +1,10 @@
 """Low-level camera opening, independent of the Qt app and database."""
 from __future__ import annotations
+
+try:
+    from ..localization import text as tr
+except ImportError:
+    from localization import text as tr
 import logging
 import sys
 from pathlib import Path
@@ -39,7 +44,7 @@ def open_camera(camera_id, target_fps=DEFAULT_CAMERA_TARGET_FPS, width=DEFAULT_C
         logger.info("CAMERA_OPEN_OK id=%s backend=%s actual=%sx%s fps=%s fourcc=%s", camera_id, backend, cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT), cap.get(cv2.CAP_PROP_FPS), cap.get(cv2.CAP_PROP_FOURCC))
         return cap
     logger.error("CAMERA_OPEN_FAILED_ALL id=%s", camera_id)
-    raise RuntimeError("Could not open camera.")
+    raise RuntimeError(tr('Could not open camera.'))
 
 
 def discover_cameras(target_fps=DEFAULT_CAMERA_TARGET_FPS, requested_width=DEFAULT_CAMERA_WIDTH, requested_height=DEFAULT_CAMERA_HEIGHT, scan_limit=8):
@@ -56,7 +61,7 @@ def discover_cameras(target_fps=DEFAULT_CAMERA_TARGET_FPS, requested_width=DEFAU
                 continue
 
             camera_id = int(suffix)
-            device_name = "Video device"
+            device_name = tr('Video device')
 
             name_path = Path(
                 f"/sys/class/video4linux/{path.name}/name"
@@ -127,14 +132,13 @@ def discover_cameras(target_fps=DEFAULT_CAMERA_TARGET_FPS, requested_width=DEFAU
             fps_label = (
                 f"{fps:.0f} FPS"
                 if fps > 0
-                else "FPS auto"
+                else tr('FPS auto')
             )
 
             cameras.append({
                 "id": camera_id,
                 "label": (
-                    f"Camera {camera_id} — {device_name} — "
-                    f"{width}x{height} — {fps_label}"
+                    tr('Camera {camera} — {device} — {width}x{height} — {fps}').format(camera=camera_id, device=device_name, width=width, height=height, fps=fps_label)
                 ),
             })
 
@@ -178,8 +182,7 @@ def discover_cameras(target_fps=DEFAULT_CAMERA_TARGET_FPS, requested_width=DEFAU
             cameras.append({
                 "id": camera_id,
                 "label": (
-                    f"Camera {camera_id} — "
-                    f"{width}x{height} — {fps:.0f} FPS"
+                    tr('Camera {camera} — {width}x{height} — {fps:.0f} FPS').format(camera=camera_id, width=width, height=height, fps=fps)
                 ),
             })
         except Exception:

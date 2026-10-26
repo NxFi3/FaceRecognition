@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from ..localization import text as tr
+except ImportError:
+    from localization import text as tr
+
 import os
 import sys
 import time
@@ -180,9 +185,9 @@ class SmartCameraWorker(QThread):
         shape_path = face_recognition_models.pose_predictor_five_point_model_location()
         encoder_path = face_recognition_models.face_recognition_model_location()
         if not os.path.exists(shape_path):
-            raise FileNotFoundError(f"5-point model not found: {shape_path}")
+            raise FileNotFoundError(tr('5-point model not found: {path}').format(path=shape_path))
         if not os.path.exists(encoder_path):
-            raise FileNotFoundError(f"Face encoder not found: {encoder_path}")
+            raise FileNotFoundError(tr('Face encoder not found: {path}').format(path=encoder_path))
         return (
             dlib.shape_predictor(str(shape_path)),
             dlib.face_recognition_model_v1(str(encoder_path)),
@@ -524,9 +529,7 @@ class SmartCameraWorker(QThread):
             return str(candidates[0])
 
         raise FileNotFoundError(
-            "YOLO person model not found. Put models/yolo26n.onnx (recommended, "
-            "does not require PyTorch) or models/yolo26n.pt (requires Ultralytics + "
-            "PyTorch), or set the 'person_model_path' application setting."
+            tr("YOLO person model not found. Put models/yolo26n.onnx (recommended, does not require PyTorch) or models/yolo26n.pt (requires Ultralytics + PyTorch), or set the 'person_model_path' application setting.")
         )
 
     def _record_event(self, **kwargs):
@@ -601,7 +604,7 @@ class SmartCameraWorker(QThread):
 
             if not YUNET_MODEL_PATH.exists():
                 raise FileNotFoundError(
-                    f"YuNet model not found: {YUNET_MODEL_PATH}"
+                    tr('YuNet model not found: {path}').format(path=YUNET_MODEL_PATH)
                 )
 
             person_model = self._resolve_person_model()
@@ -609,6 +612,7 @@ class SmartCameraWorker(QThread):
 
             reid = None
             reid_status = "Re-ID disabled (motion only)"
+            reid_ui_status = tr('Re-ID disabled (motion only)').format()
             reid_interval = int(get_setting("reid_interval", "6"))
             reid_enabled = str(get_setting("reid_enabled", "1") or "1").strip().lower() in {"1", "true", "yes", "on"}
             try:
@@ -616,7 +620,7 @@ class SmartCameraWorker(QThread):
                 from .reid import OSNetReID
 
                 if not reid_enabled:
-                    raise RuntimeError("disabled in Settings")
+                    raise RuntimeError(tr('disabled in Settings'))
 
                 if not person_device:
                     person_device = (
@@ -625,7 +629,7 @@ class SmartCameraWorker(QThread):
                         else "cpu"
                     )
                 if person_device == "cuda" and not torch.cuda.is_available():
-                    raise RuntimeError("CUDA requested but no GPU is available")
+                    raise RuntimeError(tr('CUDA requested but no GPU is available'))
 
                 # CPU-only school PCs get a lower Re-ID frequency so motion tracking
                 # remains responsive between appearance refreshes.
@@ -639,12 +643,14 @@ class SmartCameraWorker(QThread):
                     device=person_device,
                 )
                 reid_status = f"OSNet x0.25/{person_device} every {reid_interval} frames"
+                reid_ui_status = tr('OSNet x0.25/{device} every {interval} frames').format(device=person_device, interval=reid_interval)
             except Exception as exc:
                 reid_status = f"Re-ID unavailable ({exc})"
+                reid_ui_status = tr('Re-ID unavailable ({error})').format(error=exc)
                 reid = None
 
             self.status_changed.emit(
-                "Loading smart camera • person detector + " + reid_status
+                tr('Loading smart camera • person detector + {reid}').format(reid=reid_ui_status)
             )
 
             face_detector = cv2.FaceDetectorYN.create(
@@ -829,10 +835,7 @@ class SmartCameraWorker(QThread):
                                 recognition_workers=executor._max_workers, opencv_threads=cv2.getNumThreads())
             logger.info("WORKER_ONLINE slot=%s camera_id=%s role=%s actual=%sx%s fps=%s students=%s reid=%s", self.camera_slot, camera_id, camera_role, actual_width, actual_height, actual_fps, len(matcher.students), reid_status)
             self.status_changed.emit(
-                f"Smart camera online • Camera {self.camera_slot} "
-                f"({camera_role}) • {actual_width}x{actual_height} • "
-                f"{actual_fps:.0f} FPS • tracks + face identity + "
-                f"line events • {len(matcher.students)} students • {reid_status}"
+                tr('Smart camera online • Camera {camera} ({role}) • {width}x{height} • {fps:.0f} FPS • tracks + face identity + line events • {students} students • {reid}').format(camera=self.camera_slot, role=camera_role, width=actual_width, height=actual_height, fps=actual_fps, students=len(matcher.students), reid=reid_ui_status)
             )
 
             while self._running and runtime_allowed():
@@ -858,7 +861,7 @@ class SmartCameraWorker(QThread):
                     try:
                         track, result, camera_id = future.result()
                     except Exception as exc:
-                        self.error.emit(f"Face cache worker failed: {exc}")
+                        self.error.emit(tr('Face cache worker failed: {error}').format(error=exc))
                         continue
 
                     # Keep the pending marker visible while on_face_identity
@@ -960,7 +963,7 @@ class SmartCameraWorker(QThread):
                             compute_ms,
                         ) = future.result()
                     except Exception as exc:
-                        self.error.emit(f"Face recognition worker failed: {exc}")
+                        self.error.emit(tr('Face recognition worker failed: {error}').format(error=exc))
                         if track_ref is not None:
                             maybe_schedule_waiting_face_cache(track_ref, camera_id)
                         continue
@@ -1547,7 +1550,7 @@ class SmartCameraWorker(QThread):
                 self.camera_config,
             )
             self.error.emit(str(exc))
-            self.status_changed.emit("Smart camera stopped")
+            self.status_changed.emit(tr('Smart camera stopped'))
         finally:
             for future in futures:
                 future.cancel()

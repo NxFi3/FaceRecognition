@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from ..localization import text as tr
+except ImportError:
+    from localization import text as tr
+
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -107,8 +112,7 @@ class PersonDetector:
             import onnxruntime as ort
         except ImportError as exc:
             raise RuntimeError(
-                "ONNX person detection requires onnxruntime. Install it with "
-                "'py -3.11 -m pip install onnxruntime'."
+                tr("ONNX person detection requires onnxruntime. Install it with 'py -3.11 -m pip install onnxruntime'.")
             ) from exc
 
         # Two camera workers can each own a detector. Keep per-session thread
@@ -133,21 +137,21 @@ class PersonDetector:
             )
         except Exception as exc:
             raise RuntimeError(
-                f"Could not load ONNX person model '{self.model_path}': {exc}"
+                tr("Could not load ONNX person model '{path}': {error}").format(path=self.model_path, error=exc)
             ) from exc
 
         inputs = self._onnx_session.get_inputs()
         outputs = self._onnx_session.get_outputs()
         if len(inputs) != 1 or not outputs:
             raise RuntimeError(
-                "Unsupported ONNX person model: expected one input and at least one output."
+                tr('Unsupported ONNX person model: expected one input and at least one output.')
             )
 
         input_meta = inputs[0]
         input_shape = input_meta.shape
         if len(input_shape) != 4 or input_shape[1] not in (3, "3"):
             raise RuntimeError(
-                f"Unsupported ONNX input shape {input_shape}; expected NCHW with 3 channels."
+                tr('Unsupported ONNX input shape {shape}; expected NCHW with 3 channels.').format(shape=input_shape)
             )
         self._onnx_input_name = input_meta.name
         self._onnx_output_name = outputs[0].name
@@ -181,9 +185,7 @@ class PersonDetector:
             YOLO = importlib.import_module("ultralytics").YOLO
         except ImportError as exc:
             raise RuntimeError(
-                "The selected person model is a .pt file and requires Ultralytics + "
-                "PyTorch. For a torch-free runtime, put yolo26n.onnx in models/ and "
-                "install onnxruntime."
+                tr('The selected person model is a .pt file and requires Ultralytics + PyTorch. For a torch-free runtime, put yolo26n.onnx in models/ and install onnxruntime.')
             ) from exc
 
         self.model = YOLO(str(self.model_path))
@@ -201,7 +203,7 @@ class PersonDetector:
         """Letterbox a BGR frame to the fixed NCHW ONNX input dimensions."""
         frame_height, frame_width = frame.shape[:2]
         if frame_height <= 0 or frame_width <= 0:
-            raise ValueError("Person detector received an empty frame.")
+            raise ValueError(tr('Person detector received an empty frame.'))
 
         scale = min(
             target_width / float(frame_width),
@@ -242,14 +244,12 @@ class PersonDetector:
         if values.ndim == 3:
             if values.shape[0] != 1:
                 raise RuntimeError(
-                    f"Unsupported ONNX batch output shape {values.shape}; batch size must be 1."
+                    tr('Unsupported ONNX batch output shape {shape}; batch size must be 1.').format(shape=values.shape)
                 )
             values = values[0]
         if values.ndim != 2 or values.shape[1] != 6:
             raise RuntimeError(
-                f"Unsupported YOLO26 ONNX output shape {np.asarray(output).shape}. "
-                "Expected [1, N, 6] with xyxy, confidence, class; re-export using "
-                "tools/export_person_model_onnx.py."
+                tr('Unsupported YOLO26 ONNX output shape {shape}. Expected [1, N, 6] with xyxy, confidence, class; re-export using tools/export_person_model_onnx.py.').format(shape=np.asarray(output).shape)
             )
 
         frame_height, frame_width = frame_shape[:2]

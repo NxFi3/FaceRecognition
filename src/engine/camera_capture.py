@@ -15,6 +15,11 @@ import cv2
 
 from .runtime_profile import profile
 
+try:
+    from ..localization import text as tr
+except ImportError:
+    from localization import text as tr
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,23 +50,41 @@ class LatestFrameCapture:
         if self._thread is not None and self._thread.is_alive():
             return
 
+        # A restarted capture is a new session. Do not expose the old session's
+        # pixels/error while the new handle opens. Sequence stays monotonic so
+        # a caller retaining its last sequence can consume the new session.
+        with self._condition:
+            self._frame = None
+            self._error = None
+            self._profile_published_at = 0.0
+
         logger.info("CAPTURE_START id=%s target_fps=%s raw_bayer=%s", self.camera_id, self.target_fps, self._raw_bayer)
         cap = self._open_camera(self.camera_id, self.target_fps)
 
-        if self._raw_bayer:
-            # The deployed ov534 cameras can expose native 8-bit GRBG Bayer.
-            # This cuts USB payload from 16 bits/pixel YUYV to 8 bits/pixel
-            # without changing spatial resolution. V4L2 defines GRBG as an
-            # 8-bit-per-sample Bayer format.
-            cap.set(
-                cv2.CAP_PROP_FOURCC,
-                cv2.VideoWriter_fourcc(*"GRBG"),
-            )
-            cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
+        try:
+            if self._raw_bayer:
+                # The deployed ov534 cameras can expose native 8-bit GRBG Bayer.
+                # This cuts USB payload from 16 bits/pixel YUYV to 8 bits/pixel
+                # without changing spatial resolution. V4L2 defines GRBG as an
+                # 8-bit-per-sample Bayer format.
+                cap.set(
+                    cv2.CAP_PROP_FOURCC,
+                    cv2.VideoWriter_fourcc(*"GRBG"),
+                )
+                cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
 
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
-        fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+            fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+
+        except Exception:
+            # Opening succeeded but driver configuration/metadata failed. The
+            # capture loop does not own the handle yet and cannot release it.
+            try:
+                cap.release()
+            except Exception:
+                logger.exception("CAPTURE_CONFIG_RELEASE_ERROR id=%s", self.camera_id)
+            raise
 
         self.width = width
         self.height = height
@@ -94,8 +117,7 @@ class LatestFrameCapture:
                     if consecutive_failures >= 10:
                         with self._condition:
                             self._error = (
-                                f"Camera {self.camera_id} frame capture failed "
-                                f"({consecutive_failures} consecutive failures)."
+                                tr('Camera {camera} frame capture failed ({count} consecutive failures).').format(camera=self.camera_id, count=consecutive_failures)
                             )
                             self._condition.notify_all()
                         # Avoid a hot retry loop while a USB/V4L2 device is
@@ -119,8 +141,7 @@ class LatestFrameCapture:
                     else:
                         with self._condition:
                             self._error = (
-                                f"Camera {self.camera_id} returned an unexpected "
-                                f"raw Bayer shape: {getattr(frame, 'shape', None)}"
+                                tr('Camera {camera} returned an unexpected raw Bayer shape: {shape}').format(camera=self.camera_id, shape=getattr(frame, 'shape', None))
                             )
                             self._condition.notify_all()
                         break
@@ -134,12 +155,18 @@ class LatestFrameCapture:
                 # The reader never mutates an already-published frame; it only
                 # replaces the reference on the next successful capture.
                 with self._condition:
+                    self._error = None
                     self._frame = frame
                     self._sequence += 1
                     if profile.enabled:
                         self._profile_published_at = time.perf_counter()
                         profile.count("captured_frames")
                     self._condition.notify_all()
+        except Exception as exc:
+            logger.exception("CAPTURE_READ_ERROR id=%s", self.camera_id)
+            with self._condition:
+                self._error = tr('Camera {camera} capture failed: {error}').format(camera=self.camera_id, error=exc)
+                self._condition.notify_all()
         finally:
             try:
                 cap.release()

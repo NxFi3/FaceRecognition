@@ -266,54 +266,58 @@ class AttendanceEventEngine:
             )
             return [EVENT_UNKNOWN_PERSON]
 
+        # Both cameras share this state. Keep the check, durable event and
+        # in-memory transition together; a split check/add permits duplicate
+        # PERSON_ENTERED events even when SQLite deduplicates the daily row.
         with self._state.lock:
             if student_id in self.present:
                 return []
 
-        start = self._time_setting("school_start_time", "08:00")
-        late_enabled = self._bool_setting(
-            self._get_setting("enable_late_events", "1"),
-            True,
-        )
-        is_late = late_enabled and datetime.now().time() > start
+            start = self._time_setting("school_start_time", "08:00")
+            late_enabled = self._bool_setting(
+                self._get_setting("enable_late_events", "1"),
+                True,
+            )
+            is_late = late_enabled and datetime.now().time() > start
 
-        inserted = self._mark_attendance(
-            student_id,
-            f"camera_{camera_id}",
-            "late" if is_late else "present",
-            (
-                f"ورود بعد از زمان شروع مدرسه ({start.strftime('%H:%M')})"
-                if is_late
-                else ""
-            ),
-        )
+            inserted = self._mark_attendance(
+                student_id,
+                f"camera_{camera_id}",
+                "late" if is_late else "present",
+                (
+                    f"ورود بعد از زمان شروع مدرسه ({start.strftime('%H:%M')})"
+                    if is_late
+                    else ""
+                ),
+            )
 
-        with self._state.lock:
-            self.present.add(student_id)
-            self.last_entered[student_id] = datetime.now()
-
-        emitted = [EVENT_PERSON_ENTERED]
-        self._emit(
-            EVENT_PERSON_ENTERED,
-            track,
-            camera_id,
-            track.identity_confidence,
-        )
-
-        if is_late:
+            emitted = [EVENT_PERSON_ENTERED]
             self._emit(
-                EVENT_LATE_ARRIVAL,
+                EVENT_PERSON_ENTERED,
                 track,
                 camera_id,
                 track.identity_confidence,
-                {"school_start_time": start.strftime("%H:%M")},
             )
-            emitted.append(EVENT_LATE_ARRIVAL)
+            # Publish presence only after the durable movement event succeeded.
+            # If writing fails, the next observation can safely retry; the daily
+            # attendance row has its own UNIQUE(student_id,date) protection.
+            self.present.add(student_id)
+            self.last_entered[student_id] = datetime.now()
 
-        if inserted:
-            track.metadata["attendance_marked"] = True
+            if is_late:
+                self._emit(
+                    EVENT_LATE_ARRIVAL,
+                    track,
+                    camera_id,
+                    track.identity_confidence,
+                    {"school_start_time": start.strftime("%H:%M")},
+                )
+                emitted.append(EVENT_LATE_ARRIVAL)
 
-        return emitted
+            if inserted:
+                track.metadata["attendance_marked"] = True
+
+            return emitted
 
     def _exit(self, track, camera_id):
         student_id = track.student_id
@@ -322,46 +326,42 @@ class AttendanceEventEngine:
 
         with self._state.lock:
             if student_id not in self.present:
-                unexpected = True
-            else:
-                self.present.remove(student_id)
-                unexpected = False
+                self._emit(
+                    EVENT_UNEXPECTED_EXIT,
+                    track,
+                    camera_id,
+                    track.identity_confidence,
+                )
+                return [EVENT_UNEXPECTED_EXIT]
 
-        if unexpected:
             self._emit(
-                EVENT_UNEXPECTED_EXIT,
+                EVENT_PERSON_EXITED,
                 track,
                 camera_id,
                 track.identity_confidence,
             )
-            return [EVENT_UNEXPECTED_EXIT]
+            # Preserve prior presence if the durable exit event cannot be written.
+            self.present.remove(student_id)
+            emitted = [EVENT_PERSON_EXITED]
 
-        self._emit(
-            EVENT_PERSON_EXITED,
-            track,
-            camera_id,
-            track.identity_confidence,
-        )
-        emitted = [EVENT_PERSON_EXITED]
+            end = self._time_setting("school_end_time", "15:00")
+            if (
+                self._bool_setting(
+                    self._get_setting("enable_early_events", "1"),
+                    True,
+                )
+                and datetime.now().time() < end
+            ):
+                self._emit(
+                    EVENT_EARLY_DEPARTURE,
+                    track,
+                    camera_id,
+                    track.identity_confidence,
+                    {"school_end_time": end.strftime("%H:%M")},
+                )
+                emitted.append(EVENT_EARLY_DEPARTURE)
 
-        end = self._time_setting("school_end_time", "15:00")
-        if (
-            self._bool_setting(
-                self._get_setting("enable_early_events", "1"),
-                True,
-            )
-            and datetime.now().time() < end
-        ):
-            self._emit(
-                EVENT_EARLY_DEPARTURE,
-                track,
-                camera_id,
-                track.identity_confidence,
-                {"school_end_time": end.strftime("%H:%M")},
-            )
-            emitted.append(EVENT_EARLY_DEPARTURE)
-
-        return emitted
+            return emitted
 
     def on_track_seen(self, track, camera_id):
         """Keep global per-student visibility synchronized across cameras."""
