@@ -11,6 +11,11 @@ import uuid
 import zlib
 from pathlib import Path
 
+try:
+    from ..localization import text as tr
+except ImportError:
+    from localization import text as tr
+
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 CLOCK_TOLERANCE = 300
@@ -19,26 +24,26 @@ CLOCK_TOLERANCE = 300
 def verify(envelope, key, installation, school=None, nonce=None):
     raw = base64.b64decode(envelope['payload'], validate=True)
     if len(raw) > 32768:
-        raise ValueError('License too large')
+        raise ValueError(tr('License too large'))
     Ed25519PublicKey.from_public_bytes(key).verify(base64.b64decode(envelope['signature'], validate=True), raw)
     value = json.loads(raw)
     if (value['version'] != 2 or value['audience'] != 'face-recognition-desktop'
             or value['device_id'] != installation or (nonce is not None and value['nonce'] != nonce)
             or (school is not None and value['school_id'] != school)):
-        raise ValueError('License binding/version mismatch')
+        raise ValueError(tr('License binding/version mismatch'))
     uuid.UUID(value['school_id'])
     uuid.UUID(value['license_id'])
     for name in ('issued_at', 'subscription_starts_at', 'subscription_expires_at'):
         if type(value[name]) not in (int, float) or not math.isfinite(value[name]):
-            raise ValueError('Invalid license date')
+            raise ValueError(tr('Invalid license date'))
     if value['status'] not in ('active', 'revoked'):
-        raise ValueError('Invalid license status')
+        raise ValueError(tr('Invalid license status'))
     if (type(value['student_limit']) is not int or not 0 <= value['student_limit'] <= 1000000
             or type(value['device_limit']) is not int or not 1 <= value['device_limit'] <= 100):
-        raise ValueError('Invalid license capacity')
+        raise ValueError(tr('Invalid license capacity'))
     if value['status'] == 'active' and not (value['student_limit'] > 0 and
             value['subscription_starts_at'] <= value['issued_at'] < value['subscription_expires_at']):
-        raise ValueError('Invalid active subscription interval')
+        raise ValueError(tr('Invalid active subscription interval'))
     return value
 
 
@@ -62,12 +67,12 @@ class Checkpoint:
             decoder = zlib.decompressobj()
             decoded = decoder.decompress(base64.b64decode(raw[3:], validate=True), 65536)
             if not decoder.eof or decoder.unconsumed_tail or decoder.unused_data:
-                raise ValueError('Oversized/corrupt protected checkpoint')
+                raise ValueError(tr('Oversized/corrupt protected checkpoint'))
             value = json.loads(decoded)
         else:
             value = json.loads(raw)  # Development checkpoint compatibility.
         if any(not isinstance(value.get(name), (int, float)) or not math.isfinite(value[name]) for name in ('time', 'tick', 'wall', 'generation')):
-            raise ValueError('Invalid protected time state')
+            raise ValueError(tr('Invalid protected time state'))
         return value
 
     def save(self, envelope, trusted_time, tick, generation, wall=None, suspicious=False, previous=None):
@@ -80,7 +85,7 @@ class Checkpoint:
         # Compact the signed envelope for Windows generic-credential blob limits.
         packed = 'z2:' + base64.b64encode(zlib.compress(json.dumps(value, separators=(',', ':')).encode())).decode()
         if not self.store.set(self.key, packed):
-            raise OSError('ذخیره‌سازی امن سیستم‌عامل در دسترس نیست؛ فعال‌سازی آفلاین ممکن نیست.')
+            raise OSError(tr("The operating system's secure storage is unavailable. Offline activation is not possible."))
 
     def finish(self):
         value = self.load()

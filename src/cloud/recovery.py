@@ -10,6 +10,11 @@ import json
 import os
 import re
 from pathlib import Path, PurePosixPath
+
+try:
+    from ..localization import text as tr
+except ImportError:
+    from localization import text as tr
 import shutil
 import sqlite3
 import tempfile
@@ -59,25 +64,38 @@ def atomic_json(path, value):
 def export_key(path, school, key):
     # Never overwrite an existing recovery key accidentally.
     if len(key) != 32:
-        raise ValueError('Recovery key must be 32 bytes')
+        raise ValueError(tr('Recovery key must be 32 bytes'))
     value = json.dumps({'version': 2, 'school_id': str(uuid.UUID(school)),
                         'key': base64.b64encode(key).decode()})
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, 'w', encoding='utf8') as output:
-        output.write(value)
-        output.flush()
-        os.fsync(output.fileno())
+    path = Path(path)
+    if path.exists():
+        raise FileExistsError(path)
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix='.key-')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf8') as output:
+            output.write(value)
+            output.flush()
+            os.fsync(output.fileno())
+        # Publish only the complete key, and never replace an existing key even
+        # when a competing export creates it after our initial existence check.
+        if os.name == 'nt':
+            os.rename(temporary, path)
+        else:
+            os.link(temporary, path)
+        sync_directory(path.parent)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
 def import_key(path, school):
     with Path(path).open('rb') as stream:
         raw = stream.read(4097)
     if len(raw) > 4096:
-        raise ValueError('Invalid recovery key')
+        raise ValueError(tr('Invalid recovery key'))
     value = json.loads(raw)
     key = base64.b64decode(value['key'], validate=True)
     if value['version'] != 2 or value['school_id'] != school or len(key) != 32:
-        raise ValueError('Recovery key belongs to another school or is invalid')
+        raise ValueError(tr('Recovery key belongs to another school or is invalid'))
     return key
 
 
@@ -98,24 +116,24 @@ def make_bundle(database, output, school, key):
             z.writestr('manifest.json', json.dumps({'version': 2, 'school_id': school}))
             total = sum(info.file_size for info in z.infolist())
             if total > MAX_RECOVERY_BYTES:
-                raise ValueError('Uncompressed database exceeds recovery safety limit')
+                raise ValueError(tr('Uncompressed database exceeds recovery safety limit'))
             photos = database.parent / 'early_exit_review'
             if photos.exists():
                 if photos.is_symlink():
-                    raise ValueError('Photo directory cannot be a symlink')
+                    raise ValueError(tr('Photo directory cannot be a symlink'))
                 for path in sorted(photos.rglob('*')):
                     if path.is_symlink():
-                        raise ValueError('Photo symlinks are not permitted')
+                        raise ValueError(tr('Photo symlinks are not permitted'))
                     if path.is_file():
                         if not re.fullmatch(r'event_[0-9]+\.jpg', path.name) or path.parent != photos:
-                            raise ValueError('Unexpected event photo filename; preserve separately before backup')
+                            raise ValueError(tr('Unexpected event photo filename; preserve separately before backup'))
                         name = 'early_exit_review/' + path.relative_to(photos).as_posix()
                         z.write(path, name)
                         total += z.getinfo(name).file_size
                         if total > MAX_RECOVERY_BYTES or len(z.infolist()) > 100000:
-                            raise ValueError('Uncompressed recovery bundle exceeds safety limit')
+                            raise ValueError(tr('Uncompressed recovery bundle exceeds safety limit'))
         if archive.stat().st_size > MAX_RECOVERY_BYTES:
-            raise ValueError('Recovery bundle exceeds local safety limit')
+            raise ValueError(tr('Recovery bundle exceeds local safety limit'))
         nonce = os.urandom(12)
         header = MAGIC + uuid.UUID(school).bytes + nonce
         encryptor = Cipher(algorithms.AES(key), modes.GCM(nonce)).encryptor()
@@ -148,12 +166,12 @@ def unpack_bundle(bundle, directory, school, key):
         os.chmod(archive, 0o600)
         header = source.read(len(MAGIC) + 16 + 12)
         if len(header) != len(MAGIC) + 28 or header[:len(MAGIC)] != MAGIC or header[len(MAGIC):len(MAGIC)+16] != uuid.UUID(school).bytes:
-            raise ValueError('Invalid bundle or school mismatch')
+            raise ValueError(tr('Invalid bundle or school mismatch'))
         source.seek(-16, os.SEEK_END)
         end = source.tell()
         tag = source.read(16)
         if end < len(header) or end > MAX_RECOVERY_BYTES:
-            raise ValueError('Invalid bundle size')
+            raise ValueError(tr('Invalid bundle size'))
         source.seek(len(header))
         decryptor = Cipher(algorithms.AES(key), modes.GCM(header[-12:], tag)).decryptor()
         decryptor.authenticate_additional_data(header)
@@ -170,14 +188,14 @@ def unpack_bundle(bundle, directory, school, key):
                             (name.parts and name.parts[0] == 'early_exit_review' and len(name.parts) > 1))
                     or info.is_dir() or (info.external_attr >> 16) & 0o170000 == 0o120000
                     or size > MAX_RECOVERY_BYTES or len(names) > 100000):
-                raise ValueError('Unsafe or oversized recovery archive')
+                raise ValueError(tr('Unsafe or oversized recovery archive'))
             names.add(info.filename)
             normalized.add(info.filename.casefold())
         if not {'attendance.db', 'manifest.json'} <= names or z.getinfo('manifest.json').file_size > 4096:
-            raise ValueError('Missing manifest/database')
+            raise ValueError(tr('Missing manifest/database'))
         manifest = json.loads(z.read('manifest.json'))
         if manifest != {'version': 2, 'school_id': school}:
-            raise ValueError('Recovery manifest mismatch')
+            raise ValueError(tr('Recovery manifest mismatch'))
         for name in names:
             target = directory / name
             target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -197,7 +215,7 @@ def recover_interrupted_restore(database):
     value = json.loads(journal.read_text())
     name = value['rollback']
     if not name.startswith('before-restore-') or Path(name).name != name:
-        raise ValueError('Invalid restore journal; operator recovery required')
+        raise ValueError(tr('Invalid restore journal; operator recovery required'))
     old = database.parent / name
     if not value.get('committed'):
         if (old / 'attendance.db').exists():
@@ -240,7 +258,7 @@ def install_bundle(directory, database):
         with closing(sqlite3.connect(database)) as source, closing(sqlite3.connect(old / 'attendance.db')) as target:
             source.backup(target)
             if source.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone()[0]:
-                raise ValueError('Database busy; stop all application processes')
+                raise ValueError(tr('Database busy; stop all application processes'))
         with (old / 'attendance.db').open('rb') as stream:
             os.fsync(stream.fileno())
     # Copy photos before mutation: a disk-full failure leaves the current installation intact.

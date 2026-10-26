@@ -2,6 +2,11 @@
 from contextlib import closing
 import csv
 from pathlib import Path
+
+try:
+    from ..localization import text as tr
+except ImportError:
+    from localization import text as tr
 import sqlite3
 import uuid
 
@@ -15,7 +20,7 @@ def bound_school(database):
     with closing(sqlite3.connect(f'{Path(database).resolve().as_uri()}?mode=ro', uri=True)) as connection:
         row = connection.execute("SELECT value FROM app_settings WHERE key='cloud_school_id'").fetchone()
     if not row:
-        raise ValueError('ابتدا اتصال دیتابیس به مدرسه در فعال‌سازی اولیه لازم است.')
+        raise ValueError(tr('Bind the database to a school during initial activation first.'))
     return str(uuid.UUID(row[0]))
 
 

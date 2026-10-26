@@ -6,6 +6,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
+
+try:
+    from ..localization import text as tr
+except ImportError:
+    from localization import text as tr
 import secrets
 import sqlite3
 import sys
@@ -47,7 +52,7 @@ class ClientConfig:
     def load(cls, path):
         value = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(value, dict) or set(value) != {"service_url", "public_key"}:
-            raise CloudError("Invalid public service configuration")
+            raise CloudError(tr('Invalid public service configuration'))
         url = value["service_url"].rstrip("/")
         parts = urlparse(url)
         port = parts.port
@@ -55,7 +60,7 @@ class ClientConfig:
                 or parts.password is not None or parts.path or parts.query or parts.fragment
                 or (port is not None and not 1 <= port <= 65535)
                 or any(c.isspace() or ord(c) < 32 for c in url)):
-            raise CloudError("نشانی سرویس باید HTTPS باشد.")
+            raise CloudError(tr('The service address must use HTTPS.'))
         key = base64.b64decode(value["public_key"], validate=True)
         Ed25519PublicKey.from_public_bytes(key)
         return cls(url, key)
@@ -124,7 +129,7 @@ class CloudClient:
             try:
                 self.state = json.loads(self.state_path.read_text(encoding='utf-8'))
                 if not isinstance(self.state, dict):
-                    raise ValueError('Invalid metadata')
+                    raise ValueError(tr('Invalid metadata'))
             except (ValueError, UnicodeError):
                 damaged = True
                 self.state = {}
@@ -163,7 +168,7 @@ class CloudClient:
     def _load_offline(self):
         try:
             if self.state.get('signed_out'):
-                raise ValueError('Local session was explicitly signed out')
+                raise ValueError(tr('Local session was explicitly signed out'))
             saved = self._checkpoint.load()
             if not saved:
                 return  # Legacy online-only clients activate once with the new server.
@@ -171,25 +176,25 @@ class CloudClient:
             previous_school = self.state.get('school_id')
             self.state['school_id'] = value['school_id']
             if previous_school is not None and previous_school != value['school_id']:
-                raise ValueError('School metadata tampering')
+                raise ValueError(tr('School metadata tampering'))
             if saved.get('suspicious'):
-                raise ValueError('Online clock verification required')
+                raise ValueError(tr('Online clock verification required'))
             self._generation = int(saved['generation'])
             # Vault checkpoint is authoritative, including after an interrupted JSON mirror write.
             if int(self.state.get('license_generation', self._generation)) > self._generation:
-                raise ValueError('Protected state rollback')
+                raise ValueError(tr('Protected state rollback'))
             mirror = self.state.get('signed_license')
             if mirror is not None and mirror != saved['envelope']:
                 previous = saved.get('previous')
                 if not previous or previous['hash'] != envelope_hash(mirror) or previous['generation'] != self.state.get('license_generation'):
-                    raise ValueError('License file rollback/tampering')
+                    raise ValueError(tr('License file rollback/tampering'))
                 # Crash between vault commit and mirror replacement: keep the NEW
                 # protected license/time, never roll back to the old public file.
             elapsed = max(0, license_clock() - saved['tick']) if saved['boot'] and saved['boot'] == boot_id() else 0
             observed_wall = float(saved['wall'])
             floor = float(saved['time']) + max(elapsed, time.time() - observed_wall)
             if time.time() < observed_wall + elapsed - CLOCK_TOLERANCE:
-                raise ValueError('Clock rollback')
+                raise ValueError(tr('Clock rollback'))
             self._anchor_time = floor
             self._wall_anchor = time.time()
             self._anchor_tick = license_clock()
@@ -241,7 +246,7 @@ class CloudClient:
             response = self.transport(method, self.config.url + path, headers=headers,
                                       timeout=(5, 30), allow_redirects=False, stream=True, **kwargs)
         except requests.RequestException as exc:
-            raise CloudError("ارتباط امن با سرویس برقرار نشد؛ اینترنت را بررسی کنید.") from exc
+            raise CloudError(tr('Secure connection failed. Check your internet connection.')) from exc
         if response.status_code in {401, 403}:
             code = None
             try:
@@ -257,19 +262,19 @@ class CloudClient:
                 pass
             response.close()
             if code == "backups_disabled":
-                raise CloudError("بکاپ توسط مدیر سرویس غیرفعال شده است.")
+                raise CloudError(tr('Backups have been disabled by the service administrator.'))
             messages = {
-                "invalid_credentials": "ایمیل یا رمز درست نیست، یا ایمیل هنوز تأیید نشده است.",
-                "subscription_inactive": "اشتراک مدرسه فعال نیست یا پایان یافته است؛ حساب سایت را بررسی کنید.",
-                "device_limit_reached": "ظرفیت دستگاه‌ها تکمیل شده است؛ دستگاه قبلی را از سایت لغو کنید یا با پشتیبانی تماس بگیرید.",
-                "device_revoked": "دسترسی این دستگاه لغو شده است؛ با پشتیبانی تماس بگیرید.",
-                "invalid_device_credential": "ورود ذخیره‌شده معتبر نیست؛ دوباره با ایمیل و رمز وارد شوید.",
+                "invalid_credentials": tr('Your email or password is incorrect, or your email is not yet verified.'),
+                "subscription_inactive": tr('Your school subscription is inactive or expired. Check your online account.'),
+                "device_limit_reached": tr('The device allowance is full. Revoke a previous device or contact support.'),
+                "device_revoked": tr('This device has been revoked. Contact support.'),
+                "invalid_device_credential": tr('Saved sign-in is invalid. Sign in again with your email and password.'),
             }
-            raise AccessDenied(messages.get(code, "ورود یا اشتراک معتبر نیست، یا دسترسی دستگاه لغو شده است."))
+            raise AccessDenied(messages.get(code, tr('Sign-in or subscription is invalid, or this device has been revoked.')))
         if not 200 <= response.status_code < 300:
             status = response.status_code
             response.close()
-            raise CloudError(f"سرویس درخواست را نپذیرفت (کد {status}).")
+            raise CloudError(tr('The service rejected the request (status {status}).').format(status=status))
         return response
 
     def _json(self, method, path, **kwargs):
@@ -278,21 +283,21 @@ class CloudClient:
             for chunk in response.iter_content(8192):
                 raw.extend(chunk)
                 if len(raw) > 65536:
-                    raise CloudError("پاسخ سرویس بیش از حد مجاز است.")
+                    raise CloudError(tr('The service response exceeds the permitted size.'))
             try:
                 return json.loads(raw)
             except (ValueError, UnicodeError) as exc:
-                raise CloudError("پاسخ سرویس معتبر نیست.") from exc
+                raise CloudError(tr('The service response is invalid.')) from exc
 
     def _auth_epoch(self):
         with self._lock:
             if self._closed or self._closing:
-                raise AccessDenied("نشست برنامه بسته شده است.")
+                raise AccessDenied(tr('The application session has closed.'))
             return self._session_epoch
 
     def _check_auth_epoch(self, epoch):
         if self._closed or self._closing or (epoch is not None and epoch != self._session_epoch):
-            raise AccessDenied("نشست ورود تغییر کرده است؛ دوباره وارد شوید.")
+            raise AccessDenied(tr('The sign-in session changed. Sign in again.'))
 
     def accept_lease(self, envelope, nonce, started, session_epoch=None):
         try:
@@ -300,9 +305,9 @@ class CloudClient:
                            self.state.get('school_id'), nonce)
             elapsed = license_clock() - started
             if not 0 <= elapsed <= 120:
-                raise ValueError('Stale synchronization response')
+                raise ValueError(tr('Stale synchronization response'))
         except Exception as exc:
-            raise AccessDenied("امضا یا اعتبار مجوز سرویس تأیید نشد.") from exc
+            raise AccessDenied(tr('The service license signature or validity could not be verified.')) from exc
         with self._state_io_lock:
             with self._lock:
                 self._check_auth_epoch(session_epoch)
@@ -319,7 +324,7 @@ class CloudClient:
             trusted = value['issued_at'] + elapsed
             try:
                 if not self.store.set(self._anchor_key, self.installation):
-                    raise OSError('ذخیره‌سازی امن شناسهٔ نصب انجام نشد.')
+                    raise OSError(tr('The installation identifier could not be stored securely.'))
                 self._checkpoint.save(envelope, trusted, license_clock(), generation, previous=previous)
             except OSError as exc:
                 if value['status'] != 'active':
@@ -328,7 +333,7 @@ class CloudClient:
                         atomic_json(self.state_path, dict(self.state))
                     except OSError:
                         pass  # Current session stays denied; unavailable storage cannot persist.
-                    raise AccessDenied('دسترسی لغو شده است؛ ذخیرهٔ وضعیت امن هم در دسترس نیست.') from exc
+                    raise AccessDenied(tr('Access was revoked and secure state storage is also unavailable.')) from exc
                 self._mirror_pending = False
                 raise CloudError(str(exc)) from exc
             with self._lock:
@@ -349,7 +354,7 @@ class CloudClient:
         with self._lock:
             self._check_auth_epoch(session_epoch)
         if value['status'] != 'active':
-            raise AccessDenied("دسترسی مدرسه یا این نصب توسط سرویس لغو شده است.")
+            raise AccessDenied(tr('The service revoked access for this school or installation.'))
         return value
 
     def login(self, email, password):
@@ -380,7 +385,7 @@ class CloudClient:
             with self._lock:
                 self._check_auth_epoch(epoch)
                 if not self.credential:
-                    raise AccessDenied("ابتدا وارد حساب مدرسه شوید.")
+                    raise AccessDenied(tr('Sign in to the school account first.'))
             nonce, started = secrets.token_urlsafe(32), license_clock()
             result = self._json("POST", "/api/v1/lease/", json={"nonce": nonce, "license_version": 2})
             return self.accept_lease(result["lease"], nonce, started, session_epoch=epoch)
@@ -411,7 +416,7 @@ class CloudClient:
     def require_lease(self):
         with self._lock:
             if not self.allowed():
-                raise AccessDenied("اشتراک پایان یافته یا بررسی آنلاینِ اعتبار و ساعت لازم است؛ اطلاعات مدرسه حفظ شده است.")
+                raise AccessDenied(tr('The subscription expired or online license and clock verification is required. School data has been preserved.'))
             return dict(self._lease)
 
     def logout(self):
@@ -441,13 +446,13 @@ class CloudClient:
             check_database(connection, lease)
             row = connection.execute("SELECT value FROM app_settings WHERE key='cloud_school_id'").fetchone()
             if row and row[0] != lease["school_id"]:
-                raise AccessDenied("دیتابیس متعلق به مدرسهٔ دیگری است.")
+                raise AccessDenied(tr('The database belongs to another school.'))
             connection.execute("INSERT INTO app_settings(key,value) VALUES('cloud_school_id',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (lease["school_id"],))
         self._database_path = Path(path)
 
     def backup(self, database_path):
         if not self._backup_lock.acquire(blocking=False):
-            raise CloudError("یک بکاپ دیگر در حال ارسال است.")
+            raise CloudError(tr('Another backup is already being uploaded.'))
         try:
             return self._backup(database_path)
         finally:
@@ -456,7 +461,7 @@ class CloudClient:
     def _backup(self, database_path):
         lease = self.require_lease()
         if not lease.get("backups_enabled"):
-            raise CloudError("بکاپ برای این اشتراک غیرفعال است.")
+            raise CloudError(tr('Backups are disabled for this subscription.'))
         from .recovery import make_bundle
         key = self.backup_key()
         database_path = Path(database_path)
@@ -464,7 +469,7 @@ class CloudClient:
             snapshot = Path(directory) / 'school.frbackup'
             size = make_bundle(database_path, snapshot, lease['school_id'], key)
             if size > MAX_BACKUP_BYTES:
-                raise CloudError(f"حجم بکاپ رمزگذاری‌شده {size} بایت است و از سقف ۱۲۸ مگابایت بیشتر است؛ خروجی کامل محلی بگیرید و با پشتیبانی تماس بگیرید.")
+                raise CloudError(tr('The encrypted backup is {size} bytes, exceeding the 128 MiB limit. Create a full local export and contact support.').format(size=size))
             digest = file_digest(snapshot)
             with snapshot.open('rb') as content:
                 result = self._json('POST', '/api/v1/backups/upload/', data=content,
@@ -479,10 +484,10 @@ class CloudClient:
         school = self.state.get('school_id')
         raw = self.store.get('backup-key:' + str(school))
         if not raw:
-            raise CloudError('ابتدا کلید بازیابی مدرسه را در یک محل امنِ جداگانه ذخیره یا وارد کنید.')
+            raise CloudError(tr('First save or import the school recovery key in a secure, separate location.'))
         key = base64.b64decode(raw, validate=True)
         if len(key) != 32:
-            raise CloudError('کلید بازیابی معتبر نیست.')
+            raise CloudError(tr('The recovery key is invalid.'))
         return key
 
     def configure_backup_key(self, path, importing=False):
@@ -492,14 +497,14 @@ class CloudClient:
             key = import_key(path, school)
             existing = self.store.get('backup-key:' + school)
             if existing and base64.b64decode(existing, validate=True) != key:
-                raise CloudError('کلید واردشده با کلید فعلی متفاوت است؛ برای جلوگیری از از دست رفتن بازیابی، جایگزین نشد.')
+                raise CloudError(tr('The imported key differs from the current key. It was not replaced, to preserve access to existing backups.'))
         else:
             # Re-export the SAME key. Never silently rotate away from older backups.
             raw = self.store.get('backup-key:' + school)
             key = base64.b64decode(raw, validate=True) if raw else os.urandom(32)
             export_key(path, school, key)
         if not self.store.set('backup-key:' + school, base64.b64encode(key).decode()):
-            raise CloudError('ذخیرهٔ امن کلید بازیابی انجام نشد؛ فایل کلید را نگه دارید.')
+            raise CloudError(tr('The recovery key could not be saved securely. Keep the exported key file.'))
         return True
 
     def backups(self):
@@ -520,13 +525,13 @@ class CloudClient:
                 for chunk in response.iter_content(65536):
                     size += len(chunk)
                     if size > MAX_BACKUP_BYTES:
-                        raise CloudError("فایل بازیابی بیش از حد بزرگ است.")
+                        raise CloudError(tr('The recovery file is too large.'))
                     output.write(chunk)
                     digest.update(chunk)
                 output.flush()
                 os.fsync(output.fileno())
             if digest.hexdigest() != expected:
-                raise CloudError("صحت فایل بازیابی تأیید نشد؛ دیتابیس فعلی حفظ شد.")
+                raise CloudError(tr('Recovery file integrity could not be verified. The current database was preserved.'))
             from .recovery import MAGIC, unpack_bundle, install_bundle
             with temporary.open('rb') as source:
                 encrypted = source.read(len(MAGIC)) == MAGIC
@@ -547,7 +552,7 @@ class CloudClient:
                     with closing(sqlite3.connect(target)) as source, closing(sqlite3.connect(rollback)) as destination:
                         source.backup(destination)
                         if source.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0] != 0:
-                            raise CloudError("دیتابیس در حال استفاده است؛ بازیابی متوقف شد.")
+                            raise CloudError(tr('The database is in use. Recovery was stopped.'))
                     # All users are stopped and the process lock is held by the caller.
                     for suffix in ("-wal", "-shm"):
                         Path(str(target) + suffix).unlink(missing_ok=True)
@@ -570,13 +575,13 @@ def check_database(connection, lease, require_binding=False):
     try:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not {"students", "attendance", "events", "app_settings", "face_embeddings"} <= tables:
-            raise CloudError("ساختار دیتابیس پشتیبان سازگار نیست.")
+            raise CloudError(tr('The backup database structure is incompatible.'))
         if connection.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
-            raise CloudError("دیتابیس پشتیبان سالم نیست.")
+            raise CloudError(tr('The backup database is corrupted.'))
         if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
-            raise CloudError("ارتباط رکوردهای دیتابیس معتبر نیست.")
+            raise CloudError(tr('The database contains invalid record relationships.'))
         row = connection.execute("SELECT value FROM app_settings WHERE key='cloud_school_id'").fetchone()
         if row and row[0] != lease["school_id"] or require_binding and not row:
-            raise CloudError("فایل پشتیبان به این مدرسه تعلق ندارد.")
+            raise CloudError(tr('The backup belongs to another school.'))
     finally:
         connection.execute("PRAGMA query_only=OFF")

@@ -1,4 +1,9 @@
 """In-memory admission gate. The application binds a verified lease at startup."""
+
+try:
+    from ..localization import text as tr
+except ImportError:
+    from localization import text as tr
 _gate = None
 
 
@@ -17,4 +22,4 @@ def enforce_student_capacity(connection):
     lease = _gate.require_lease()
     count = connection.execute("SELECT COUNT(*) FROM students WHERE capacity_archived=0").fetchone()[0]
     if count >= lease["student_limit"]:
-        raise ValueError("ظرفیت دانش‌آموز اشتراک تکمیل شده است؛ برای افزایش ظرفیت با پشتیبانی تماس بگیرید.")
+        raise ValueError(tr("The subscription's student capacity is full. Contact support to increase capacity."))
