@@ -138,6 +138,14 @@ if not exist "dist\FaceRecognition\models\face_detection_yunet_2023mar.onnx" (
     goto :fail
 )
 
+REM Compare all original models and public-only configuration with the build
+REM inputs, and require the Windows Qt/dlib/ONNX native components.
+%PY% -m tools.verify_windows_distribution
+if errorlevel 1 (
+    echo ERROR: Portable distribution verification failed.
+    goto :fail
+)
+
 REM ===== 7. Create launcher =====
 (
     echo @echo off

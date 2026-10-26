@@ -78,7 +78,7 @@ jobs:
       - name: Build Windows application
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --contents-directory . --name FaceRecognition --add-data 'models;models' --add-data 'build/public/subscription-client.json;.' --add-data 'src/locales;locales' --hidden-import face_recognition_models --hidden-import onnxruntime --additional-hooks-dir hooks --collect-all onnxruntime --collect-binaries dlib --collect-all keyring --collect-all cryptography src/app.py
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --contents-directory . --name FaceRecognition --add-data 'models;models' --add-data 'build/public/subscription-client.json;.' --add-data 'src/locales;locales' --hidden-import face_recognition_models --hidden-import onnxruntime --additional-hooks-dir hooks --collect-all PySide6 --collect-all onnxruntime --collect-binaries dlib --collect-all keyring --collect-all cryptography src/app.py
           if (-not (Test-Path dist/FaceRecognition/subscription-client.json)) { throw "Bundled public configuration is missing" }
 
       - name: Verify packaged files
@@ -114,6 +114,10 @@ jobs:
           Write-Host "YuNet size: $((Get-Item $target).Length) bytes"
           Write-Host "Packaged YOLO ONNX model: $personTarget"
           Write-Host "YOLO ONNX size: $((Get-Item $personTarget).Length) bytes"
+
+      - name: Verify original assets, public config and native runtime files
+        shell: pwsh
+        run: python -m tools.verify_windows_distribution
 
       - name: Smoke test packaged executable
         shell: pwsh
