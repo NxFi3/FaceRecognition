@@ -35,6 +35,10 @@ BACKUP_ROOT = root / "service" / "backups"
 RELEASE_ROOT = root / "service" / "releases"
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 EMAIL_HOST = ""
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
 SECURE_PROXY_SSL_HEADER = None
 SECURE_HSTS_SECONDS = 0
 SESSION_COOKIE_SECURE = True

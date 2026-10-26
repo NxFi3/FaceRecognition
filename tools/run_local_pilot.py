@@ -51,6 +51,8 @@ def workspace(path):
     marker = target / ".nxfi-local-pilot"
     if target.exists() and any(target.iterdir()) and not marker.is_file():
         raise RuntimeError("Refusing to use a nonempty, unmarked directory")
+    if target.exists() and target.is_symlink():
+        raise RuntimeError("Pilot root must not be a symbolic link")
     target.mkdir(mode=0o700, parents=True, exist_ok=True)
     target.chmod(0o700)
     if not marker.exists():
@@ -229,8 +231,9 @@ def main(argv=None):
     try:
         import requests
         # Verify the real localhost certificate and signed endpoint without disabling TLS.
-        response = requests.get(origin + "/health/", verify=str(ca), timeout=10,
-                                proxies={"http": None, "https": None})
+        session = requests.Session()
+        session.trust_env = False
+        response = session.get(origin + "/health/", verify=str(ca), timeout=10)
         response.raise_for_status()
         if response.json() != {"ok": True}:
             raise RuntimeError("Pilot HTTPS health check failed")

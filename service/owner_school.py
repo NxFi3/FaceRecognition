@@ -2,6 +2,7 @@
 from datetime import timedelta
 
 from django import forms
+from django.core.exceptions import ValidationError
 from django.contrib import messages
 from django.contrib.auth import get_user_model, password_validation
 from django.db import IntegrityError, transaction
@@ -38,14 +39,8 @@ class SchoolProvisionForm(forms.Form):
             user = get_user_model()(username=values["email"], email=values["email"])
             try:
                 password_validation.validate_password(values["temporary_password"], user)
-            except forms.ValidationError as exc:
+            except ValidationError as exc:
                 self.add_error("temporary_password", exc)
-            except Exception as exc:
-                from django.core.exceptions import ValidationError
-                if isinstance(exc, ValidationError):
-                    self.add_error("temporary_password", exc)
-                else:
-                    raise
         return values
 
 
