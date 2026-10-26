@@ -45,6 +45,9 @@ class SchoolLoginView(LoginView):
     template_name = "registration/login.html"
     def form_valid(self, form):
         from .owner_auth import is_company_owner
+        if getattr(settings, 'OWNER_ONLY_WEB', False) and not is_company_owner(form.get_user()):
+            form.add_error(None, _("This website is for NxFi administration only. Use the FaceRecognition desktop to sign in as a school."))
+            return self.form_invalid(form)
         if not is_company_owner(form.get_user()) and not (School.objects.filter(user=form.get_user()).exists() or CustomerProfile.objects.filter(user=form.get_user(), email_verified_at__isnull=False).exists()):
             form.add_error(None, _("No verified NxFi account was found."))
             return self.form_invalid(form)
@@ -60,6 +63,8 @@ def send_verification(user):
 
 
 def register(request):
+    if getattr(settings, 'OWNER_ONLY_WEB', False):
+        return HttpResponse(_("School registration is managed by the NxFi owner."), status=403)
     if not settings.TESTING and not settings.EMAIL_HOST:
         return HttpResponse(_("Registration is unavailable until the operator configures email."), status=503)
     form = RegistrationForm(request.POST or None)

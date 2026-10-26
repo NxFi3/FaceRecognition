@@ -187,6 +187,11 @@ if getattr(sys, "frozen", False):
     BASE_DIR = Path(sys.executable).resolve().parent
 else:
     BASE_DIR = Path(__file__).resolve().parent.parent
+    try:
+        from .pilot_paths import active_pilot_root
+    except ImportError:
+        from pilot_paths import active_pilot_root
+    BASE_DIR = active_pilot_root(BASE_DIR) or BASE_DIR
 
 # A full Windows release can carry the SAME warmed OSNet cache as the pilot.
 # This changes only packaged asset lookup, never model selection or cadence.
