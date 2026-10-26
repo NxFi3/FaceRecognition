@@ -18,26 +18,17 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Download YuNet model
+      - name: Verify committed baseline model assets
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path "models" | Out-Null
-          Invoke-WebRequest -Uri "https://huggingface.co/opencv/opencv_zoo/resolve/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx" -OutFile "models/face_detection_yunet_2023mar.onnx"
-          if ((Get-Item "models/face_detection_yunet_2023mar.onnx").Length -lt 100000) {
-            throw "YuNet model download looks invalid."
+          # Release builds retain this commit's validated models. Export/model
+          # changes belong in the separate reviewed ONNX export workflow.
+          git ls-files --error-unmatch models/face_detection_yunet_2023mar.onnx models/yolo26n.onnx
+          if ($LASTEXITCODE -ne 0) { throw 'Required original ONNX assets are not tracked in this commit.' }
+          foreach ($asset in @('models/face_detection_yunet_2023mar.onnx', 'models/yolo26n.onnx')) {
+            if ((Get-Item $asset).Length -lt 100000) { throw "Missing or invalid model asset: $asset" }
+            Get-FileHash -Algorithm SHA256 $asset
           }
-
-      - name: Export and smoke-test YOLO26 ONNX in an isolated environment
-        shell: pwsh
-        run: |
-          # Export-only dependencies stay out of the PyInstaller runtime environment.
-          python -m venv .export-venv
-          .\.export-venv\Scripts\python.exe -m pip install --upgrade pip setuptools wheel
-          .\.export-venv\Scripts\python.exe -m pip install -r requirements-export.txt
-          .\.export-venv\Scripts\python.exe tools\export_person_model_onnx.py --model models\yolo26n.pt --output models\yolo26n.onnx --imgsz 512
-          Invoke-WebRequest -Uri "https://ultralytics.com/images/bus.jpg" -OutFile "$env:RUNNER_TEMP\bus.jpg"
-          .\.export-venv\Scripts\python.exe tools\smoke_test_person_onnx.py --model models\yolo26n.onnx --image "$env:RUNNER_TEMP\bus.jpg" --imgsz 512 --conf 0.20 --report "$env:RUNNER_TEMP\onnx-smoke-report.json"
-          Copy-Item "$env:RUNNER_TEMP\onnx-smoke-report.json" "onnx-smoke-report.json"
 
       - name: Install dependencies
         shell: pwsh

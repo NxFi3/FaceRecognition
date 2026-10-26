@@ -37,10 +37,6 @@ if errorlevel 1 (
     )
 )
 
-REM Public release configuration is supplied by the operator, never the customer.
-%PY% -m tools.package_client
-if errorlevel 1 goto :fail
-
 echo Python:
 %PY% --version
 echo.
@@ -53,6 +49,10 @@ if errorlevel 1 (
     echo ERROR: A required build dependency is missing.
     goto :fail
 )
+
+REM Public release configuration is supplied by the operator, never the customer.
+%PY% -m tools.package_client
+if errorlevel 1 goto :fail
 
 %PY% -c "import cv2; d=cv2.FaceDetectorYN.create('models/face_detection_yunet_2023mar.onnx','',(320,320)); assert d is not None; print('YuNet ONNX OK')"
 if errorlevel 1 goto :fail

@@ -12,6 +12,28 @@ from src.cloud.client import ClientConfig
 from src.engine.model_assets import model_directory
 
 
+FACE_MODEL_NAMES = (
+    'shape_predictor_68_face_landmarks.dat',
+    'shape_predictor_5_face_landmarks.dat',
+    'dlib_face_recognition_resnet_model_v1.dat',
+    'mmod_human_face_detector.dat',
+)
+
+
+def required_assets(root, face_model_root):
+    """Require the exact original assets, not an arbitrary count of .dat files.
+
+    This verifies presence/nonempty files; the executable's --smoke-test must
+    still load the models. No model is downloaded, replaced or converted here.
+    """
+    root, face_model_root = Path(root), Path(face_model_root)
+    files = [root / 'models' / name for name in ('yolo26n.onnx', 'face_detection_yunet_2023mar.onnx')]
+    files += [face_model_root / name for name in FACE_MODEL_NAMES]
+    if any(not path.is_file() or path.stat().st_size == 0 for path in files):
+        raise ValueError('Required original ONNX/dlib assets missing or empty')
+    return files
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--torch-cache', type=Path)
@@ -23,10 +45,10 @@ def main():
     if not source.is_file():
         source = root / 'subscription-client.json'  # CI's public repository variables
     stage(source, root / 'build/public/subscription-client.json')
-    files = [root / 'models' / name for name in ('yolo26n.onnx', 'face_detection_yunet_2023mar.onnx')]
-    files += sorted(model_directory().glob('*.dat'))
-    if len(files) != 6 or any(not path.is_file() for path in files):
-        parser.error('Required original ONNX/dlib assets missing')
+    try:
+        files = required_assets(root, model_directory())
+    except (RuntimeError, ValueError) as exc:
+        parser.error(str(exc))
     if args.torch_cache:
         if not all(importlib.util.find_spec(name) is not None for name in ('torch', 'torchvision', 'torchreid')):
             parser.error('Install the existing CPU-only Re-ID dependencies before packaging')
