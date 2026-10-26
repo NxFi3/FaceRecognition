@@ -284,7 +284,19 @@ class AccountDialog(QDialog):
 
     def auto_changed(self, checked):
         self.client.state["automatic_backups"] = checked
-        self.client.save_state()
+        try:
+            self.client.save_state()
+        except OSError:
+            # Never start new automatic uploads after a consent-save failure.
+            # An older persisted preference may remain until storage recovers;
+            # warn explicitly rather than silently reporting a durable opt-out.
+            self.client.state["automatic_backups"] = False
+            blocked = self.auto.blockSignals(True)
+            try:
+                self.auto.setChecked(False)
+            finally:
+                self.auto.blockSignals(blocked)
+            self.status.setText(tr('The backup preference could not be saved. No new automatic uploads will start in this session. Check storage and confirm the preference before restart; an older saved preference may remain.'))
     def backup(self):
         if QMessageBox.question(self, tr('Upload backup'), tr("Upload this school's full database to the server?"), QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
             return

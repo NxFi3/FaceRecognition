@@ -150,3 +150,20 @@ class ReleaseCloudTests(unittest.TestCase):
             account.deleteLater(); local.deleteLater()
         finally:
             localization.configure(self.app, previous)
+
+    def test_backup_consent_storage_failure_disables_future_session_uploads(self):
+        from src.cloud.ui import AccountDialog
+        from src import localization
+        localization.configure(self.app, 'en')
+        for selected in (True, False):
+            with self.subTest(consent=selected):
+                client = self.client_for_dialog()
+                client.state['automatic_backups'] = True
+                client.save_state.side_effect = PermissionError('synthetic denied')
+                dialog = AccountDialog(client, 'unused.db')
+                dialog.auto_changed(selected)
+                self.assertFalse(client.state['automatic_backups'])
+                self.assertFalse(dialog.auto.isChecked())
+                self.assertIn('this session', dialog.status.text())
+                self.assertIn('restart', dialog.status.text())
+                dialog.reject(); dialog.deleteLater()
