@@ -36,12 +36,25 @@ def sync_directory(path):
             os.close(fd)
 
 
+def sync_file(path):
+    """Flush a closed, already-written file using a handle Windows can flush.
+
+    Windows FlushFileBuffers (used by os.fsync) requires a writable handle.
+    Opening a file read-only and fsyncing it raises EBADF on Windows. This
+    function does not alter file content; it just obtains a handle with the
+    access required to request a flush.
+    """
+    path = Path(path)
+    mode = 'r+b' if os.name == 'nt' else 'rb'
+    with path.open(mode) as stream:
+        os.fsync(stream.fileno())
+
+
 def sync_tree(path):
     path = Path(path)
     for child in path.rglob('*'):
         if child.is_file():
-            with child.open('rb') as stream:
-                os.fsync(stream.fileno())
+            sync_file(child)
     for child in sorted((p for p in path.rglob('*') if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
         sync_directory(child)
     sync_directory(path)
@@ -224,8 +237,7 @@ def recover_interrupted_restore(database):
             os.close(fd)
             try:
                 shutil.copyfile(old / 'attendance.db', temporary)
-                with open(temporary, 'rb') as stream:
-                    os.fsync(stream.fileno())
+                sync_file(temporary)
                 for suffix in ('-wal', '-shm'):
                     Path(str(database) + suffix).unlink(missing_ok=True)
                 os.replace(temporary, database)
@@ -259,8 +271,7 @@ def install_bundle(directory, database):
             source.backup(target)
             if source.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone()[0]:
                 raise ValueError(tr('Database busy; stop all application processes'))
-        with (old / 'attendance.db').open('rb') as stream:
-            os.fsync(stream.fileno())
+        sync_file(old / 'attendance.db')
     # Copy photos before mutation: a disk-full failure leaves the current installation intact.
     if photos.exists():
         shutil.copytree(photos, old / 'early_exit_review')
@@ -276,8 +287,7 @@ def install_bundle(directory, database):
         for suffix in ('-wal', '-shm'):
             Path(str(database) + suffix).unlink(missing_ok=True)
         os.replace(directory / 'attendance.db', database)
-        with database.open('rb') as stream:
-            os.fsync(stream.fileno())
+        sync_file(database)
         if photos.exists():
             sync_tree(photos)
         sync_directory(database.parent)
