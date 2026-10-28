@@ -10,7 +10,11 @@ BRAND_SURFACES = (
     "service/templates/marketing/about.html",
     "service/templates/marketing/products.html",
     "service/templates/marketing/contact.html",
+    "service/templates/marketing/facerecognition.html",
+    "service/templates/marketing/privacy.html",
+    "service/templates/marketing/terms.html",
     "service/templates/owner/dashboard.html",
+    "service/admin_site.py",
     "src/cloud/ui.py",
     "service/context_processors.py",
 )
@@ -24,6 +28,16 @@ class NxFiBrandTests(unittest.TestCase):
                 content = path.read_text(encoding="utf-8")
                 self.assertNotIn("NxFi Technologies", content)
                 self.assertNotIn("NXFI TECHNOLOGIES", content)
+
+    def test_persian_translation_catalog_uses_the_same_brand(self):
+        import json
+        catalog = json.loads((ROOT / "src/locales/fa.json").read_text(encoding="utf-8"))
+        for source, translation in catalog.items():
+            with self.subTest(source=source):
+                self.assertNotIn("NxFi Technologies", source)
+                self.assertNotIn("NxFi Technologies", translation)
+                self.assertNotIn("NXFI TECHNOLOGIES", source)
+                self.assertNotIn("NXFI TECHNOLOGIES", translation)
 
 
 if __name__ == "__main__":
