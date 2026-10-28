@@ -1,4 +1,5 @@
 import os
+from contextlib import closing
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from pathlib import Path
 import tempfile
@@ -137,9 +138,13 @@ class CloudUITests(unittest.TestCase):
                  patch('src.cloud.ui.CloudController'), patch('src.cloud.ui.QMessageBox.question', return_value=16384), \
                  patch.object(self.app, 'exec', return_value=0):
                 import sqlite3
-                with sqlite3.connect(root / 'attendance.db') as connection:
+                # sqlite3.Connection's context manager commits/rolls back but
+                # does not close the handle. Explicitly close it so Windows can
+                # remove the temporary directory after this test.
+                with closing(sqlite3.connect(root / 'attendance.db')) as connection:
                     connection.execute('CREATE TABLE app_settings(key TEXT, value TEXT)')
                     connection.execute("INSERT INTO app_settings VALUES('cloud_school_id','test-school')")
+                    connection.commit()
                 account.return_value.exec.return_value = QDialog.Accepted
                 account.return_value.restored = False
                 self.assertEqual(run_application(self.app, lambda: window, Mock(), Mock(return_value=True), root / 'attendance.db', root), 0)
