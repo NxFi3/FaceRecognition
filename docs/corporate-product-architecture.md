@@ -1,4 +1,4 @@
-# NxFi Technologies: company first, FaceRecognition as the first product
+# NxFi: company first, FaceRecognition as the first product
 
 This update continues `feature/nxfi-commercial-platform` after `b7c9e70`.
 The company brand, account entry and catalog are independent from the first
@@ -9,7 +9,7 @@ No future product, cloud processing service or placeholder subscription is launc
 
 | Route | Responsibility |
 | --- | --- |
-| `/` | NxFi Technologies: software/AI company introduction and its actual first product |
+| `/` | NxFi: software/AI company introduction and its actual first product |
 | `/products/` | Company product catalog; only published, implemented products with a dedicated landing qualify |
 | `/products/facerecognition/` | Complete FaceRecognition landing, preserving the previous full product content |
 | `/products/facerecognition/pricing/` | FaceRecognition's real published plans and secure order creation |
