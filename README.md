@@ -1,6 +1,6 @@
-# NxFi Technologies
+# NxFi
 
-An English-default, Persian-optional corporate software and AI technology platform. FaceRecognition is
+An English-default, Persian-optional software and AI platform. FaceRecognition is
 its first and currently only commercial product: a desktop attendance application
 with person detection, local tracking, optional Re-ID, and attendance management.
 
@@ -24,7 +24,7 @@ payment gateway or cloud inference service is advertised as integrated.
 - [Verified synthetic desktop/mobile website screenshots](docs/screenshots/README.md)
 - [Offline licensing and school recovery (Persian)](docs/subscription-setup-fa.md)
 
-Company name NxFi Technologies is provisional. The project makes no claim of
+The NxFi brand is provisional. The project makes no claim of
 legal registration, certification, paying customers, or measured target-PC accuracy.
 The current release-hardening branch is `hardening/release-acceptance`, based on
 `feature/nxfi-unified-account-i18n`. Previous branches remain unchanged. Published prices and release
