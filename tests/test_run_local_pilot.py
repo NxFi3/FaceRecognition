@@ -56,17 +56,18 @@ class LocalPilotWorkspaceTests(unittest.TestCase):
         )
 
     @unittest.skipIf(os.name == "nt", "symlink creation may require Windows Developer Mode")
-    def test_refuses_to_replace_live_model_link_to_another_checkout(self):
+    def test_repoints_model_link_to_current_checkout_without_mutating_old_target(self):
         self.mark_pilot()
         other_models = self.temp_root / "other-checkout" / "models"
         other_models.mkdir(parents=True)
-        (other_models / "model.onnx").write_bytes(b"existing")
+        original_model = other_models / "model.onnx"
+        original_model.write_bytes(b"existing")
         (self.pilot / "models").symlink_to(other_models, target_is_directory=True)
 
-        with self.assertRaisesRegex(RuntimeError, "unexpected"):
-            run_local_pilot.workspace(self.pilot)
+        run_local_pilot.workspace(self.pilot)
 
-        self.assertEqual((self.pilot / "models").resolve(), other_models.resolve())
+        self.assertEqual((self.pilot / "models").resolve(), (self.repo / "models").resolve())
+        self.assertEqual(original_model.read_bytes(), b"existing")
 
     def test_refuses_nonempty_unmarked_pilot_directory(self):
         self.pilot.mkdir()
