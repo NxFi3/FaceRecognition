@@ -62,14 +62,13 @@ def workspace(path):
     linked = target / "models"
     expected_models = (ROOT / "models").resolve()
     if linked.is_symlink():
-        # A removed/recreated checkout can leave this symlink dangling. It is
-        # safe to replace the dangling link itself, but never to retarget a
-        # live link that resolves to another checkout or model directory.
-        if not linked.exists():
+        # The marked pilot workspace is disposable synthetic runtime state. If
+        # the source checkout moved, its old model link may be dangling or may
+        # still resolve to another checkout. Replace only the link itself;
+        # never delete or mutate the old target directory or its model files.
+        if linked.resolve() != expected_models:
             linked.unlink()
             linked.symlink_to(expected_models, target_is_directory=True)
-        elif linked.resolve() != expected_models:
-            raise RuntimeError("Pilot model symlink points somewhere unexpected")
     elif not linked.exists():
         linked.symlink_to(expected_models, target_is_directory=True)
     else:
