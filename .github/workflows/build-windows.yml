@@ -55,27 +55,44 @@ jobs:
         run: |
           python -m unittest discover -s tests -v
 
-      - name: Configure subscription endpoint for release
+      - name: Configure subscription endpoint for release or pull-request smoke test
         shell: pwsh
         env:
           CLOUD_SERVICE_URL: ${{ vars.CLOUD_SERVICE_URL }}
           CLOUD_PUBLIC_KEY: ${{ vars.CLOUD_PUBLIC_KEY }}
         run: |
-          if (-not $env:CLOUD_SERVICE_URL -or -not $env:CLOUD_PUBLIC_KEY) {
-            throw 'Set public repository variables CLOUD_SERVICE_URL and CLOUD_PUBLIC_KEY from deploy/generated/subscription-client.json.'
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            # Disposable localhost-only configuration for CI packaging checks.
+            # This build is never uploaded as a customer release artifact.
+            $serviceUrl = 'https://localhost:18443'
+            [byte[]]$testKey = 0..31 | ForEach-Object { [byte]$_ }
+            $publicKey = [Convert]::ToBase64String($testKey)
+            Write-Host 'Using synthetic localhost config for pull-request validation only.'
+          } else {
+            if (-not $env:CLOUD_SERVICE_URL -or -not $env:CLOUD_PUBLIC_KEY) {
+              throw 'Set public repository variables CLOUD_SERVICE_URL and CLOUD_PUBLIC_KEY from deploy/generated/subscription-client.json before creating a Windows release.'
+            }
+            $serviceUrl = $env:CLOUD_SERVICE_URL
+            $publicKey = $env:CLOUD_PUBLIC_KEY
           }
-          @{service_url=$env:CLOUD_SERVICE_URL; public_key=$env:CLOUD_PUBLIC_KEY} | ConvertTo-Json | Set-Content -Encoding utf8NoBOM subscription-client.json
+          @{service_url=$serviceUrl; public_key=$publicKey} | ConvertTo-Json | Set-Content -Encoding utf8NoBOM subscription-client.json
           python -c "from src.cloud.client import ClientConfig; ClientConfig.load('subscription-client.json'); print('SUBSCRIPTION_CONFIG_OK')"
 
-      - name: Require explicit pilot Re-ID capability review
+      - name: Prepare reviewed Re-ID capability for release or smoke test
         shell: pwsh
         env:
           RELEASE_REID_POLICY: ${{ vars.RELEASE_REID_POLICY }}
         run: |
-          if ($env:RELEASE_REID_POLICY -ne 'not-used-in-pilot') {
-            throw 'This CI job has no validated OSNet weights. Use buildwindows.bat with FACE_REID_CACHE for an OSNet pilot. Set RELEASE_REID_POLICY=not-used-in-pilot only when that matches the tested baseline.'
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            # No OSNet checkpoint is available to this clean runner. Test only
+            # the supported no-ReID package path; do not publish this artifact.
+            python -m tools.prepare_windows_assets --allow-no-reid
+          } else {
+            if ($env:RELEASE_REID_POLICY -ne 'not-used-in-pilot') {
+              throw 'This CI job has no validated OSNet weights. Use buildwindows.bat with FACE_REID_CACHE for an OSNet pilot. Set RELEASE_REID_POLICY=not-used-in-pilot only when that matches the tested baseline.'
+            }
+            python -m tools.prepare_windows_assets --allow-no-reid
           }
-          python -m tools.prepare_windows_assets --allow-no-reid
 
       - name: Build Windows application
         shell: pwsh
@@ -131,6 +148,7 @@ jobs:
           }
 
       - name: Create ZIP
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
           if (Test-Path 'FaceRecognition-Windows.zip') {
@@ -139,6 +157,7 @@ jobs:
           Compress-Archive -Path 'dist/FaceRecognition/*' -DestinationPath 'FaceRecognition-Windows.zip'
 
       - name: Upload Windows build
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: FaceRecognition-Windows
