@@ -18,7 +18,7 @@ class OwnerAdminAuthenticationForm(AdminAuthenticationForm):
 
 class OwnerAdminSite(AdminSite):
     login_form = OwnerAdminAuthenticationForm
-    site_header = _('NxFi Technologies — administration')
+    site_header = _('NxFi — administration')
     site_title = _('NxFi administration')
     index_title = _('Technical administration')
 
