@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light"><meta name="theme-color" content="#121a33">
-  <title>{% block title %}{{ page_title|default:company_name }} · NxFi Technologies{% endblock %}</title>
-  <meta name="description" content="{% translate "Software and AI products by NxFi Technologies." %}">
+  <title>{% block title %}{{ page_title|default:company_name }} · NxFi{% endblock %}</title>
+  <meta name="description" content="{% translate "Software and AI products by NxFi." %}">
   <meta name="robots" content="{% if indexable %}index,follow{% else %}noindex,nofollow{% endif %}">
-  <meta property="og:type" content="website"><meta property="og:locale" content="{{ LANGUAGE_CODE }}"><meta property="og:site_name" content="NxFi Technologies">
-  <meta property="og:title" content="{{ page_title|default:company_name }}"><meta property="og:description" content="{% translate "Software and AI products by NxFi Technologies." %}">
+  <meta property="og:type" content="website"><meta property="og:locale" content="{{ LANGUAGE_CODE }}"><meta property="og:site_name" content="NxFi">
+  <meta property="og:title" content="{{ page_title|default:company_name }}"><meta property="og:description" content="{% translate "Software and AI products by NxFi." %}">
   {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}"><meta property="og:url" content="{{ canonical_url }}">{% endif %}
   <link rel="icon" href="{% static 'nxfi-mark.svg' %}" type="image/svg+xml">
   <link rel="preload" href="{% static 'fonts/Vazirmatn-variable.woff2' %}" as="font" type="font/woff2" crossorigin>
@@ -31,7 +31,7 @@
 {% else %}
 <header class="site-header">
   <div class="container nav-shell">
-    <a class="brand" href="{% url 'home' %}" aria-label="NxFi Technologies"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span><strong dir="ltr">NxFi<span> Technologies</span></strong><small>{% translate "Software & AI technology" %}</small></span></a>
+    <a class="brand" href="{% url 'home' %}" aria-label="NxFi"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span><strong dir="ltr">NxFi</strong><small>{% translate "Software & AI" %}</small></span></a>
     <button class="menu-toggle" type="button" data-menu-toggle aria-expanded="false" aria-controls="primary-nav"><span aria-hidden="true">☰</span><span class="sr-only">{% translate "Open navigation" %}</span></button>
     <nav id="primary-nav" class="primary-nav" aria-label="{% translate "Main navigation" %}">
       <a href="{% url 'home' %}"{% if current_page == 'home' %} aria-current="page"{% endif %}>{% translate "Company" %}</a>
@@ -57,12 +57,12 @@
 {% else %}
 <footer class="site-footer">
   <div class="container footer-grid">
-    <div class="footer-brand"><a class="brand" href="{% url 'home' %}"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span><strong dir="ltr">NxFi Technologies</strong><small>{% translate "Technology for better working days." %}</small></span></a><p>{% translate "NxFi Technologies develops software and AI technology for practical needs. FaceRecognition is our first commercial product." %}</p><span class="badge badge-neutral">{% translate "First product · preparing for pilot deployment" %}</span></div>
-    <div><h2>NxFi Technologies</h2><a href="{% url 'about' %}">{% translate "About NxFi" %}</a><a href="{% url 'products' %}">{% translate "Products" %}</a><a href="{% url 'contact' %}">{% translate "Talk to our team" %}</a><a href="{% url 'workspace' %}">{% translate "My account" %}</a></div>
+    <div class="footer-brand"><a class="brand" href="{% url 'home' %}"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span><strong dir="ltr">NxFi</strong><small>{% translate "Software for everyday work." %}</small></span></a><p>{% translate "NxFi develops software and AI technology for practical needs. FaceRecognition is our first commercial product." %}</p><span class="badge badge-neutral">{% translate "First product · preparing for pilot deployment" %}</span></div>
+    <div><h2>NxFi</h2><a href="{% url 'about' %}">{% translate "About NxFi" %}</a><a href="{% url 'products' %}">{% translate "Products" %}</a><a href="{% url 'contact' %}">{% translate "Talk to our team" %}</a><a href="{% url 'workspace' %}">{% translate "My account" %}</a></div>
     <div><h2 dir="ltr">FaceRecognition</h2><a href="{% url 'product-facerecognition' %}">{% translate "Explore the product" %}</a><a href="{% url 'pricing' %}">{% translate "Plans & pricing" %}</a><a href="{% url 'downloads' %}">{% translate "Downloads" %}</a><a href="{% url 'account' %}">{% translate "Product portal" %}</a></div>
     <div><h2>{% translate "Help & transparency" %}</h2><a href="{% url 'support' %}">{% translate "NxFi support center" %}</a><a href="{% url 'privacy' %}">{% translate "Privacy policy" %}</a><a href="{% url 'terms' %}">{% translate "Terms of service" %}</a><a href="{% url 'workspace' %}">{% translate "NxFi account" %}</a></div>
   </div>
-  <div class="container footer-bottom"><span dir="ltr">© {% now 'Y' %} NxFi Technologies</span><span>{% translate "NxFi Technologies is a provisional project name. No legal registration or certification is claimed." %}</span></div>
+  <div class="container footer-bottom"><span dir="ltr">© {% now 'Y' %} NxFi</span><span>{% translate "NxFi is a provisional project name. No legal registration or certification is claimed." %}</span></div>
 </footer>
 {% endif %}
 </body></html>
