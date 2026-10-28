@@ -85,7 +85,7 @@ class LoginDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(30, 26, 30, 26)
         layout.setSpacing(16)
-        brand = QLabel('NxFi Technologies')
+        brand = QLabel('NxFi')
         brand.setObjectName('nxfi-brand')
         layout.addWidget(brand)
         self.language_box = QComboBox()
