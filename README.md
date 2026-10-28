@@ -17,6 +17,7 @@ payment gateway or cloud inference service is advertised as integrated.
 - [Company/product architecture and migration](docs/corporate-product-architecture.md)
 - [Current corporate desktop/mobile screenshots](docs/screenshots/corporate-README.md)
 - [Local development, owner bootstrap and deployment (Persian)](docs/commercial-deployment-fa.md)
+- [Plain-language local pilot and commercial workflow guide (Persian)](docs/guide-commercial-and-local-pilot-fa.md)
 - [Repository audit](docs/commercial-audit.md)
 - [Independent security audit and actual production-mode workflow](docs/production-readiness-audit.md)
 - [Current production-mode screenshots](docs/screenshots/audit-final/README.md)
@@ -26,10 +27,7 @@ payment gateway or cloud inference service is advertised as integrated.
 
 The NxFi brand is provisional. The project makes no claim of
 legal registration, certification, paying customers, or measured target-PC accuracy.
-The current release-hardening branch is `hardening/release-acceptance`, based on
-`feature/nxfi-unified-account-i18n`. Previous branches remain unchanged. Published prices and release
-binaries must be explicitly configured by the owner; there are no fake payment
-successes or placeholder installers.
+Use the exact commit and its successful validation results to identify a release candidate; branch names alone do not establish release readiness. Published prices and release binaries must be explicitly configured by the owner; there are no fake payment successes or placeholder installers.
 
 ## Project layout
 
