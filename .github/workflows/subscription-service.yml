@@ -25,6 +25,8 @@ jobs:
       - run: python -m pip install -r requirements-service.txt -r requirements-cloud.txt numpy
       - run: python -m pip install pip-audit
       - run: python -m pip_audit -r requirements-service.txt -r requirements-cloud.txt --progress-spinner off
+      - name: Compile the reviewed Persian catalog before web tests and packaging
+        run: python -m tools.compile_translations
       - run: python -m service.manage test service -v 2
       - name: Verify desktop/server offline-license and encrypted-recovery contract
         run: python -m tools.smoke_offline_license
