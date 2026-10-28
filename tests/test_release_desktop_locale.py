@@ -133,6 +133,21 @@ class DesktopLocalizationTests(unittest.TestCase):
         restored = QDialogButtonBox(QDialogButtonBox.Cancel)
         self.assertEqual(restored.button(QDialogButtonBox.Cancel).text(),english)
 
+    def test_old_language_preference_migrates_to_nxfi_settings_namespace(self):
+        native = QSettings
+        stores = {
+            'NxFi': self.directory/'current.ini',
+            'NxFi Technologies': self.directory/'legacy.ini',
+        }
+        def isolated_settings(organization, application):
+            return native(str(stores[organization]), native.IniFormat)
+        with patch('PySide6.QtCore.QSettings', isolated_settings):
+            legacy = isolated_settings('NxFi Technologies', 'FaceRecognition')
+            legacy.setValue('language', 'fa')
+            self.assertEqual(localization.preferred_language(), 'fa')
+            current = isolated_settings('NxFi', 'FaceRecognition')
+            self.assertEqual(current.value('language'), 'fa')
+
     def test_failed_preference_save_does_not_change_active_language(self):
         localization.configure(self.application,'en')
         settings = Mock()
