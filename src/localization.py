@@ -18,7 +18,17 @@ def text(message):
 
 def preferred_language():
     from PySide6.QtCore import QSettings
-    selected = QSettings('NxFi Technologies', 'FaceRecognition').value('language', 'en')
+    selected = QSettings('NxFi', 'FaceRecognition').value('language', None)
+    if selected not in ('en', 'fa'):
+        # Migrate the preference from the old internal QSettings namespace.
+        # This preserves the user's language choice while removing the old
+        # brand from all newly written settings.
+        legacy = QSettings('NxFi Technologies', 'FaceRecognition')
+        selected = legacy.value('language', 'en')
+        if selected in ('en', 'fa'):
+            current = QSettings('NxFi', 'FaceRecognition')
+            current.setValue('language', selected)
+            current.sync()
     return selected if selected in ('en', 'fa') else 'en'
 
 
@@ -26,7 +36,7 @@ def save_language_preference(selected):
     from PySide6.QtCore import QSettings
     if selected not in ('en', 'fa'):
         raise ValueError('Unsupported language')
-    settings = QSettings('NxFi Technologies', 'FaceRecognition')
+    settings = QSettings('NxFi', 'FaceRecognition')
     settings.setValue('language', selected)
     settings.sync()
     if getattr(settings.status(), 'name', None) != 'NoError':
