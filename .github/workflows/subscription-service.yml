@@ -30,8 +30,12 @@ jobs:
         run: python -m tools.smoke_offline_license
         env:
           SERVICE_TEST_DATABASE_URL: ''
-      - name: Compile commercial and deployment modules
-        run: python -m compileall -q service deploy tools
+      - name: Compile application, service, tests and deployment modules
+        run: python -m compileall -q service src tests tools deploy
+      - name: Test local pilot recovery and concise branding
+        run: |
+          python -m unittest discover -s tests -p 'test_run_local_pilot.py' -v
+          python -m unittest discover -s tests -p 'test_branding.py' -v
       - name: Check deployment helper syntax
         run: bash -n deploy/install-ubuntu.sh deploy/backup-server.sh
       - run: python -m service.manage makemigrations --check --dry-run
