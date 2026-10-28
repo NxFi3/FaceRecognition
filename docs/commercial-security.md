@@ -2,7 +2,7 @@
 
 Date: 2026-10-25. Branch: `feature/nxfi-commercial-platform`.
 Baseline: `hardening/offline-first-licensing` at `bb75a65` (unchanged).
-The original/default branches are not merged or modified. NxFi Technologies is
+The original/default branches are not merged or modified. NxFi is
 provisional; nothing here asserts legal registration, certification, paying
 customers, a live gateway, or an external security assessment.
 
