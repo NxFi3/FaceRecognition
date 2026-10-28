@@ -55,26 +55,31 @@ jobs:
         run: |
           python -m unittest discover -s tests -v
 
-      - name: Configure subscription endpoint for release or pull-request smoke test
+      - name: Configure subscription endpoint for release or smoke test
+        id: configure
         shell: pwsh
         env:
           CLOUD_SERVICE_URL: ${{ vars.CLOUD_SERVICE_URL }}
           CLOUD_PUBLIC_KEY: ${{ vars.CLOUD_PUBLIC_KEY }}
         run: |
-          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
-            # Disposable localhost-only configuration for CI packaging checks.
-            # This build is never uploaded as a customer release artifact.
+          $hasRealConfig = [bool]$env:CLOUD_SERVICE_URL -and [bool]$env:CLOUD_PUBLIC_KEY
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request' -or ($env:GITHUB_EVENT_NAME -eq 'push' -and -not $hasRealConfig)) {
+            # Disposable localhost-only config. This validates packaging but can
+            # never activate a real account and is never published to customers.
             $serviceUrl = 'https://localhost:18443'
             [byte[]]$testKey = 0..31 | ForEach-Object { [byte]$_ }
             $publicKey = [Convert]::ToBase64String($testKey)
-            Write-Host 'Using synthetic localhost config for pull-request validation only.'
+            $publishRelease = 'false'
+            Write-Warning 'No real release configuration is being used; this is a smoke-test build only. No ZIP will be uploaded.'
           } else {
-            if (-not $env:CLOUD_SERVICE_URL -or -not $env:CLOUD_PUBLIC_KEY) {
+            if (-not $hasRealConfig) {
               throw 'Set public repository variables CLOUD_SERVICE_URL and CLOUD_PUBLIC_KEY from deploy/generated/subscription-client.json before creating a Windows release.'
             }
             $serviceUrl = $env:CLOUD_SERVICE_URL
             $publicKey = $env:CLOUD_PUBLIC_KEY
+            $publishRelease = 'true'
           }
+          "publish_release=$publishRelease" >> $env:GITHUB_OUTPUT
           @{service_url=$serviceUrl; public_key=$publicKey} | ConvertTo-Json | Set-Content -Encoding utf8NoBOM subscription-client.json
           python -c "from src.cloud.client import ClientConfig; ClientConfig.load('subscription-client.json'); print('SUBSCRIPTION_CONFIG_OK')"
 
@@ -82,17 +87,12 @@ jobs:
         shell: pwsh
         env:
           RELEASE_REID_POLICY: ${{ vars.RELEASE_REID_POLICY }}
+          PUBLISH_RELEASE: ${{ steps.configure.outputs.publish_release }}
         run: |
-          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
-            # No OSNet checkpoint is available to this clean runner. Test only
-            # the supported no-ReID package path; do not publish this artifact.
-            python -m tools.prepare_windows_assets --allow-no-reid
-          } else {
-            if ($env:RELEASE_REID_POLICY -ne 'not-used-in-pilot') {
-              throw 'This CI job has no validated OSNet weights. Use buildwindows.bat with FACE_REID_CACHE for an OSNet pilot. Set RELEASE_REID_POLICY=not-used-in-pilot only when that matches the tested baseline.'
-            }
-            python -m tools.prepare_windows_assets --allow-no-reid
+          if ($env:PUBLISH_RELEASE -eq 'true' -and $env:RELEASE_REID_POLICY -ne 'not-used-in-pilot') {
+            throw 'This release job has no validated OSNet weights. Use buildwindows.bat with FACE_REID_CACHE for an OSNet pilot. Set RELEASE_REID_POLICY=not-used-in-pilot only when that matches the tested baseline.'
           }
+          python -m tools.prepare_windows_assets --allow-no-reid
 
       - name: Build Windows application
         shell: pwsh
@@ -148,7 +148,7 @@ jobs:
           }
 
       - name: Create ZIP
-        if: github.event_name != 'pull_request'
+        if: steps.configure.outputs.publish_release == 'true'
         shell: pwsh
         run: |
           if (Test-Path 'FaceRecognition-Windows.zip') {
@@ -157,7 +157,7 @@ jobs:
           Compress-Archive -Path 'dist/FaceRecognition/*' -DestinationPath 'FaceRecognition-Windows.zip'
 
       - name: Upload Windows build
-        if: github.event_name != 'pull_request'
+        if: steps.configure.outputs.publish_release == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: FaceRecognition-Windows
