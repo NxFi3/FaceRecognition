@@ -1,46 +1,46 @@
 """Prevent accidental reintroduction of the unwanted Technologies brand suffix."""
+import json
 from pathlib import Path
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BRAND_SURFACES = (
-    "service/templates/base.html",
-    "service/templates/marketing/home.html",
-    "service/templates/marketing/about.html",
-    "service/templates/marketing/products.html",
-    "service/templates/marketing/contact.html",
-    "service/templates/marketing/facerecognition.html",
-    "service/templates/marketing/privacy.html",
-    "service/templates/marketing/terms.html",
-    "service/templates/portal/nav.html",
-    "service/templates/portal/dashboard.html",
-    "service/templates/owner/reauth.html",
-    "service/templates/owner/dashboard.html",
+USER_FACING_PYTHON = (
     "service/admin_site.py",
-    "src/cloud/ui.py",
     "service/context_processors.py",
+    "src/cloud/ui.py",
 )
 
 
 class NxFiBrandTests(unittest.TestCase):
-    def test_user_facing_brand_uses_nxfi_without_technologies_suffix(self):
-        for relative in BRAND_SURFACES:
+    def assert_concise_brand(self, path, content):
+        with self.subTest(path=str(path.relative_to(ROOT))):
+            self.assertNotIn("nxfi technologies", content.casefold())
+
+    def test_all_user_facing_templates_use_concise_nxfi_brand(self):
+        templates = sorted((ROOT / "service/templates").rglob("*.html"))
+        self.assertTrue(templates, "Expected to find website templates")
+        for path in templates:
+            self.assert_concise_brand(path, path.read_text(encoding="utf-8"))
+        for relative in USER_FACING_PYTHON:
             path = ROOT / relative
-            with self.subTest(path=relative):
-                content = path.read_text(encoding="utf-8")
-                self.assertNotIn("NxFi Technologies", content)
-                self.assertNotIn("NXFI TECHNOLOGIES", content)
+            self.assert_concise_brand(path, path.read_text(encoding="utf-8"))
 
     def test_persian_translation_catalog_uses_the_same_brand(self):
-        import json
-        catalog = json.loads((ROOT / "src/locales/fa.json").read_text(encoding="utf-8"))
+        path = ROOT / "src/locales/fa.json"
+        catalog = json.loads(path.read_text(encoding="utf-8"))
+        self.assertTrue(catalog, "Expected a nonempty Persian translation catalog")
         for source, translation in catalog.items():
-            with self.subTest(source=source):
-                self.assertNotIn("NxFi Technologies", source)
-                self.assertNotIn("NxFi Technologies", translation)
-                self.assertNotIn("NXFI TECHNOLOGIES", source)
-                self.assertNotIn("NXFI TECHNOLOGIES", translation)
+            self.assert_concise_brand(path, source)
+            self.assert_concise_brand(path, translation)
+
+    def test_compiled_persian_website_catalog_matches_reviewed_source(self):
+        # Compile the .mo file from the reviewed JSON catalog before web tests.
+        # The workflow invokes tools.compile_translations, but this test gives
+        # a direct, readable failure if the packaged catalog is missing.
+        path = ROOT / "service/locale/fa/LC_MESSAGES/django.mo"
+        self.assertTrue(path.is_file(), "Compiled Persian Django catalog is missing")
+        self.assertGreater(path.stat().st_size, 1000, "Compiled Persian Django catalog looks empty")
 
 
 if __name__ == "__main__":
