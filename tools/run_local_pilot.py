@@ -60,11 +60,18 @@ def workspace(path):
     for name in ("data", "service", "logs", "exports"):
         (target / name).mkdir(mode=0o700, exist_ok=True)
     linked = target / "models"
+    expected_models = (ROOT / "models").resolve()
     if linked.is_symlink():
-        if linked.resolve() != (ROOT / "models").resolve():
+        # A removed/recreated checkout can leave this symlink dangling. It is
+        # safe to replace the dangling link itself, but never to retarget a
+        # live link that resolves to another checkout or model directory.
+        if not linked.exists():
+            linked.unlink()
+            linked.symlink_to(expected_models, target_is_directory=True)
+        elif linked.resolve() != expected_models:
             raise RuntimeError("Pilot model symlink points somewhere unexpected")
     elif not linked.exists():
-        linked.symlink_to(ROOT / "models", target_is_directory=True)
+        linked.symlink_to(expected_models, target_is_directory=True)
     else:
         raise RuntimeError("Pilot model directory already exists; refusing to replace it")
     return target
