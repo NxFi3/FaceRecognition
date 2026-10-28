@@ -1,4 +1,5 @@
 """Regression tests for safe recovery of the isolated local pilot workspace."""
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -26,6 +27,7 @@ class LocalPilotWorkspaceTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    @unittest.skipIf(os.name == "nt", "symlink creation may require Windows Developer Mode")
     def test_first_run_creates_isolated_directories_and_model_link(self):
         result = run_local_pilot.workspace(self.pilot)
 
@@ -38,6 +40,7 @@ class LocalPilotWorkspaceTests(unittest.TestCase):
         for name in ("data", "service", "logs", "exports"):
             self.assertTrue((self.pilot / name).is_dir())
 
+    @unittest.skipIf(os.name == "nt", "symlink creation may require Windows Developer Mode")
     def test_repairs_dangling_model_link_from_removed_checkout(self):
         self.mark_pilot()
         stale_target = self.temp_root / "removed-checkout" / "models"
@@ -52,6 +55,7 @@ class LocalPilotWorkspaceTests(unittest.TestCase):
             (self.pilot / "models").resolve(), (self.repo / "models").resolve()
         )
 
+    @unittest.skipIf(os.name == "nt", "symlink creation may require Windows Developer Mode")
     def test_refuses_to_replace_live_model_link_to_another_checkout(self):
         self.mark_pilot()
         other_models = self.temp_root / "other-checkout" / "models"
