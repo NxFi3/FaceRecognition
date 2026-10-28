@@ -67,7 +67,7 @@ class LoginDialog(QDialog):
         super().__init__(parent)
         self.client = client
         self.apply_language_live = apply_language_live
-        self.setWindowTitle("NxFi Technologies · FaceRecognition")
+        self.setWindowTitle("NxFi · FaceRecognition")
         self.setMinimumWidth(480)
         self.setStyleSheet("""
             QDialog { background: #f5f6fc; color: #17223b; }
