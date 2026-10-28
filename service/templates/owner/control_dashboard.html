@@ -1,0 +1,29 @@
+{% extends 'base.html' %}{% load i18n %}{% block content %}
+<section class="section container">
+  <div class="page-header">
+    <span class="eyebrow">NXFI / CONTROL CENTER</span>
+    <h1>{% translate "FaceRecognition administration" %}</h1>
+    <p>{% translate "Manage authorized schools, subscriptions, installations, and encrypted backup status. Only the designated owner can access this console." %}</p>
+    <a class="button" href="{% url 'owner-school-new' %}">{% translate "Add a school" %}</a>
+    <a class="button button-secondary" href="{% url 'owner-health' %}">{% translate "Backend health" %}</a>
+  </div>
+  <div class="grid grid-3">
+    <article class="card"><span class="eyebrow">{% translate "Schools listed" %}</span><h2>{{ schools|length }}</h2></article>
+    <article class="card"><span class="eyebrow">{% translate "Security" %}</span><h2>{% translate "Owner-only" %}</h2><p>{% translate "Sensitive changes require password confirmation." %}</p></article>
+    <article class="card"><span class="eyebrow">{% translate "Backups" %}</span><h2>{% translate "Encrypted" %}</h2><p>{% translate "School recovery keys are never uploaded." %}</p></article>
+  </div>
+  <article class="card"><h2>{% translate "School management" %}</h2>
+  <div class="table-wrap"><table>
+   <thead><tr><th>{% translate "School" %}</th><th>{% translate "Email" %}</th><th>{% translate "Status" %}</th><th>{% translate "Expires" %}</th><th>{% translate "Capacity" %}</th><th>{% translate "Devices" %}</th><th>{% translate "Action" %}</th></tr></thead>
+   <tbody>{% for school in schools %}
+    <tr><td>{{ school.name }}</td><td><bdi>{{ school.user.email }}</bdi></td>
+      <td>{{ school.get_status_display }}</td><td>{{ school.expires_at|date:'Y/m/d'|default:'—' }}</td>
+      <td>{{ school.student_limit }}</td><td>{{ school.device_limit }}</td>
+      <td><a href="{% url 'owner-school' school.pk %}">{% translate "Manage" %}</a></td></tr>
+   {% empty %}<tr><td colspan="7">{% translate "No schools yet. Add your first school above." %}</td></tr>{% endfor %}</tbody>
+  </table></div></article>
+  <article class="card"><h2>{% translate "Recent audit activity" %}</h2>
+   {% for audit in audits|slice:':15' %}<p>{{ audit.created_at|date:'Y/m/d H:i' }} · {{ audit.action }} · {{ audit.object_id }}</p>
+   {% empty %}<p>{% translate "No activity." %}</p>{% endfor %}
+  </article>
+</section>{% endblock %}

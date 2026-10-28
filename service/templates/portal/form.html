@@ -1,0 +1,1 @@
+{% extends 'base.html' %}{% load i18n %}{% block content %}<section class="section container"><div class="form-card"><h1>{{ title }}</h1><form method="post">{% csrf_token %}{{ form.as_p }}<button type="submit">{% translate "Save changes" %}</button></form><a href="{% url 'workspace' %}">{% translate "Back to my account" %}</a></div></section>{% endblock %}

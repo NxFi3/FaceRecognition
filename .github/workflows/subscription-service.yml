@@ -1,0 +1,46 @@
+name: Subscription service tests
+on:
+  push:
+  pull_request:
+jobs:
+  service:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_USER: face_service
+          POSTGRES_PASSWORD: test-only-not-deployed
+          POSTGRES_DB: face_service
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U face_service" --health-interval 10s --health-timeout 5s --health-retries 10
+    env:
+      SERVICE_TESTING: '1'
+      SERVICE_TEST_DATABASE_URL: postgresql://face_service:test-only-not-deployed@127.0.0.1:5432/face_service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-service.txt -r requirements-cloud.txt numpy
+      - run: python -m pip install pip-audit
+      - run: python -m pip_audit -r requirements-service.txt -r requirements-cloud.txt --progress-spinner off
+      - name: Compile the reviewed Persian catalog before web tests and packaging
+        run: python -m tools.compile_translations
+      - run: python -m service.manage test service -v 2
+      - name: Verify desktop/server offline-license and encrypted-recovery contract
+        run: python -m tools.smoke_offline_license
+        env:
+          SERVICE_TEST_DATABASE_URL: ''
+      - name: Compile application, service, tests and deployment modules
+        run: python -m compileall -q service src tests tools deploy
+      - name: Test local pilot recovery and concise branding
+        run: |
+          python -m unittest discover -s tests -p 'test_run_local_pilot.py' -v
+          python -m unittest discover -s tests -p 'test_branding.py' -v
+      - name: Check deployment helper syntax
+        run: bash -n deploy/install-ubuntu.sh deploy/backup-server.sh
+      - run: python -m service.manage makemigrations --check --dry-run
+      - run: python -m service.manage check --deploy --fail-level WARNING
+      - run: docker build -f deploy/Dockerfile -t subscription-service-test .
+      - run: docker run --rm --read-only --tmpfs /tmp -e SERVICE_TESTING=1 subscription-service-test python -m service.manage test service -v 1

@@ -1,7 +1,6 @@
-# Optional person Re-ID experiment. Keep these out of the core app
-# until CPU latency and identity stability are measured.
+# Optional dependencies for the OSNet appearance Re-ID backend.
+# Install only when enabling or benchmarking person re-identification.
 torch
 torchvision
 torchreid
 gdown
-

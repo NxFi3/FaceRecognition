@@ -1,0 +1,25 @@
+# REFERENCE ONLY: run python -m deploy.configure to generate private deploy/.env.
+# Do not copy these marker values into a running deployment, and never regenerate
+# the signer or backup master key during an upgrade of an existing installation.
+DOMAIN=schools.your-domain.ir
+ACME_EMAIL=operator@your-domain.ir
+PUBLIC_URL=https://schools.your-domain.ir
+DJANGO_SECRET_KEY=GENERATE_WITH_DEPLOY_CONFIGURE
+POSTGRES_ADMIN_PASSWORD=GENERATE_WITH_DEPLOY_CONFIGURE
+POSTGRES_PASSWORD=GENERATE_WITH_DEPLOY_CONFIGURE
+LICENSE_SIGNING_KEY=GENERATE_WITH_DEPLOY_CONFIGURE
+BACKUP_MASTER_KEY=GENERATE_WITH_DEPLOY_CONFIGURE
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_FROM=operator@your-domain.ir
+# Compose mounts ./releases read-only here; the web process cannot upload binaries.
+RELEASE_ROOT=/data/releases
+# Real verified bank/payment instructions, entered by the operator. Blank shows
+# support-contact guidance; it never invents bank details or proves a payment.
+# Quote values containing $, # or spaces according to Docker Compose dotenv rules.
+MANUAL_PAYMENT_INSTRUCTIONS=
+CONTACT_RESPONSE_DAYS=3
+# Django owner access is provisioned in the database by provision_owner, never by
+# a default username, environment password, staff flag or superuser flag.

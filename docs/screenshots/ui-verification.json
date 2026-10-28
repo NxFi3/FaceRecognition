@@ -1,0 +1,178 @@
+{
+  "scope": "synthetic local development data only",
+  "base_url": "http://127.0.0.1:8000",
+  "browser": "154.0.8037.57",
+  "public_pages": [
+    {
+      "path": "/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/features/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/how-it-works/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/demo/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/pricing/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/compare/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/downloads/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/requirements/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/faq/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/contact/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/support/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/privacy/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/terms/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/login/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/register/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/features/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/how-it-works/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/demo/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/pricing/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/compare/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/downloads/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/requirements/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/faq/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/contact/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/support/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/privacy/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/terms/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/login/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/register/",
+      "viewport_width": 390,
+      "status": 200
+    }
+  ],
+  "screenshots": [
+    "home-desktop.png",
+    "pricing-desktop.png",
+    "home-mobile.png",
+    "demo-desktop.png",
+    "school-dashboard.png",
+    "checkout-pending.png",
+    "school-dashboard-mobile.png",
+    "owner-dashboard.png",
+    "owner-health.png",
+    "owner-dashboard-mobile.png"
+  ],
+  "checks": [
+    "mobile menu opens, Escape closes and restores focus",
+    "synthetic demo changes day counters and filters/empty state",
+    "school dashboard and unverified-payment checkout load at desktop/mobile sizes",
+    "explicit owner dashboard and operational health load at desktop/mobile sizes",
+    "no page-level JavaScript exceptions",
+    "critical public content/login/contact render without JavaScript"
+  ],
+  "captured_at_utc": "2026-10-25T13:27:33.792117+00:00"
+}

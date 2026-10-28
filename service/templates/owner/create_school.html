@@ -1,0 +1,9 @@
+{% extends 'base.html' %}{% load i18n %}{% block content %}
+<section class="section container"><div class="form-card">
+<span class="eyebrow">NXFI / OWNER / SCHOOLS</span>
+<h1>{% translate "Create school account" %}</h1>
+<p>{% translate "Only the verified owner may provision a school. This manual contract does not record a payment. Credentials should be delivered privately, and the school should change its temporary password." %}</p>
+<form method="post">{% csrf_token %}{{ form.as_p }}
+<button class="button" type="submit">{% translate "Create school" %}</button></form>
+<p><a href="{% url 'owner' %}">{% translate "Back to administration" %}</a></p>
+</div></section>{% endblock %}

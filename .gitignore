@@ -1,10 +1,61 @@
+# Python
 __pycache__/
 *.py[cod]
-.vscode/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .venv/
+venv/
 .env
+.env.*
 
+# Local application data
+data/early_exit_review/
 data/*.db
+data/*.db-wal
+data/*.db-shm
+logs/
+*.log
 exports/*
 !exports/.gitkeep
-*.pkl
+
+# Downloaded datasets and generated artifacts
+datasets/
+artifacts/
+benchmarks/results/
+*.csv.tmp
+
+# Build/package output
+build/
+dist/
+*.spec
+
+# Editors
+.vscode/
+.idea/
+
+# Deployment secrets and generated client configuration
+deploy/generated/
+subscription-client.json
+data/cloud-state.json
+data/.application.lock
+data/before-restore-*.sqlite3
+service/staticfiles/
+*.age
+
+# School-owned recovery material and interrupted-operation state
+*.frkey
+*.frbackup
+data/before-restore-*/
+data/.restore-*
+data/.recovery-*/
+data/.face-backup-*/
+
+models/runtime-assets.json
+models/torch/
+
+.backup-*
+data/.local-restore-*/
+
+# Operator-installed signed desktop distribution files (metadata is in PostgreSQL).
+deploy/releases/

@@ -1,0 +1,6 @@
+Django==5.2.18
+cryptography>=50.0.0,<51
+psycopg[binary]>=3.2.13,<4
+redis>=6.4,<8
+whitenoise>=6.11,<7
+gunicorn==25.3.0

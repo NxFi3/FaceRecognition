@@ -13,101 +13,73 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Download YuNet model
+      - name: Verify committed baseline model assets
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://huggingface.co/opencv/opencv_zoo/resolve/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx" -OutFile "face_detection_yunet_2023mar.onnx"
-          if ((Get-Item "face_detection_yunet_2023mar.onnx").Length -lt 100000) {
-            throw "YuNet model download looks invalid."
+          # Release builds retain this commit's validated models. Export/model
+          # changes belong in the separate reviewed ONNX export workflow.
+          git ls-files --error-unmatch models/face_detection_yunet_2023mar.onnx models/yolo26n.onnx
+          if ($LASTEXITCODE -ne 0) { throw 'Required original ONNX assets are not tracked in this commit.' }
+          foreach ($asset in @('models/face_detection_yunet_2023mar.onnx', 'models/yolo26n.onnx')) {
+            if ((Get-Item $asset).Length -lt 100000) { throw "Missing or invalid model asset: $asset" }
+            Get-FileHash -Algorithm SHA256 $asset
           }
 
       - name: Install dependencies
         shell: pwsh
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          $requirements = Get-Content requirements.txt | Where-Object { $_ -notmatch '^\s*dlib\s*
+          $requirements = Get-Content requirements.txt | Where-Object { $_ -notmatch '^\s*(dlib|face_recognition)(\s|[<=>!~]|$)' }
           $requirements | Set-Content windows-requirements.txt
-          python -m pip install -r windows-requirements.txt
           python -m pip install dlib-bin==20.0.1.post1
-          python -m pip install pyinstaller
-
-      - name: Verify Python runtime dependencies
-        shell: pwsh
-        run: |
-          python -c "import cv2, dlib, face_recognition_models, numpy, PySide6; print('PYTHON_RUNTIME_OK')"
-          python -c "import cv2; d=cv2.FaceDetectorYN.create('face_detection_yunet_2023mar.onnx','',(1280,720),0.60,0.30,5000); d.setInputSize((1280,720)); print('YUNET_MODEL_LOAD_OK')"
-
-      - name: Build Windows application
-        shell: pwsh
-        run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name FaceRecognition --add-data 'face_detection_yunet_2023mar.onnx;.' --hidden-import face_recognition_models --collect-all face_recognition_models --collect-binaries dlib src/app.py
-
-      - name: Verify packaged files
-        shell: pwsh
-        run: |
-          if (-not (Test-Path 'dist/FaceRecognition/FaceRecognition.exe')) {
-            throw 'PyInstaller did not produce FaceRecognition.exe.'
-          }
-
-          $package = Resolve-Path 'dist/FaceRecognition'
-          $model = Get-ChildItem -Path $package -Filter 'face_detection_yunet_2023mar.onnx' -File -Recurse | Select-Object -First 1
-          if (-not $model) {
-            throw 'YuNet model was not found in the PyInstaller package.'
-          }
-
-          $target = Join-Path $package 'face_detection_yunet_2023mar.onnx'
-          if ($model.FullName -ne $target) {
-            Copy-Item -LiteralPath $model.FullName -Destination $target -Force
-          }
-
-          Write-Host "Packaged YuNet model: $target"
-          Write-Host "Size: $((Get-Item $target).Length) bytes"
-
-      - name: Smoke test packaged executable
-        shell: pwsh
-        run: |
-          $exe = (Resolve-Path 'dist/FaceRecognition/FaceRecognition.exe').Path
-          $process = Start-Process -FilePath $exe -ArgumentList '--smoke-test' -PassThru -Wait
-          if ($process.ExitCode -ne 0) {
-            throw "Packaged executable smoke test failed with exit code $($process.ExitCode)."
-          }
-
-      - name: Create ZIP
-        shell: pwsh
-        run: |
-          if (Test-Path 'FaceRecognition-Windows.zip') {
-            Remove-Item 'FaceRecognition-Windows.zip' -Force
-          }
-          Compress-Archive -Path 'dist/FaceRecognition/*' -DestinationPath 'FaceRecognition-Windows.zip'
-
-      - name: Upload Windows build
-        uses: actions/upload-artifact@v4
-        with:
-          name: FaceRecognition-Windows
-          path: FaceRecognition-Windows.zip
- }
-          $requirements | Set-Content windows-requirements.txt
           python -m pip install -r windows-requirements.txt
-          python -m pip install dlib-bin==20.0.1.post1
-          python -m pip install face_recognition_models
+          python -m pip install click Pillow
           python -m pip install face_recognition --no-deps
           python -m pip install pyinstaller
 
-      - name: Verify Python runtime dependencies
+      - name: Verify Python dependencies and model
         shell: pwsh
         run: |
-          python -c "import cv2, dlib, face_recognition, face_recognition_models, numpy, PySide6; print('PYTHON_RUNTIME_OK')"
-          python -c "import cv2; d=cv2.FaceDetectorYN.create('face_detection_yunet_2023mar.onnx','',(1280,720),0.60,0.30,5000); d.setInputSize((1280,720)); print('YUNET_MODEL_LOAD_OK')"
+          python -c "import cv2, dlib, numpy, PySide6; print('PYTHON_RUNTIME_OK')"
+          python -c "import cv2; d=cv2.FaceDetectorYN.create('models/face_detection_yunet_2023mar.onnx','',(1280,720),0.60,0.30,5000); d.setInputSize((1280,720)); print('YUNET_MODEL_LOAD_OK')"
+
+      - name: Run unit tests
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -v
+
+      - name: Configure subscription endpoint for release
+        shell: pwsh
+        env:
+          CLOUD_SERVICE_URL: ${{ vars.CLOUD_SERVICE_URL }}
+          CLOUD_PUBLIC_KEY: ${{ vars.CLOUD_PUBLIC_KEY }}
+        run: |
+          if (-not $env:CLOUD_SERVICE_URL -or -not $env:CLOUD_PUBLIC_KEY) {
+            throw 'Set public repository variables CLOUD_SERVICE_URL and CLOUD_PUBLIC_KEY from deploy/generated/subscription-client.json.'
+          }
+          @{service_url=$env:CLOUD_SERVICE_URL; public_key=$env:CLOUD_PUBLIC_KEY} | ConvertTo-Json | Set-Content -Encoding utf8NoBOM subscription-client.json
+          python -c "from src.cloud.client import ClientConfig; ClientConfig.load('subscription-client.json'); print('SUBSCRIPTION_CONFIG_OK')"
+
+      - name: Require explicit pilot Re-ID capability review
+        shell: pwsh
+        env:
+          RELEASE_REID_POLICY: ${{ vars.RELEASE_REID_POLICY }}
+        run: |
+          if ($env:RELEASE_REID_POLICY -ne 'not-used-in-pilot') {
+            throw 'This CI job has no validated OSNet weights. Use buildwindows.bat with FACE_REID_CACHE for an OSNet pilot. Set RELEASE_REID_POLICY=not-used-in-pilot only when that matches the tested baseline.'
+          }
+          python -m tools.prepare_windows_assets --allow-no-reid
 
       - name: Build Windows application
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name FaceRecognition --add-data 'face_detection_yunet_2023mar.onnx;.' --hidden-import face_recognition_models --collect-all face_recognition --collect-all face_recognition_models --collect-binaries dlib src/app.py
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --contents-directory . --name FaceRecognition --add-data 'models;models' --add-data 'build/public/subscription-client.json;.' --add-data 'src/locales;locales' --hidden-import face_recognition_models --hidden-import onnxruntime --additional-hooks-dir hooks --collect-all PySide6 --collect-all onnxruntime --collect-binaries dlib --collect-all keyring --collect-all cryptography src/app.py
+          if (-not (Test-Path dist/FaceRecognition/subscription-client.json)) { throw "Bundled public configuration is missing" }
 
       - name: Verify packaged files
         shell: pwsh
@@ -122,13 +94,30 @@ jobs:
             throw 'YuNet model was not found in the PyInstaller package.'
           }
 
-          $target = Join-Path $package 'face_detection_yunet_2023mar.onnx'
+          $targetDirectory = Join-Path $package 'models'
+          New-Item -ItemType Directory -Force -Path $targetDirectory | Out-Null
+          $target = Join-Path $targetDirectory 'face_detection_yunet_2023mar.onnx'
           if ($model.FullName -ne $target) {
             Copy-Item -LiteralPath $model.FullName -Destination $target -Force
           }
 
+          $personModel = Get-ChildItem -Path $package -Filter 'yolo26n.onnx' -File -Recurse | Select-Object -First 1
+          if (-not $personModel) {
+            throw 'YOLO26 ONNX person model was not found in the PyInstaller package.'
+          }
+          $personTarget = Join-Path $targetDirectory 'yolo26n.onnx'
+          if ($personModel.FullName -ne $personTarget) {
+            Copy-Item -LiteralPath $personModel.FullName -Destination $personTarget -Force
+          }
+
           Write-Host "Packaged YuNet model: $target"
-          Write-Host "Size: $((Get-Item $target).Length) bytes"
+          Write-Host "YuNet size: $((Get-Item $target).Length) bytes"
+          Write-Host "Packaged YOLO ONNX model: $personTarget"
+          Write-Host "YOLO ONNX size: $((Get-Item $personTarget).Length) bytes"
+
+      - name: Verify original assets, public config and native runtime files
+        shell: pwsh
+        run: python -m tools.verify_windows_distribution
 
       - name: Smoke test packaged executable
         shell: pwsh

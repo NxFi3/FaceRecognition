@@ -1,0 +1,343 @@
+from django.utils.text import format_lazy
+"""Transactional commerce boundary. Browser claims never grant an entitlement.
+
+Only verified manual payments are implemented. Future gateway implementations
+must authenticate server-to-server confirmation and return VerifiedEvidence;
+a redirect, query string or customer-provided receipt is never that evidence.
+"""
+from django.utils.translation import gettext_lazy as _
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+import re
+import unicodedata
+import uuid
+from typing import Protocol
+
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction, IntegrityError
+from django.utils import timezone
+from django.utils.translation import override
+
+from .models import AuditEvent, School, Device
+from .commerce_models import (Order, Plan, VerifiedPayment, ProductSubscription,
+                              FACE_PRODUCT_SLUG)
+
+
+class CommerceError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class Entitlement:
+    starts_at: datetime | None
+    expires_at: datetime | None
+    student_limit: int
+    device_limit: int
+    active: bool
+
+
+def sync_face_subscription(school, source_order=None):
+    """Mirror Face business state, without changing the existing licensing authority.
+
+    Call after an explicit School update in the same transaction. Other products'
+    rows are never read or written. Existing source-order history is retained on
+    manual edits, while a successful paid/trial fulfillment records its order.
+    """
+    defaults = {name: getattr(school, name) for name in
+                ('status', 'starts_at', 'expires_at', 'student_limit', 'device_limit')}
+    if source_order is not None:
+        if source_order.school_id != school.pk or source_order.product_id != FACE_PRODUCT_SLUG:
+            raise CommerceError(_('The order and school do not match this product entitlement.'))
+        defaults['source_order'] = source_order
+    subscription, _created = ProductSubscription.objects.update_or_create(
+        school=school, product_id=FACE_PRODUCT_SLUG, defaults=defaults)
+    return subscription
+
+
+class ProductFulfillment(Protocol):
+    """An additional product must implement its own policy before it can be sold."""
+    def current_entitlement(self, school, product) -> Entitlement: ...
+    def validate_capacity(self, school, contract) -> None: ...
+    def apply(self, school, order, starts_at, expires_at) -> None: ...
+
+
+class FaceRecognitionFulfillment:
+    def current_entitlement(self, school, product):
+        return Entitlement(school.starts_at, school.expires_at, school.student_limit,
+                           school.device_limit, school.entitled)
+
+    def validate_capacity(self, school, contract):
+        if Device.objects.filter(school=school, revoked=False, token_digest__isnull=False).count() > contract.device_limit:
+            raise CommerceError(_('Explicitly revoke excess installations first. This order does not allow enough devices.'))
+        if school.entitled and (contract.student_limit < school.student_limit or contract.device_limit < school.device_limit):
+            raise CommerceError(_('Reducing capacity during an active term requires support review.'))
+
+    def apply(self, school, order, starts_at, expires_at):
+        school.starts_at, school.expires_at = starts_at, expires_at
+        school.student_limit, school.device_limit = order.student_limit, order.device_limit
+        school.status = School.Status.ACTIVE
+        school.save(update_fields=['starts_at', 'expires_at', 'student_limit', 'device_limit', 'status'])
+        sync_face_subscription(school, source_order=order)
+
+
+# Publishing a Product row is insufficient to activate an unimplemented product.
+# Only the first commercially supported product is registered in this release.
+PRODUCT_FULFILLMENT: dict[str, ProductFulfillment] = {FACE_PRODUCT_SLUG: FaceRecognitionFulfillment()}
+
+
+def supported_product_slugs():
+    return tuple(PRODUCT_FULFILLMENT)
+
+
+def _product_handler(product):
+    handler = PRODUCT_FULFILLMENT.get(product.pk)
+    if not product.is_published or handler is None:
+        raise CommerceError(_('This product is not available for purchase or activation.'))
+    return handler
+
+
+@dataclass(frozen=True)
+class VerifiedEvidence:
+    provider: str
+    reference: str
+    amount_irr: int
+
+
+class PaymentProvider(Protocol):
+    """Future server-side provider contract, deliberately unavailable at checkout."""
+    def verify(self, *, order_id: uuid.UUID, server_reference: str) -> VerifiedEvidence: ...
+
+
+def _owner(actor):
+    from .owner_auth import is_company_owner
+    if not is_company_owner(actor):
+        raise PermissionDenied(_('Only the designated owner may perform this action.'))
+
+
+def normalize_reference(value):
+    if not isinstance(value, str):
+        raise CommerceError(_('Invalid payment reference.'))
+    value = unicodedata.normalize('NFKC', value).strip().upper()
+    value = ''.join(str(unicodedata.decimal(c)) if c.isdecimal() else c for c in value)
+    if not re.fullmatch(r'[A-Z0-9][A-Z0-9._/\-]{5,79}', value):
+        raise CommerceError(_('Payment references must contain 6–80 Latin letters or digits. Include the bank prefix.'))
+    return value
+
+
+def _notify(order, subject, body, suffix):
+    # Durable outbox in the SAME transaction; SMTP is never inside payment locks.
+    from .models import EmailOutbox
+    from .models import CustomerProfile
+    profile = CustomerProfile.objects.filter(user_id=order.school.user_id).first()
+    with override(profile.preferred_language if profile else 'en'):
+        EmailOutbox.objects.get_or_create(dedupe_key=f'order:{order.pk}:{suffix}', defaults={
+            'recipient': order.billing_email, 'subject': str(subject), 'body': str(body), 'available_at': timezone.now()})
+
+
+def create_order(school, plan_id, idempotency_key, product_slug=FACE_PRODUCT_SLUG):
+    try:
+        key = uuid.UUID(str(idempotency_key))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise CommerceError(_('Invalid request identifier. Reload the checkout page.')) from exc
+    with transaction.atomic():
+        school = School.objects.select_for_update().select_related('user').get(pk=school.pk)
+        if not school.user.is_active or (product_slug == FACE_PRODUCT_SLUG and school.status == School.Status.BANNED):
+            raise CommerceError(_('This account cannot create orders. Contact support.'))
+        prior = Order.objects.filter(school=school, idempotency_key=key).first()
+        if prior:
+            if str(prior.plan_id) != str(plan_id) or prior.product_id != product_slug:
+                raise CommerceError(_('This request identifier was already used for another plan.'))
+            _validate_product_binding(prior)
+            return prior
+        try:
+            plan = Plan.objects.select_for_update().get(pk=plan_id, product_id=product_slug, is_active=True, is_public=True)
+        except (Plan.DoesNotExist, ValueError, TypeError) as exc:
+            raise CommerceError(_('The selected plan is not currently available to order.')) from exc
+        try:
+            plan.full_clean()
+        except ValidationError as exc:
+            raise CommerceError(_('This plan is not fully configured. Contact support.')) from exc
+        handler = _product_handler(plan.product)
+        current = handler.current_entitlement(school, plan.product)
+        now = timezone.now()
+        expired = Order.objects.filter(school=school, plan=plan, status__in=[Order.Status.AWAITING_PAYMENT, Order.Status.PAYMENT_SUBMITTED], expires_at__lte=now)
+        for item in expired:
+            item.status = Order.Status.EXPIRED
+            item.save(update_fields=['status'])
+            AuditEvent.objects.create(actor=school.user, school=school, action='order.expired', object_id=str(item.pk))
+        pending = Order.objects.filter(school=school, plan=plan, status__in=[Order.Status.AWAITING_PAYMENT, Order.Status.PAYMENT_SUBMITTED]).first()
+        if pending:
+            return pending
+        if plan.is_trial and Order.objects.filter(school=school, product_id=plan.product_id, is_trial=True, status=Order.Status.FULFILLED).exists():
+            raise CommerceError(_('This school has already used its trial.'))
+        handler.validate_capacity(school, plan)
+        order = Order.objects.create(school=school, plan=plan, product=plan.product, product_name=plan.product.name, idempotency_key=key,
+            purpose=Order.Purpose.TRIAL if plan.is_trial else (Order.Purpose.RENEWAL if current.expires_at else Order.Purpose.PURCHASE),
+            plan_name=plan.name, school_name=school.name, billing_email=school.user.email or school.user.username,
+            amount_irr=plan.price_irr, duration_days=plan.duration_days,
+            student_limit=plan.student_limit, device_limit=plan.device_limit,
+            is_trial=plan.is_trial, expires_at=now+timedelta(days=7))
+        AuditEvent.objects.create(actor=school.user, school=school, action='order.created', object_id=str(order.pk))
+        _notify(order, format_lazy(_('Order {v0} created'), v0=order.product_name), format_lazy(_('Order {v0} created. Subscription stays inactive until independent payment or trial approval. Amount: {v1} IRR. Order expires: {v2}.'), v0=order.invoice_number, v1=order.amount_irr, v2=order.expires_at.isoformat()), 'created')
+        return order
+
+
+def submit_manual_payment(school, order_id, reference):
+    reference = normalize_reference(reference)
+    with transaction.atomic():
+        # Keep the same School -> Order ordering as creation and fulfillment;
+        # the audit FK must never invert a simultaneous verification lock.
+        school = School.objects.select_for_update().get(pk=school.pk)
+        order = Order.objects.select_for_update().filter(pk=order_id, school=school).first()
+        if order is None:
+            raise PermissionDenied(_('The order does not belong to this account.'))
+        if order.is_trial:
+            raise CommerceError(_('Trials require no payment. Wait for support approval.'))
+        if not order.can_cancel or order.expires_at <= timezone.now():
+            raise CommerceError(_('This order is not open for payment submission.'))
+        if order.status == Order.Status.PAYMENT_SUBMITTED:
+            if order.receipt_reference != reference:
+                raise CommerceError(_('Another reference was already submitted for this order. Contact support to correct it.'))
+            return order
+        order.receipt_reference, order.status = reference, Order.Status.PAYMENT_SUBMITTED
+        order.save(update_fields=['receipt_reference', 'status'])
+        AuditEvent.objects.create(actor=school.user, school=school, action='payment.claim_submitted', object_id=str(order.pk))
+        return order
+
+
+def cancel_order(school, order_id):
+    with transaction.atomic():
+        # Keep the same School -> Order ordering as creation and fulfillment;
+        # the audit FK must never invert a simultaneous verification lock.
+        school = School.objects.select_for_update().get(pk=school.pk)
+        order = Order.objects.select_for_update().filter(pk=order_id, school=school).first()
+        if order is None:
+            raise PermissionDenied(_('The order does not belong to this account.'))
+        if order.status == Order.Status.CANCELLED:
+            return order
+        if not order.can_cancel:
+            raise CommerceError(_('Fulfilled orders cannot be cancelled automatically. Open a support request.'))
+        order.status = Order.Status.CANCELLED
+        order.save(update_fields=['status'])
+        AuditEvent.objects.create(actor=school.user, school=school, action='order.cancelled', object_id=str(order.pk))
+        return order
+
+
+def _locked_order(order_id):
+    # Global lock ordering: School -> Order, shared by creation and all fulfillment.
+    school_id = Order.objects.only('school_id').get(pk=order_id).school_id
+    school = School.objects.select_for_update().select_related('user').get(pk=school_id)
+    order = Order.objects.select_for_update().get(pk=order_id)
+    return school, order
+
+
+def _validate_product_binding(order):
+    if order.product_id != order.plan.product_id:
+        raise CommerceError(_('The order product does not match the recorded plan. Contact support.'))
+    return _product_handler(order.product)
+
+
+def _validate_fulfillment(school, order):
+    handler = _validate_product_binding(order)
+    if not school.user.is_active or (order.product_id == FACE_PRODUCT_SLUG and school.status == School.Status.BANNED):
+        raise CommerceError(_('The account is inactive or banned. A payment does not remove a ban.'))
+    if order.status not in (Order.Status.AWAITING_PAYMENT, Order.Status.PAYMENT_SUBMITTED):
+        raise CommerceError(_('The order is not open for activation.'))
+    if order.expires_at <= timezone.now():
+        raise CommerceError(_('The recorded price has expired. Create a new order or contact support.'))
+    handler.validate_capacity(school, order)
+
+
+def _fulfill(school, order, actor):
+    handler = _validate_product_binding(order)
+    current = handler.current_entitlement(school, order.product)
+    now = timezone.now()
+    # Keep paid time and scheduled starts. Each product controls only its own state.
+    continuing = current.expires_at is not None and current.expires_at > now
+    start = current.expires_at if continuing else now
+    starts_at = current.starts_at if continuing and current.starts_at else now
+    expires_at = start + timedelta(days=order.duration_days)
+    handler.apply(school, order, starts_at, expires_at)
+    order.status, order.fulfilled_at, order.approved_by = Order.Status.FULFILLED, now, actor
+    order.subscription_starts_at, order.subscription_expires_at = start, expires_at
+    order.save(update_fields=['status', 'fulfilled_at', 'approved_by', 'subscription_starts_at', 'subscription_expires_at'])
+    AuditEvent.objects.create(actor=actor, school=school, action='order.fulfilled', object_id=str(order.pk))
+    _notify(order, format_lazy(_('Subscription {v0} activated'), v0=order.product_name), format_lazy(_('Order {v0} confirmed. Subscription expires: {v1}. Capacity: {v2} students and {v3} devices. Synchronize online in the application to receive the signed license.'), v0=order.invoice_number, v1=expires_at.isoformat(), v2=order.student_limit, v3=order.device_limit), 'fulfilled')
+    return order
+
+
+def verify_manual_payment(order_id, actor, reference, amount_irr, verification_note=''):
+    """Owner attests independent bank settlement; customer/browser input is insufficient."""
+    _owner(actor)
+    reference = normalize_reference(reference)
+    if type(amount_irr) is not int or not 0 < amount_irr <= 10**12:
+        raise CommerceError(_('The verified amount must be a positive integer in IRR.'))
+    if not isinstance(verification_note, str) or len(verification_note) > 1000:
+        raise CommerceError(_('The verification note is too long.'))
+    with transaction.atomic():
+        school, order = _locked_order(order_id)
+        from .owner_auth import locked_company_owner
+        locked_company_owner(actor)
+        _validate_product_binding(order)
+        payment = VerifiedPayment.objects.filter(order=order).first()
+        if payment:
+            if payment.provider != 'manual' or payment.reference != reference or payment.amount_irr != amount_irr:
+                raise CommerceError(_('This order was already verified using different payment details.'))
+            return order
+        if order.is_trial or amount_irr != order.amount_irr:
+            raise CommerceError(_('The amount actually received must exactly match the recorded order amount.'))
+        _validate_fulfillment(school, order)
+        if VerifiedPayment.objects.filter(provider='manual', reference=reference).exists():
+            raise CommerceError(_('This payment reference has already been used for another order.'))
+        try:
+            with transaction.atomic():
+                VerifiedPayment.objects.create(order=order, provider='manual', reference=reference,
+                    amount_irr=amount_irr, verified_by=actor, verification_note=verification_note)
+        except IntegrityError as exc:
+            raise CommerceError(_('This payment was verified for another order concurrently. Check its status again.')) from exc
+        AuditEvent.objects.create(actor=actor, school=school, action='payment.verified', object_id=str(order.pk))
+        return _fulfill(school, order, actor)
+
+
+def approve_trial(order_id, actor):
+    _owner(actor)
+    with transaction.atomic():
+        school, order = _locked_order(order_id)
+        from .owner_auth import locked_company_owner
+        locked_company_owner(actor)
+        _validate_product_binding(order)
+        if order.status == Order.Status.FULFILLED and order.is_trial:
+            return order
+        if not order.is_trial or order.amount_irr != 0:
+            raise CommerceError(_('This order is not a trial request.'))
+        _validate_fulfillment(school, order)
+        if Order.objects.filter(school=school, product_id=order.product_id, is_trial=True, status=Order.Status.FULFILLED).exclude(pk=order.pk).exists():
+            raise CommerceError(_('The trial has already been used.'))
+        AuditEvent.objects.create(actor=actor, school=school, action='trial.approved', object_id=str(order.pk))
+        return _fulfill(school, order, actor)
+
+
+
+def reject_manual_payment(order_id, actor, reason):
+    """Owner rejects an unpaid claim; never refunds/reverses a verified settlement."""
+    _owner(actor)
+    if not isinstance(reason, str) or not 1 <= len(reason.strip()) <= 1000:
+        raise CommerceError(_('The rejection reason must contain 1–1000 characters without sensitive bank information.'))
+    reason = reason.strip()
+    with transaction.atomic():
+        school, order = _locked_order(order_id)
+        from .owner_auth import locked_company_owner
+        locked_company_owner(actor)
+        if order.is_trial:
+            raise CommerceError(_('Trial requests have no payment. Contact support to reject or cancel the request.'))
+        if order.status == Order.Status.REJECTED:
+            if order.rejection_reason != reason:
+                raise CommerceError(_('This order was already rejected for another reason. The recorded decision cannot be silently changed.'))
+            return order
+        if order.status not in (Order.Status.AWAITING_PAYMENT, Order.Status.PAYMENT_SUBMITTED) or VerifiedPayment.objects.filter(order=order).exists():
+            raise CommerceError(_('Paid, closed or cancelled orders cannot have their payment rejected. Contact support.'))
+        order.status, order.rejection_reason = Order.Status.REJECTED, reason
+        order.save(update_fields=['status', 'rejection_reason'])
+        AuditEvent.objects.create(actor=actor, school=school, action='order.payment_rejected', object_id=str(order.pk))
+        _notify(order, format_lazy(_('Payment review for {v0}'), v0=order.product_name), format_lazy(_('Payment for order {v0} was not verified. Reason: {v1}\nNo new subscription has been activated. Contact support; create a new order if needed.'), v0=order.invoice_number, v1=reason), 'rejected')
+        return order

@@ -1,24 +1,44 @@
 import json
 import sqlite3
+import logging
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+
+try:
+    from .localization import text as tr
+except ImportError:
+    from localization import text as tr
+
+try:
+    from .engine.runtime_profile import profile
+except ImportError:
+    from engine.runtime_profile import profile
 
 
 if getattr(sys, "frozen", False):
     BASE_DIR = Path(sys.executable).resolve().parent
 else:
     BASE_DIR = Path(__file__).resolve().parent.parent
+    try:
+        from .pilot_paths import active_pilot_root
+    except ImportError:
+        from pilot_paths import active_pilot_root
+    BASE_DIR = active_pilot_root(BASE_DIR) or BASE_DIR
 
 DB_PATH = BASE_DIR / "data" / "attendance.db"
 
 
 def get_connection():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=8.0)
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 8000")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
 
@@ -223,6 +243,8 @@ def init_db():
         "TEXT",
     )
 
+    _ensure_column(conn, "students", "capacity_archived", "INTEGER NOT NULL DEFAULT 0")
+
     year_count = conn.execute(
         "SELECT COUNT(*) FROM academic_years"
     ).fetchone()[0]
@@ -390,7 +412,7 @@ def set_school_weekdays(academic_year_id, weekdays):
     weekdays = sorted({int(day) for day in weekdays})
 
     if not weekdays or any(day < 0 or day > 6 for day in weekdays):
-        raise ValueError("حداقل یک روز مدرسه باید انتخاب شود.")
+        raise ValueError(tr('Select at least one school day.'))
 
     conn = get_connection()
     try:
@@ -400,7 +422,7 @@ def set_school_weekdays(academic_year_id, weekdays):
         ).fetchone()
 
         if not exists:
-            raise ValueError("سال تحصیلی انتخاب‌شده پیدا نشد.")
+            raise ValueError(tr('The selected academic year was not found.'))
 
         conn.execute(
             "DELETE FROM school_weekdays WHERE academic_year_id = ?",
@@ -442,7 +464,7 @@ def set_school_day_override(academic_year_id, date, is_school_day, note=""):
     try:
         parsed = datetime.strptime(date, "%Y-%m-%d")
     except ValueError as exc:
-        raise ValueError("تاریخ استثنا نامعتبر است.") from exc
+        raise ValueError(tr('Invalid calendar override date.')) from exc
 
     conn = get_connection()
     try:
@@ -456,17 +478,17 @@ def set_school_day_override(academic_year_id, date, is_school_day, note=""):
         ).fetchone()
 
         if year is None:
-            raise ValueError("سال تحصیلی انتخاب‌شده پیدا نشد.")
+            raise ValueError(tr('The selected academic year was not found.'))
 
         if year[0]:
             start = datetime.strptime(year[0], "%Y-%m-%d").date()
             if parsed.date() < start:
-                raise ValueError("تاریخ خارج از بازه سال تحصیلی است.")
+                raise ValueError(tr('The date is outside the academic year.'))
 
         if year[1]:
             end = datetime.strptime(year[1], "%Y-%m-%d").date()
             if parsed.date() > end:
-                raise ValueError("تاریخ خارج از بازه سال تحصیلی است.")
+                raise ValueError(tr('The date is outside the academic year.'))
 
         conn.execute(
             """
@@ -502,6 +524,7 @@ def delete_school_day_override(override_id):
         conn.close()
 
 
+@profile.stage("db_setting")
 def get_setting(key, default=None):
     conn = get_connection()
     try:
@@ -568,10 +591,10 @@ def add_academic_year(start_date, end_date, active=False):
         start = datetime.strptime(start_date, "%Y-%m-%d")
         end = datetime.strptime(end_date, "%Y-%m-%d")
     except ValueError as exc:
-        raise ValueError("تاریخ سال تحصیلی نامعتبر است.") from exc
+        raise ValueError(tr('Invalid academic year date.')) from exc
 
     if end <= start:
-        raise ValueError("تاریخ پایان باید بعد از تاریخ شروع باشد.")
+        raise ValueError(tr('The end date must be after the start date.'))
 
     conn = get_connection()
     try:
@@ -589,7 +612,7 @@ def add_academic_year(start_date, end_date, active=False):
 
         if overlap:
             raise ValueError(
-                f"بازه انتخاب‌شده با سال تحصیلی «{overlap[1]}» هم‌پوشانی دارد."
+                tr('The selected range overlaps academic year “{name}”.').format(name=overlap[1])
             )
 
         name = f"{start.year:04d}-{end.year:04d}"
@@ -632,10 +655,10 @@ def update_academic_year(year_id, start_date, end_date):
         start = datetime.strptime(start_date, "%Y-%m-%d")
         end = datetime.strptime(end_date, "%Y-%m-%d")
     except ValueError as exc:
-        raise ValueError("تاریخ سال تحصیلی نامعتبر است.") from exc
+        raise ValueError(tr('Invalid academic year date.')) from exc
 
     if end <= start:
-        raise ValueError("تاریخ پایان باید بعد از تاریخ شروع باشد.")
+        raise ValueError(tr('The end date must be after the start date.'))
 
     conn = get_connection()
     try:
@@ -654,7 +677,7 @@ def update_academic_year(year_id, start_date, end_date):
 
         if overlap:
             raise ValueError(
-                f"بازه انتخاب‌شده با سال تحصیلی «{overlap[1]}» هم‌پوشانی دارد."
+                tr('The selected range overlaps academic year “{name}”.').format(name=overlap[1])
             )
 
         name = f"{start.year:04d}-{end.year:04d}"
@@ -681,7 +704,7 @@ def set_active_academic_year(year_id):
         ).fetchone()
 
         if not exists:
-            raise ValueError("سال تحصیلی انتخاب‌شده پیدا نشد.")
+            raise ValueError(tr('The selected academic year was not found.'))
 
         conn.execute("UPDATE academic_years SET is_active = 0")
         conn.execute(
@@ -710,7 +733,7 @@ def list_majors():
 def add_major(name):
     name = name.strip()
     if not name:
-        raise ValueError("نام رشته الزامی است.")
+        raise ValueError(tr('A major name is required.'))
     conn = get_connection()
     try:
         cursor = conn.execute(
@@ -726,7 +749,7 @@ def add_major(name):
 def update_major(major_id, name):
     name = name.strip()
     if not name:
-        raise ValueError("نام رشته الزامی است.")
+        raise ValueError(tr('A major name is required.'))
     conn = get_connection()
     try:
         conn.execute(
@@ -746,7 +769,7 @@ def delete_major(major_id):
             (major_id,),
         ).fetchone()[0]
         if used:
-            raise ValueError("این رشته به یک یا چند کلاس متصل است.")
+            raise ValueError(tr('This major is assigned to one or more classes.'))
         conn.execute("DELETE FROM majors WHERE id = ?", (major_id,))
         conn.commit()
     finally:
@@ -805,11 +828,11 @@ def add_class(name, grade, major_id, academic_year_id):
     grade = grade.strip()
 
     if not name:
-        raise ValueError("نام کلاس الزامی است.")
+        raise ValueError(tr('A class name is required.'))
     if not grade:
-        raise ValueError("پایه الزامی است.")
+        raise ValueError(tr('A grade is required.'))
     if not academic_year_id:
-        raise ValueError("سال تحصیلی انتخاب نشده است.")
+        raise ValueError(tr('Select an academic year.'))
 
     conn = get_connection()
     try:
@@ -832,11 +855,11 @@ def update_class(class_id, name, grade, major_id, academic_year_id):
     grade = grade.strip()
 
     if not name:
-        raise ValueError("نام کلاس الزامی است.")
+        raise ValueError(tr('A class name is required.'))
     if not grade:
-        raise ValueError("پایه الزامی است.")
+        raise ValueError(tr('A grade is required.'))
     if not academic_year_id:
-        raise ValueError("سال تحصیلی انتخاب نشده است.")
+        raise ValueError(tr('Select an academic year.'))
 
     conn = get_connection()
     try:
@@ -867,7 +890,7 @@ def delete_class(class_id):
             (class_id,),
         ).fetchone()[0]
         if used:
-            raise ValueError("این کلاس دانش‌آموز دارد و قابل حذف نیست.")
+            raise ValueError(tr('This class contains students and cannot be deleted.'))
         conn.execute("DELETE FROM school_classes WHERE id = ?", (class_id,))
         conn.commit()
     finally:
@@ -912,7 +935,7 @@ def assign_student_class(student_id, class_id):
             (class_id,),
         ).fetchone()
         if row is None:
-            raise ValueError("کلاس انتخاب‌شده پیدا نشد.")
+            raise ValueError(tr('The selected class was not found.'))
 
         conn.execute(
             """
@@ -1011,6 +1034,12 @@ def find_class_by_name(name, academic_year_id):
 def add_student(student_code, name, class_id=None):
     conn = get_connection()
     try:
+        try:
+            from .cloud.entitlement import enforce_student_capacity
+        except ImportError:
+            from cloud.entitlement import enforce_student_capacity
+        conn.execute("BEGIN IMMEDIATE")
+        enforce_student_capacity(conn)
         cursor = conn.execute(
             """
             INSERT INTO students (student_code, name)
@@ -1026,7 +1055,7 @@ def add_student(student_code, name, class_id=None):
                 (class_id,),
             ).fetchone()
             if row is None:
-                raise ValueError("کلاس انتخاب‌شده پیدا نشد.")
+                raise ValueError(tr('The selected class was not found.'))
             conn.execute(
                 """
                 INSERT INTO student_enrollments
@@ -1060,7 +1089,7 @@ def update_student(student_id, student_code, name, class_id=None):
                 (class_id,),
             ).fetchone()
             if row is None:
-                raise ValueError("کلاس انتخاب‌شده پیدا نشد.")
+                raise ValueError(tr('The selected class was not found.'))
             conn.execute(
                 """
                 INSERT INTO student_enrollments
@@ -1163,6 +1192,7 @@ def get_student(student_id):
         conn.close()
 
 
+@profile.stage("db_attendance")
 def mark_attendance(student_id, camera_id="camera_0", status="present", notes=""):
     now = datetime.now()
     date = now.strftime("%Y-%m-%d")
@@ -1170,20 +1200,13 @@ def mark_attendance(student_id, camera_id="camera_0", status="present", notes=""
 
     conn = get_connection()
     try:
-        existing = conn.execute(
-            "SELECT id FROM attendance WHERE student_id = ? AND date = ?",
-            (student_id, date),
-        ).fetchone()
-
-        if existing is not None:
-            return False
-
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT INTO attendance
                 (student_id, date, timestamp, camera_id, status,
                  notes, source, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, 'camera', ?)
+            ON CONFLICT(student_id, date) DO NOTHING
             """,
             (
                 student_id,
@@ -1196,9 +1219,46 @@ def mark_attendance(student_id, camera_id="camera_0", status="present", notes=""
             ),
         )
         conn.commit()
-        return True
+        return cursor.rowcount == 1
     finally:
         conn.close()
+
+
+def get_current_presence_ids(date=None):
+    """Return students whose latest movement event for the day is an entry."""
+    if date is None:
+        date = datetime.now().strftime("%Y-%m-%d")
+
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT e.student_id, e.event_type
+            FROM events e
+            JOIN (
+                SELECT student_id, MAX(id) AS max_id
+                FROM events
+                WHERE student_id IS NOT NULL
+                  AND date(timestamp) = ?
+                  AND event_type IN (
+                      'PERSON_ENTERED',
+                      'PERSON_EXITED',
+                      'UNEXPECTED_EXIT'
+                  )
+                GROUP BY student_id
+            ) latest
+              ON latest.max_id = e.id
+            """,
+            (date,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return {
+        int(student_id)
+        for student_id, event_type in rows
+        if event_type == "PERSON_ENTERED"
+    }
 
 
 def set_attendance_status(
@@ -1211,7 +1271,7 @@ def set_attendance_status(
 ):
     status = status.strip().lower()
     if status not in {"present", "late", "excused", "absent"}:
-        raise ValueError("وضعیت حضور نامعتبر است.")
+        raise ValueError(tr('Invalid attendance status.'))
 
     if timestamp is None:
         timestamp = f"{date} {datetime.now().strftime('%H:%M:%S')}"
@@ -1528,14 +1588,16 @@ def get_class_report_summary(
     finally:
         conn.close()
 
-    active_dates = _filter_school_dates(
+    active_dates = set(_filter_school_dates(
         sorted({row[3] for row in attendance}),
         school_weekdays,
         school_overrides,
-    )
+    ))
 
     counters = {}
     for student_id, status, class_id_value, date in attendance:
+        if date not in active_dates:
+            continue
         counters.setdefault(
             class_id_value,
             {
@@ -1729,7 +1791,7 @@ def get_report_rows(
 
     result = []
 
-    for student_id, code, name, class_name, major_name, grade in students:
+    for student_id, code, name, grade, major_name, class_name in students:
         statuses = by_student.get(student_id, {})
 
         present = 0
@@ -1793,6 +1855,7 @@ def get_today_attendance():
 
 
 
+@profile.stage("db_event")
 def add_event(
     event_type,
     student_id=None,
@@ -1831,6 +1894,86 @@ def add_event(
         conn.close()
 
 
+@dataclass(frozen=True)
+class MovementTransitionResult:
+    applied: bool
+    attendance_inserted: bool
+    events: tuple[tuple[int, str, dict], ...]
+
+
+@profile.stage("db_movement_transition")
+def record_movement_transition(
+    *, student_id, direction, camera_id, track_id, confidence,
+    status="present", notes="", auxiliary_event=None, auxiliary_metadata=None,
+):
+    """Commit an entry/exit and its optional companion event as one unit.
+
+    BEGIN IMMEDIATE serializes the latest-movement check with writers in other
+    processes. After a commit, a crash before the worker updates RAM can be
+    retried: the persisted latest movement suppresses the duplicate event.
+    Existing manual attendance rows remain untouched by ON CONFLICT.
+    """
+    if direction not in ("enter", "exit"):
+        raise ValueError("Invalid movement direction")
+    expected_auxiliary = "LATE_ARRIVAL" if direction == "enter" else "EARLY_DEPARTURE"
+    if auxiliary_event not in (None, expected_auxiliary):
+        raise ValueError("Invalid companion movement event")
+
+    now = datetime.now()
+    timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+    date = now.strftime("%Y-%m-%d")
+    event_type = "PERSON_ENTERED" if direction == "enter" else "PERSON_EXITED"
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        latest = conn.execute(
+            """SELECT event_type FROM events
+               WHERE student_id = ? AND date(timestamp) = ?
+                 AND event_type IN ('PERSON_ENTERED', 'PERSON_EXITED', 'UNEXPECTED_EXIT')
+               ORDER BY id DESC LIMIT 1""",
+            (student_id, date),
+        ).fetchone()
+        last_movement = latest[0] if latest else None
+        if (direction == "enter" and last_movement == "PERSON_ENTERED") or (
+            direction == "exit" and last_movement in ("PERSON_EXITED", "UNEXPECTED_EXIT")
+        ):
+            conn.rollback()
+            return MovementTransitionResult(False, False, ())
+
+        attendance_inserted = False
+        if direction == "enter":
+            cursor = conn.execute(
+                """INSERT INTO attendance
+                   (student_id, date, timestamp, camera_id, status, notes, source, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, 'camera', ?)
+                   ON CONFLICT(student_id, date) DO NOTHING""",
+                (student_id, date, timestamp, camera_id, status, notes, timestamp),
+            )
+            attendance_inserted = cursor.rowcount == 1
+
+        persisted = []
+        for kind, metadata in ((event_type, {}), (auxiliary_event, auxiliary_metadata or {})):
+            if kind is None:
+                continue
+            cursor = conn.execute(
+                """INSERT INTO events
+                   (event_type, student_id, track_id, camera_id,
+                    timestamp, confidence, metadata)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (kind, student_id, track_id, str(camera_id), timestamp, confidence,
+                 json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))),
+            )
+            persisted.append((cursor.lastrowid, kind, metadata))
+        conn.commit()
+        return MovementTransitionResult(True, attendance_inserted, tuple(persisted))
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@profile.stage("db_recent_events")
 def get_recent_events(limit=100, date=None):
     conn = get_connection()
     try:
@@ -1868,3 +2011,27 @@ def get_recent_events(limit=100, date=None):
             metadata = {}
         result.append(row[:9] + (metadata,))
     return result
+
+
+def set_student_capacity_archived(student_id, archived):
+    """Explicit subscription roster classification; never deletes biometric/history data.
+
+    Recognition and attendance eligibility remain unchanged in this pilot. This
+    field is deliberately not used by load_students or event decision logic.
+    """
+    conn = get_connection()
+    try:
+        conn.execute('BEGIN IMMEDIATE')
+        row = conn.execute('SELECT capacity_archived FROM students WHERE id=?', (student_id,)).fetchone()
+        if row is None:
+            raise ValueError('دانش‌آموز پیدا نشد.')
+        if row[0] and not archived:
+            try:
+                from .cloud.entitlement import enforce_student_capacity
+            except ImportError:
+                from cloud.entitlement import enforce_student_capacity
+            enforce_student_capacity(conn)
+        conn.execute('UPDATE students SET capacity_archived=? WHERE id=?', (int(bool(archived)), student_id))
+        conn.commit()
+    finally:
+        conn.close()

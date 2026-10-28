@@ -1,0 +1,5 @@
+# Export-only dependencies. Do NOT install on the target laptop.
+# The runtime application uses requirements.txt and ONNX Runtime only.
+ultralytics
+onnx
+onnxruntime

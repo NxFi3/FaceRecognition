@@ -1,0 +1,195 @@
+{
+  "scope": "synthetic local company/product demonstration only",
+  "base_url": "http://127.0.0.1:8001",
+  "browser": "154.0.8037.57",
+  "canonical_pages": [
+    {
+      "path": "/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/features/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/how-it-works/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/demo/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/pricing/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/compare/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/downloads/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/requirements/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/faq/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/contact/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/support/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/privacy/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/terms/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/login/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/register/",
+      "viewport_width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/features/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/how-it-works/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/demo/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/pricing/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/compare/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/downloads/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/requirements/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/faq/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/contact/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/support/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/privacy/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/terms/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/login/",
+      "viewport_width": 390,
+      "status": 200
+    },
+    {
+      "path": "/register/",
+      "viewport_width": 390,
+      "status": 200
+    }
+  ],
+  "checks": [
+    "company, catalogue and complete first-product pages load at desktop/mobile widths",
+    "existing interactive FaceRecognition demo remains functional",
+    "FaceRecognition customer portal and pending-payment checkout work inside product scope",
+    "mobile navigation/Escape, no horizontal overflow/console errors, critical no-JS rendering"
+  ],
+  "screenshots": [
+    "corporate-home-desktop.png",
+    "corporate-products-desktop.png",
+    "corporate-facerecognition-desktop.png",
+    "corporate-facerecognition-pricing.png",
+    "corporate-home-mobile.png",
+    "corporate-facerecognition-mobile.png",
+    "corporate-facerecognition-portal.png",
+    "corporate-facerecognition-checkout.png",
+    "corporate-facerecognition-portal-mobile.png"
+  ],
+  "captured_at_utc": "2026-10-25T13:54:45.106652+00:00"
+}

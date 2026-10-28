@@ -1,0 +1,220 @@
+{
+  "scope": "actual production-settings HTTPS stack with synthetic accounts and owner-attested synthetic payments",
+  "external_payment_settlement": false,
+  "external_email_delivery": false,
+  "desktop_vault": "memory test double, not Windows Credential Manager",
+  "language": "fa",
+  "tls_verification_bypassed": false,
+  "browser": "154.0.8037.57",
+  "pages": [
+    {
+      "path": "/",
+      "width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/",
+      "width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/",
+      "width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/features/",
+      "width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/how-it-works/",
+      "width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/demo/",
+      "width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/pricing/",
+      "width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/compare/",
+      "width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/downloads/",
+      "width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/requirements/",
+      "width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/faq/",
+      "width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/contact/",
+      "width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/support/",
+      "width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/privacy/",
+      "width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/terms/",
+      "width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/login/",
+      "width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/register/",
+      "width": 1440,
+      "status": 200
+    },
+    {
+      "path": "/",
+      "width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/",
+      "width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/",
+      "width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/features/",
+      "width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/how-it-works/",
+      "width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/demo/",
+      "width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/pricing/",
+      "width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/compare/",
+      "width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/downloads/",
+      "width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/requirements/",
+      "width": 390,
+      "status": 200
+    },
+    {
+      "path": "/products/facerecognition/faq/",
+      "width": 390,
+      "status": 200
+    },
+    {
+      "path": "/contact/",
+      "width": 390,
+      "status": 200
+    },
+    {
+      "path": "/support/",
+      "width": 390,
+      "status": 200
+    },
+    {
+      "path": "/privacy/",
+      "width": 390,
+      "status": 200
+    },
+    {
+      "path": "/terms/",
+      "width": 390,
+      "status": 200
+    },
+    {
+      "path": "/login/",
+      "width": 390,
+      "status": 200
+    },
+    {
+      "path": "/register/",
+      "width": 390,
+      "status": 200
+    }
+  ],
+  "checks": [
+    "34 production-HTTPS selected-language public/auth responsive pages, mobile navigation/Escape and interactive synthetic demo/empty state",
+    "browser registration, real local STARTTLS SMTP email receipt, email verification and school login",
+    "priced checkout and manual evidence claim do not activate a subscription",
+    "school accounts denied owner console and another school invoice",
+    "owner rejection preserves inactive entitlement and rejects subsequent payment claims",
+    "actual Qt LoginDialog completed background activation over verified HTTPS; English/Persian screenshots captured",
+    "wrong amount cannot activate; synthetic owner attestation activates actual pinned-Ed25519 desktop client over verified HTTPS",
+    "actual server device-limit enforcement rejects second installation",
+    "real HTTPS client-encrypted backup upload/download/full SQLite+photo restore",
+    "actual logical PG dump/restore preserves commercial counts and totals; web and PG restarts recover HTTPS and paid license; fulfilled payment retries remain idempotent",
+    "actual dedicated TLS proxy stop/start: offline startup and failed sync preserve paid license, verified HTTPS sync recovers",
+    "actual owner expiration and online renewal recover admission without deleting local data",
+    "customer device revocation becomes durable after next successful authenticated sync",
+    "actual HTTPS logout accepts the current revoked bearer solely for invalidation; old bearer lease sync returns 401 and offline restart stays denied"
+  ],
+  "screenshots": [
+    "audit-production-company-desktop.png",
+    "audit-production-product-desktop.png",
+    "audit-production-registration-desktop.png",
+    "audit-production-company-mobile.png",
+    "audit-production-product-mobile.png",
+    "audit-production-registration-mobile.png",
+    "audit-production-checkout-unverified.png",
+    "audit-production-owner-payment-validation-error.png",
+    "audit-production-owner-verified.png",
+    "audit-production-owner-verified-en.png",
+    "audit-production-desktop-login-en.png",
+    "audit-production-desktop-login-fa.png",
+    "audit-production-school-active.png",
+    "audit-production-school-active-en.png",
+    "audit-production-school-mobile.png"
+  ],
+  "recovery_drill": {
+    "logical_dump_restore": true,
+    "original_database_unchanged": true,
+    "tables_checked": 7
+  },
+  "captured_at_utc": "2026-10-26T08:22:42.043575+00:00"
+}
