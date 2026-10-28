@@ -57,40 +57,59 @@ Runtime data such as the SQLite database, logs, caches, and downloaded datasets 
 ## Requirements
 
 - Python 3.11 is the recommended development runtime.
-- Install the base dependencies:
+- Install desktop and client dependencies:
 
       python -m pip install -r requirements.txt
 
-- OSNet Re-ID is optional. Install its extra dependencies only when using that feature:
+- Install the Django control-service dependencies when running the website/service:
+
+      python -m pip install -r requirements-service.txt
+
+- OSNet Re-ID is optional only when the selected pilot baseline does not use it.
+  Install its extra dependencies only when needed:
 
       python -m pip install -r requirements-reid.txt
 
-OSNet is optional only when the deployed baseline does not use it. Preserve the
-validated weights and optional CPU dependencies for pilots that rely on Re-ID.
-
-The optional live-camera Re-ID diagnostic is not the production tracker. Run it from the repository root only when a camera is connected:
-
-    python -m src.reid_camera_test
+Preserve the validated OSNet weights and CPU dependencies for any pilot that
+relies on Re-ID. Do not silently remove that capability when packaging.
 
 ## Run
 
-The desktop now requires a configured subscription service and an active school
-account. Initial activation is online; an activated signed v2 license runs offline
-until subscription expiry. Network sync is asynchronous. School-owned client-encrypted
-complete backups require a separately kept recovery key. Start with the [Persian deployment and operations guide](docs/subscription-setup-fa.md).
-It covers VPS setup, website/admin accounts, subscription activation, Windows
-packaging, encrypted backups and disaster recovery. Payment activation is manual.
-An official Windows build bundles its validated public service configuration.
-The customer must not create or copy JSON files. Release operators stage the
-existing public URL/verification key during packaging and never ship the private
-server `.env` or signing/backup keys. Native Windows packaging still needs a
-real-machine acceptance run.
+**For a complete local integration run (desktop + Control Service + website),
+use the isolated synthetic pilot:**
 
-From the repository root:
+      python -m tools.run_local_pilot
 
-    python src/app.py
+It uses a separate private data directory, a localhost-only HTTPS endpoint,
+temporary signing keys, and synthetic owner/school accounts. Closing the desktop
+stops the local service. The owner portal is normally
+`https://localhost:18443/owner/`; credentials are written to
+`~/.local/share/nxfi-facerecognition-pilot/pilot-test-accounts.txt`.
 
-The application stores its local database under data/attendance.db and runtime logs under logs/; these files are intentionally ignored by Git.
+To run only the local website/service and use the browser:
+
+      python -m tools.run_local_pilot --server-only
+
+For a separate test workspace:
+
+      python -m tools.run_local_pilot --data-dir ~/.local/share/nxfi-facerecognition-pilot-review
+
+Do not use real student data in the pilot, and do not disable TLS certificate
+verification to bypass browser warnings. The source desktop requires a trusted
+HTTPS `subscription-client.json`; `python src/app.py` alone does not launch the
+Control Service, and without a valid public service configuration it cannot
+activate an account.
+
+For real deployment, start with the
+[Persian commercial deployment guide](docs/commercial-deployment-fa.md) and the
+[new plain-language local and commercial workflow guide](docs/guide-commercial-and-local-pilot-fa.md).
+`python -m deploy.configure` only generates server configuration; it does not
+publish or start the public service. Never package the server's private
+`deploy/.env`, signing key, or backup master key.
+
+The desktop normally stores its local database under `data/attendance.db` and
+runtime logs under `logs/`; the local pilot deliberately stores its synthetic
+service data outside the repository.
 
 ## Validation
 
