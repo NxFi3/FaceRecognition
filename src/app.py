@@ -814,6 +814,8 @@ class CameraWorker(QThread):
         return track_id, matcher.recognize_crop(crop, bbox)
 
     def run(self):
+        if not self._running:
+            return
         self.status_changed.emit(tr("Loading face detector…"))
         cap = None
         executor = None
@@ -835,6 +837,8 @@ class CameraWorker(QThread):
             )
 
             camera_id, target_fps = get_camera_settings()
+            if not self._running:
+                return
             cap = _open_camera(camera_id, target_fps)
 
             actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -1265,6 +1269,8 @@ class EnrollmentWorker(QThread):
         cap = None
 
         try:
+            if not self._running:
+                return
             if not YUNET_MODEL_PATH.exists():
                 raise FileNotFoundError(
                     tr("YuNet model not found: {0}").format(YUNET_MODEL_PATH)
@@ -1284,6 +1290,8 @@ class EnrollmentWorker(QThread):
                 camera_id = int(self.camera_id)
             if self.target_fps is not None:
                 target_fps = int(self.target_fps)
+            if not self._running:
+                return
             cap = _open_camera(camera_id, target_fps)
 
             # Keep the preview responsive: face models are initialized lazily
@@ -1433,7 +1441,11 @@ class EnrollmentPreviewWorker(QThread):
     def run(self):
         cap = None
         try:
+            if not self._running:
+                return
             self.status.emit(tr("Connecting to the enrollment camera…"))
+            if not self._running:
+                return
             cap = _open_camera(self.camera_id, self.target_fps)
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
