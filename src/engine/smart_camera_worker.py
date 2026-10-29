@@ -573,6 +573,11 @@ class SmartCameraWorker(QThread):
         face_only_last_frame = -1
 
         try:
+            # The GUI can call stop() immediately after start(); do not initialize
+            # detector/Re-ID models if the worker was already cancelled.
+            if not self._running:
+                return
+
             # Importing app at runtime avoids a module-level circular import.
             try:
                 from ..app import (
@@ -679,6 +684,8 @@ class SmartCameraWorker(QThread):
                 ),
                 raw_bayer=use_raw_bayer,
             )
+            if not self._running:
+                return
             logger.info("WORKER_CAMERA_START slot=%s camera_id=%s target_fps=%s raw_bayer=%s", self.camera_slot, camera_id, target_fps, use_raw_bayer)
             capture.start()
 
