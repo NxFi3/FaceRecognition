@@ -744,7 +744,9 @@ class CameraWorker(QThread):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._running = False
+        # Set before QThread.start(): stop() must never be overwritten if
+        # the GUI requests cancellation before run() gets scheduled.
+        self._running = True
 
     def stop(self):
         self._running = False
@@ -812,7 +814,6 @@ class CameraWorker(QThread):
         return track_id, matcher.recognize_crop(crop, bbox)
 
     def run(self):
-        self._running = True
         self.status_changed.emit(tr("Loading face detector…"))
         cap = None
         executor = None
@@ -1251,7 +1252,9 @@ class EnrollmentWorker(QThread):
 
     def __init__(self, camera_id=None, target_fps=None, parent=None):
         super().__init__(parent)
-        self._running = False
+        # The stop flag is initialized before start() so an immediate cancel
+        # cannot be lost when run() begins on the worker thread.
+        self._running = True
         self.camera_id = camera_id
         self.target_fps = target_fps
 
@@ -1259,7 +1262,6 @@ class EnrollmentWorker(QThread):
         self._running = False
 
     def run(self):
-        self._running = True
         cap = None
 
         try:
@@ -1730,28 +1732,104 @@ class EnrollmentDialog(QDialog):
         self.start_button.setEnabled(True)
         self.progress_label.setText(tr("Enrollment failed: {0}").format(message))
         QMessageBox.critical(self, tr("Enrollment error"), message)
-        QTimer.singleShot(0, self.start_preview)
+        # Wait until the capture thread has released the device before opening
+        # a preview handle again.
+        QTimer.singleShot(0, self._restart_preview_when_ready)
+
+    def _restart_preview_when_ready(self, attempts=0):
+        worker = self.worker
+        if worker is not None and worker.isRunning():
+            if attempts >= 50:
+                self.progress_label.setText(
+                    tr("Enrollment camera is still stopping. Wait before trying again.")
+                )
+                logger.error("ENROLLMENT_CAMERA_RELEASE_TIMEOUT")
+                return
+            QTimer.singleShot(
+                100,
+                lambda: self._restart_preview_when_ready(attempts + 1),
+            )
+            return
+        self.start_preview()
 
     def capture_finished(self, embeddings):
         if embeddings is None:
             self.progress_label.setText(tr("Enrollment was cancelled or incomplete."))
             self.start_button.setEnabled(True)
-            QTimer.singleShot(0, self.start_preview)
+            QTimer.singleShot(0, self._restart_preview_when_ready)
             return
 
         self.embeddings = embeddings
         if self.worker is not None and self.worker.isRunning():
-            self.worker.wait(5000)
+            if not self.worker.wait(5000):
+                self.progress_label.setText(
+                    tr("Waiting for the enrollment camera to release…")
+                )
+                QTimer.singleShot(100, self._finish_capture_when_ready)
+                return
 
         self.progress_label.setText(tr("Face enrollment completed successfully."))
         self.accept()
 
+    def _finish_capture_when_ready(self, attempts=0):
+        worker = self.worker
+        if worker is not None and worker.isRunning():
+            if attempts >= 50:
+                self.progress_label.setText(
+                    tr("Enrollment camera is still stopping. Do not close the dialog yet.")
+                )
+                logger.error("ENROLLMENT_CAPTURE_STOP_TIMEOUT")
+                return
+            QTimer.singleShot(
+                100,
+                lambda: self._finish_capture_when_ready(attempts + 1),
+            )
+            return
+        self.progress_label.setText(tr("Face enrollment completed successfully."))
+        self.accept()
+
+    def _stop_workers(self, timeout_ms=5000):
+        """Stop preview/capture workers and verify the camera handles are released."""
+        all_stopped = True
+        for worker in (self.preview_worker, self.worker):
+            if worker is None or not worker.isRunning():
+                continue
+            worker.stop()
+            if not worker.wait(timeout_ms):
+                logger.error(
+                    "ENROLLMENT_WORKER_STOP_TIMEOUT worker=%s",
+                    type(worker).__name__,
+                )
+                all_stopped = False
+        return all_stopped and not any(
+            worker is not None and worker.isRunning()
+            for worker in (self.preview_worker, self.worker)
+        )
+
+    def accept(self):
+        if not self._stop_workers():
+            self.progress_label.setText(
+                tr("The enrollment camera is still stopping. Wait a moment and try again.")
+            )
+            return
+        super().accept()
+
+    def reject(self):
+        if not self._stop_workers():
+            self.progress_label.setText(
+                tr("The enrollment camera is still stopping. Wait a moment, then cancel again.")
+            )
+            return
+        super().reject()
+
     def closeEvent(self, event):
         logger.info("ENROLLMENT_DIALOG_CLOSE")
-        self.stop_preview()
-        if self.worker is not None and self.worker.isRunning():
-            self.worker.stop()
-            self.worker.wait(4000)
+        if not self._stop_workers():
+            self.progress_label.setText(
+                tr("The enrollment camera is still stopping. Wait before closing this dialog.")
+            )
+            event.ignore()
+            return
         event.accept()
 
 
@@ -3330,6 +3408,7 @@ class MainWindow(QMainWindow):
         self._dual_camera_fps_cap = 30
         self._camera_supervisor_enabled = True
         self._camera_restart_pending = False
+        self._camera_restart_attempts = 0
         self._shutting_down = False
 
         # Preview frames use a latest-value mailbox rather than queued GUI
@@ -4678,8 +4757,11 @@ class MainWindow(QMainWindow):
         camera2_id = int(get_setting("camera_2_id", "-1"))
 
         was_running = bool(self.camera_workers)
-        if was_running:
-            self.stop_camera()
+        if was_running and not self.stop_camera():
+            self.camera_error(
+                tr("Camera workers are still stopping. Retry refreshing camera settings in a moment.")
+            )
+            return
 
         try:
             cameras = _discover_cameras()
@@ -5015,19 +5097,24 @@ class MainWindow(QMainWindow):
             tr("Settings saved • {0} active cameras • {1} • Global Link {2}").format(len(enabled_slots), role_summary, tr('Enabled') if self.settings_global_link_enabled.isChecked() else tr('Off'))
         )
 
-    def start_camera(self):
+    def start_camera(self, reset_retry_budget=True):
         try:
             from .cloud.entitlement import runtime_allowed
         except ImportError:
             from cloud.entitlement import runtime_allowed
         if not runtime_allowed():
-            return
+            return False
         logger.info("APP_START_CAMERA requested")
+        # Never start a second owner for a device whose previous QThread has
+        # not actually returned from run() yet.
+        if any(worker.isRunning() for worker in self.camera_workers.values()):
+            logger.warning("APP_START_CAMERA_SKIPPED_WORKER_STILL_RUNNING")
+            return False
+        self.camera_workers.clear()
+        self.camera_worker = None
         self._camera_supervisor_enabled = True
-        if self.camera_workers and any(
-            worker.isRunning() for worker in self.camera_workers.values()
-        ):
-            return
+        if reset_retry_budget:
+            self._camera_restart_attempts = 0
 
         enabled_slots = []
         for slot in (1, 2):
@@ -5178,7 +5265,7 @@ class MainWindow(QMainWindow):
             self.camera_previews[2].setText(tr("Camera 2 is disabled."))
 
     def _camera_worker_finished(self, slot, worker):
-        """Restart the whole camera pipeline after an unexpected worker stop."""
+        """Recover from a transient worker exit without an unlimited restart loop."""
         if self.camera_workers.get(slot) is not worker:
             return
 
@@ -5190,39 +5277,74 @@ class MainWindow(QMainWindow):
             return
 
         self.camera_error(
-            tr("Camera {0}: worker stopped unexpectedly; restarting cameras.").format(slot)
+            tr("Camera {0}: worker stopped unexpectedly; checking camera availability.").format(slot)
         )
         if self._camera_restart_pending:
             return
+        if self._camera_restart_attempts >= 3:
+            logger.error(
+                "CAMERA_RESTART_LIMIT_REACHED slot=%s attempts=%s",
+                slot,
+                self._camera_restart_attempts,
+            )
+            self.camera_error(
+                tr("Camera {0}: automatic restart stopped after repeated failures. Check the connection, then use Restart camera.").format(slot)
+            )
+            return
 
+        self._camera_restart_attempts += 1
+        delay_ms = min(1500 * (2 ** (self._camera_restart_attempts - 1)), 6000)
         self._camera_restart_pending = True
+        logger.warning(
+            "CAMERA_RESTART_SCHEDULED slot=%s attempt=%s delay_ms=%s",
+            slot,
+            self._camera_restart_attempts,
+            delay_ms,
+        )
 
         def restart():
             self._camera_restart_pending = False
             if self._shutting_down or not self._camera_supervisor_enabled:
                 return
-            self._camera_supervisor_enabled = False
-            self.stop_camera()
-            self._camera_supervisor_enabled = True
-            self.start_camera()
+            if not self.stop_camera():
+                logger.error("CAMERA_RESTART_ABORTED_WORKER_STILL_RUNNING slot=%s", slot)
+                self.camera_error(
+                    tr("Camera workers are still stopping. Automatic restart was cancelled.")
+                )
+                return
+            self.start_camera(reset_retry_budget=False)
 
-        QTimer.singleShot(1500, restart)
+        QTimer.singleShot(delay_ms, restart)
 
     def stop_camera(self):
+        """Stop camera workers and preserve their references if they time out."""
         logger.info("APP_STOP_CAMERA requested")
         self._camera_supervisor_enabled = False
-        workers = list(self.camera_workers.values())
-        for worker in workers:
+        workers = list(self.camera_workers.items())
+        all_stopped = True
+        for slot, worker in workers:
             if worker.isRunning():
                 worker.stop()
-                worker.wait(5000)
+                if not worker.wait(5000):
+                    logger.error("CAMERA_STOP_TIMEOUT slot=%s", slot)
+                    all_stopped = False
+
+        # Do not forget a still-running QThread: the next start must not race
+        # it for the same /dev/video device.
+        if not all_stopped:
+            return False
 
         self.camera_workers.clear()
         self.camera_worker = None
+        return True
 
     def restart_camera(self):
-        self.stop_camera()
-        self._camera_supervisor_enabled = True
+        if not self.stop_camera():
+            self.camera_error(
+                tr("Camera workers are still stopping. Wait a moment before restarting.")
+            )
+            return
+        self._camera_restart_attempts = 0
         self.start_camera()
 
     def _store_camera_preview(self, camera_slot, image):
@@ -5684,7 +5806,13 @@ class MainWindow(QMainWindow):
             return None
 
     def add_student_dialog(self):
-        self.stop_camera()
+        if not self.stop_camera():
+            QMessageBox.warning(
+                self,
+                tr("Camera is busy"),
+                tr("The camera worker is still stopping. Wait a few seconds and try again."),
+            )
+            return
         dialog = EnrollmentDialog(show_student_fields=True, parent=self)
 
         try:
@@ -5816,7 +5944,13 @@ class MainWindow(QMainWindow):
         ):
             return
 
-        self.stop_camera()
+        if not self.stop_camera():
+            QMessageBox.warning(
+                self,
+                tr("Camera is busy"),
+                tr("The camera worker is still stopping. Wait a few seconds and try again."),
+            )
+            return
         dialog = EnrollmentDialog(
             show_student_fields=False,
             student_id=student_id,
@@ -7123,7 +7257,13 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self._shutting_down = True
         self._camera_supervisor_enabled = False
-        self.stop_camera()
+        if not self.stop_camera():
+            self._shutting_down = False
+            self.camera_error(
+                tr("Camera workers are still stopping. Wait a moment before closing the application.")
+            )
+            event.ignore()
+            return
         event.accept()
 
 
