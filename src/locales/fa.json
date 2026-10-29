@@ -1594,5 +1594,19 @@
   "Backup": "بکاپ",
   "Audit event": "رویداد ممیزی",
   "Audit events": "رویدادهای ممیزی",
-  "Your subscription is active. Continue using the desktop application and review your devices and backups here. Renew before the displayed expiry to avoid interruption.": "اشتراک شما فعال است. استفاده از برنامهٔ دسکتاپ را ادامه دهید و دستگاه‌ها و بکاپ‌ها را اینجا بررسی کنید. برای جلوگیری از وقفه، پیش از تاریخ انقضای نمایش‌داده‌شده تمدید کنید."
+  "Your subscription is active. Continue using the desktop application and review your devices and backups here. Renew before the displayed expiry to avoid interruption.": "اشتراک شما فعال است. استفاده از برنامهٔ دسکتاپ را ادامه دهید و دستگاه‌ها و بکاپ‌ها را اینجا بررسی کنید. برای جلوگیری از وقفه، پیش از تاریخ انقضای نمایش‌داده‌شده تمدید کنید.",
+  "Camera is busy": "دوربین مشغول است",
+  "The camera worker is still stopping. Wait a few seconds and try again.": "پردازش دوربین هنوز متوقف نشده است. چند ثانیه صبر کنید و دوباره تلاش کنید.",
+  "Camera workers are still stopping. Retry refreshing camera settings in a moment.": "پردازش دوربین‌ها هنوز متوقف نشده‌اند. کمی بعد تنظیمات دوربین را دوباره بازخوانی کنید.",
+  "Camera workers are still stopping. Wait a moment before restarting.": "پردازش دوربین‌ها هنوز متوقف نشده‌اند. پیش از راه‌اندازی دوباره کمی صبر کنید.",
+  "Camera {0}: worker stopped unexpectedly; checking camera availability.": "دوربین {0}: پردازش به‌طور غیرمنتظره متوقف شد؛ در حال بررسی دسترس‌پذیری دوربین.",
+  "Camera {0}: automatic restart stopped after repeated failures. Check the connection, then use Restart camera.": "دوربین {0}: پس از چند شکست، راه‌اندازی خودکار متوقف شد. اتصال را بررسی و سپس از «ذخیره و راه‌اندازی مجدد دوربین‌ها» استفاده کنید.",
+  "The enrollment camera is still stopping. Wait a moment and try again.": "دوربین ثبت هنوز در حال آزادشدن است. کمی صبر کنید و دوباره تلاش کنید.",
+  "Waiting for the enrollment camera to release…": "در انتظار آزادشدن دوربین ثبت…",
+  "The enrollment camera is still stopping. Wait a moment, then cancel again.": "دوربین ثبت هنوز در حال متوقف‌شدن است. کمی صبر کنید و دوباره لغو را بزنید.",
+  "The enrollment camera is still stopping. Wait before closing this dialog.": "دوربین ثبت هنوز در حال متوقف‌شدن است. پیش از بستن این پنجره کمی صبر کنید.",
+  "Enrollment camera is still stopping. Wait before trying again.": "دوربین ثبت هنوز در حال متوقف‌شدن است. پیش از تلاش دوباره صبر کنید.",
+  "Enrollment camera is still stopping. Do not close the dialog yet.": "دوربین ثبت هنوز متوقف نشده است. فعلاً پنجره را نبندید.",
+  "Camera workers are still stopping. Automatic restart was cancelled.": "پردازش دوربین‌ها هنوز متوقف نشده‌اند؛ راه‌اندازی خودکار لغو شد.",
+  "Camera workers are still stopping. Wait a moment before closing the application.": "پردازش دوربین‌ها هنوز متوقف نشده‌اند. پیش از بستن برنامه کمی صبر کنید."
 }

@@ -169,7 +169,9 @@ class SmartCameraWorker(QThread):
         identity_manager=None,
     ):
         super().__init__(parent)
-        self._running = False
+        # Initialize before QThread.start() so an immediate stop from the GUI
+        # cannot be lost if run() has not yet been scheduled.
+        self._running = True
         self.camera_slot = int(camera_slot)
         self.camera_config = dict(camera_config or {})
         self.presence_state = presence_state or AttendancePresenceState()
@@ -556,7 +558,6 @@ class SmartCameraWorker(QThread):
 
     @profile.in_camera(lambda self: self.camera_slot)
     def run(self):
-        self._running = True
         profile.count("worker_starts")
         profile.gauge("worker_running", 1)
         logger.info("WORKER_START slot=%s config=%s", self.camera_slot, self.camera_config)
@@ -572,6 +573,11 @@ class SmartCameraWorker(QThread):
         face_only_last_frame = -1
 
         try:
+            # The GUI can call stop() immediately after start(); do not initialize
+            # detector/Re-ID models if the worker was already cancelled.
+            if not self._running:
+                return
+
             # Importing app at runtime avoids a module-level circular import.
             try:
                 from ..app import (
@@ -678,6 +684,8 @@ class SmartCameraWorker(QThread):
                 ),
                 raw_bayer=use_raw_bayer,
             )
+            if not self._running:
+                return
             logger.info("WORKER_CAMERA_START slot=%s camera_id=%s target_fps=%s raw_bayer=%s", self.camera_slot, camera_id, target_fps, use_raw_bayer)
             capture.start()
 
