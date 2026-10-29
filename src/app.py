@@ -3409,6 +3409,7 @@ class MainWindow(QMainWindow):
         self._camera_supervisor_enabled = True
         self._camera_restart_pending = False
         self._camera_restart_attempts = 0
+        self._camera_restart_generation = 0
         self._shutting_down = False
 
         # Preview frames use a latest-value mailbox rather than queued GUI
@@ -5114,6 +5115,10 @@ class MainWindow(QMainWindow):
         self.camera_worker = None
         self._camera_supervisor_enabled = True
         if reset_retry_budget:
+            # A manual/start-after-enrollment action supersedes any pending
+            # automatic retry for an older worker generation.
+            self._camera_restart_generation += 1
+            self._camera_restart_pending = False
             self._camera_restart_attempts = 0
 
         enabled_slots = []
@@ -5294,6 +5299,8 @@ class MainWindow(QMainWindow):
 
         self._camera_restart_attempts += 1
         delay_ms = min(1500 * (2 ** (self._camera_restart_attempts - 1)), 6000)
+        self._camera_restart_generation += 1
+        restart_generation = self._camera_restart_generation
         self._camera_restart_pending = True
         logger.warning(
             "CAMERA_RESTART_SCHEDULED slot=%s attempt=%s delay_ms=%s",
@@ -5303,6 +5310,8 @@ class MainWindow(QMainWindow):
         )
 
         def restart():
+            if restart_generation != self._camera_restart_generation:
+                return
             self._camera_restart_pending = False
             if self._shutting_down or not self._camera_supervisor_enabled:
                 return
@@ -5320,6 +5329,8 @@ class MainWindow(QMainWindow):
         """Stop camera workers and preserve their references if they time out."""
         logger.info("APP_STOP_CAMERA requested")
         self._camera_supervisor_enabled = False
+        self._camera_restart_generation += 1
+        self._camera_restart_pending = False
         workers = list(self.camera_workers.items())
         all_stopped = True
         for slot, worker in workers:
