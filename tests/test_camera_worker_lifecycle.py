@@ -112,10 +112,20 @@ class CameraWorkerLifecycleTests(unittest.TestCase):
         self.assertIn("worker.wait(timeout_ms)", helper_source)
         self.assertIn("worker.isRunning()", helper_source)
 
+        stop_preview = method_node(cls, "stop_preview")
+        stop_preview_source = ast.get_source_segment(self.app_source, stop_preview)
+        self.assertIn("worker.stop()", stop_preview_source)
+        self.assertIn("worker.wait(timeout_ms)", stop_preview_source)
+
+        start_preview = method_node(cls, "start_preview")
+        start_preview_source = ast.get_source_segment(self.app_source, start_preview)
+        self.assertIn("self._closing or self._capture_starting", start_preview_source)
+
     def test_main_camera_stop_keeps_reference_when_thread_times_out(self):
         cls = class_node(self.app_tree, "MainWindow")
         method = method_node(cls, "stop_camera")
         segment = ast.get_source_segment(self.app_source, method)
+        self.assertIn("worker.stop()", segment)
         self.assertIn("if not worker.wait(5000):", segment)
         self.assertIn("return False", segment)
         self.assertLess(
