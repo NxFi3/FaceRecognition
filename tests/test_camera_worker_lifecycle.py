@@ -15,10 +15,6 @@ def source_for(path):
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def module_for(path):
-    return ast.parse(source_for(path), filename=path)
-
-
 def class_node(tree, name):
     for node in tree.body:
         if isinstance(node, ast.ClassDef) and node.name == name:
@@ -81,6 +77,27 @@ class CameraWorkerLifecycleTests(unittest.TestCase):
                     "run() must not undo stop() when cancellation races thread startup",
                 )
 
+    def test_cancelled_worker_checks_flag_before_opening_a_camera(self):
+        for class_name in ("CameraWorker", "EnrollmentWorker", "EnrollmentPreviewWorker"):
+            with self.subTest(worker=class_name):
+                cls = class_node(self.app_tree, class_name)
+                run = method_node(cls, "run")
+                segment = ast.get_source_segment(self.app_source, run)
+                self.assertIn("if not self._running:", segment)
+                self.assertLess(
+                    segment.index("if not self._running:"),
+                    segment.index("_open_camera("),
+                )
+
+        cls = class_node(self.smart_tree, "SmartCameraWorker")
+        run = method_node(cls, "run")
+        segment = ast.get_source_segment(self.smart_source, run)
+        self.assertLess(
+            segment.rindex("if not self._running:"),
+            segment.index("capture.start()"),
+            "smart camera acquisition must be skipped after an early stop",
+        )
+
     def test_enrollment_close_paths_release_worker_before_dismissing_dialog(self):
         cls = class_node(self.app_tree, "EnrollmentDialog")
         for method_name in ("accept", "reject", "closeEvent"):
@@ -121,9 +138,13 @@ class CameraWorkerLifecycleTests(unittest.TestCase):
         method = method_node(cls, "_camera_worker_finished")
         segment = ast.get_source_segment(self.app_source, method)
         self.assertIn("self._camera_restart_attempts >= 3", segment)
-        self.assertIn("delay_ms = min(1500 * (2 ** (self._camera_restart_attempts - 1)), 6000)", segment)
+        self.assertIn(
+            "delay_ms = min(1500 * (2 ** (self._camera_restart_attempts - 1)), 6000)",
+            segment,
+        )
         self.assertIn("QTimer.singleShot(delay_ms, restart)", segment)
         self.assertIn("self.start_camera(reset_retry_budget=False)", segment)
+        self.assertIn("restart_generation != self._camera_restart_generation", segment)
 
 
 if __name__ == "__main__":
