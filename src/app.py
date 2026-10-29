@@ -1477,6 +1477,7 @@ class EnrollmentDialog(QDialog):
         self.embeddings = None
         self.worker = None
         self.preview_worker = None
+        self._closing = False
 
         self.setModal(True)
         self.setWindowTitle(
@@ -1592,6 +1593,10 @@ class EnrollmentDialog(QDialog):
         QTimer.singleShot(0, self.start_preview)
 
     def start_preview(self):
+        # A queued singleShot(0, start_preview) may run after cancel/close.
+        # Never acquire a camera once the dialog is trying to close.
+        if self._closing:
+            return
         if self.preview_worker is not None and self.preview_worker.isRunning():
             return
 
@@ -1619,11 +1624,12 @@ class EnrollmentDialog(QDialog):
 
     def stop_preview(self, timeout_ms=4000):
         worker = self.preview_worker
-        if worker is None or not worker.isRunning():
+        if worker is None:
             return True
+        # stop()/wait() are also needed during the tiny start-requested but
+        # not-yet-running window; an isRunning() fast-path can miss that state.
         worker.stop()
-        worker.wait(timeout_ms)
-        if worker.isRunning():
+        if not worker.wait(timeout_ms) or worker.isRunning():
             logger.error("ENROLLMENT_PREVIEW_STOP_TIMEOUT")
             return False
         return True
@@ -1804,8 +1810,10 @@ class EnrollmentDialog(QDialog):
         """Stop preview/capture workers and verify the camera handles are released."""
         all_stopped = True
         for worker in (self.preview_worker, self.worker):
-            if worker is None or not worker.isRunning():
+            if worker is None:
                 continue
+            # Do not use isRunning() as a guard: start() may have been requested
+            # even while Qt has not yet reported the thread as running.
             worker.stop()
             if not worker.wait(timeout_ms):
                 logger.error(
@@ -1819,6 +1827,7 @@ class EnrollmentDialog(QDialog):
         )
 
     def accept(self):
+        self._closing = True
         if not self._stop_workers():
             self.progress_label.setText(
                 tr("The enrollment camera is still stopping. Wait a moment and try again.")
@@ -1827,6 +1836,7 @@ class EnrollmentDialog(QDialog):
         super().accept()
 
     def reject(self):
+        self._closing = True
         if not self._stop_workers():
             self.progress_label.setText(
                 tr("The enrollment camera is still stopping. Wait a moment, then cancel again.")
@@ -1836,6 +1846,7 @@ class EnrollmentDialog(QDialog):
 
     def closeEvent(self, event):
         logger.info("ENROLLMENT_DIALOG_CLOSE")
+        self._closing = True
         if not self._stop_workers():
             self.progress_label.setText(
                 tr("The enrollment camera is still stopping. Wait before closing this dialog.")
@@ -5346,11 +5357,13 @@ class MainWindow(QMainWindow):
         workers = list(self.camera_workers.items())
         all_stopped = True
         for slot, worker in workers:
-            if worker.isRunning():
-                worker.stop()
-                if not worker.wait(5000):
-                    logger.error("CAMERA_STOP_TIMEOUT slot=%s", slot)
-                    all_stopped = False
+            # stop() must be sent even if QThread has been start()-requested but
+            # isRunning() has not flipped yet. wait() ensures no delayed startup
+            # can acquire the device after this method returns.
+            worker.stop()
+            if not worker.wait(5000):
+                logger.error("CAMERA_STOP_TIMEOUT slot=%s", slot)
+                all_stopped = False
 
         # Do not forget a still-running QThread: the next start must not race
         # it for the same /dev/video device.
