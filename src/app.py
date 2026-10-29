@@ -1478,6 +1478,7 @@ class EnrollmentDialog(QDialog):
         self.worker = None
         self.preview_worker = None
         self._closing = False
+        self._capture_starting = False
 
         self.setModal(True)
         self.setWindowTitle(
@@ -1595,7 +1596,7 @@ class EnrollmentDialog(QDialog):
     def start_preview(self):
         # A queued singleShot(0, start_preview) may run after cancel/close.
         # Never acquire a camera once the dialog is trying to close.
-        if self._closing:
+        if self._closing or self._capture_starting:
             return
         if self.preview_worker is not None and self.preview_worker.isRunning():
             return
@@ -1699,12 +1700,15 @@ class EnrollmentDialog(QDialog):
                 )
                 return
 
-        # Release the preview camera before the enrollment worker opens it.
+        # Block any queued initial-preview callback before stopping the preview
+        # worker; otherwise it could reopen the camera after capture has begun.
+        self._capture_starting = True
         self.progress_label.setText(tr("Preparing the enrollment camera…"))
         if not self.stop_preview():
             self.progress_label.setText(
                 tr("The camera is still shutting down. Wait a few seconds and try again.")
             )
+            QTimer.singleShot(100, self._restart_preview_when_ready)
             return
 
         self.start_button.setEnabled(False)
@@ -1755,8 +1759,14 @@ class EnrollmentDialog(QDialog):
         QTimer.singleShot(0, self._restart_preview_when_ready)
 
     def _restart_preview_when_ready(self, attempts=0):
-        worker = self.worker
-        if worker is not None and worker.isRunning():
+        if self._closing:
+            return
+        workers = (self.worker, self.preview_worker)
+        if any(
+            worker is not None
+            and (worker.isRunning() or not worker.wait(0))
+            for worker in workers
+        ):
             if attempts >= 50:
                 self.progress_label.setText(
                     tr("Enrollment camera is still stopping. Wait before trying again.")
@@ -1768,6 +1778,7 @@ class EnrollmentDialog(QDialog):
                 lambda: self._restart_preview_when_ready(attempts + 1),
             )
             return
+        self._capture_starting = False
         self.start_preview()
 
     def capture_finished(self, embeddings):
