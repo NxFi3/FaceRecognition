@@ -1423,6 +1423,83 @@ def set_attendance_status(
         conn.close()
 
 
+
+def sync_attendance_from_entry_events(start_date=None, end_date=None):
+    """Backfill missing daily attendance rows from durable entry movements.
+
+    The movement event log is the audit trail. Older releases and interrupted
+    UI refreshes can leave PERSON_ENTERED events without a corresponding
+    attendance row. This idempotent repair inserts only missing rows and never
+    overwrites manual or existing attendance decisions.
+    """
+    if start_date is None and end_date is None:
+        start_date = end_date = datetime.now().strftime("%Y-%m-%d")
+    elif start_date is None:
+        start_date = end_date
+    elif end_date is None:
+        end_date = start_date
+
+    # Reject malformed ranges rather than letting SQLite silently interpret
+    # arbitrary strings through date().
+    start = datetime.strptime(str(start_date), "%Y-%m-%d").date()
+    end = datetime.strptime(str(end_date), "%Y-%m-%d").date()
+    if start > end:
+        raise ValueError("start_date must be on or before end_date")
+
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            WITH ranked_entries AS (
+                SELECT
+                    e.student_id,
+                    e.camera_id,
+                    e.timestamp,
+                    date(e.timestamp) AS attendance_date,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY e.student_id, date(e.timestamp)
+                        ORDER BY e.timestamp ASC, e.id ASC
+                    ) AS entry_rank
+                FROM events e
+                WHERE e.student_id IS NOT NULL
+                  AND e.event_type = 'PERSON_ENTERED'
+                  AND date(e.timestamp) BETWEEN ? AND ?
+            )
+            INSERT INTO attendance
+                (student_id, date, timestamp, camera_id, status,
+                 notes, source, updated_at)
+            SELECT
+                entry.student_id,
+                entry.attendance_date,
+                entry.timestamp,
+                entry.camera_id,
+                CASE WHEN EXISTS (
+                    SELECT 1
+                    FROM events late
+                    WHERE late.student_id = entry.student_id
+                      AND date(late.timestamp) = entry.attendance_date
+                      AND late.event_type = 'LATE_ARRIVAL'
+                      AND late.timestamp >= entry.timestamp
+                ) THEN 'late' ELSE 'present' END,
+                '',
+                'camera',
+                entry.timestamp
+            FROM ranked_entries AS entry
+            WHERE entry.entry_rank = 1
+              AND 1 = 1
+            ON CONFLICT(student_id, date) DO NOTHING
+            """,
+            (start.isoformat(), end.isoformat()),
+        )
+        conn.commit()
+        return max(0, int(cursor.rowcount))
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def get_attendance(date=None, class_id=None, major_id=None):
     if date is None:
         date = datetime.now().strftime("%Y-%m-%d")
