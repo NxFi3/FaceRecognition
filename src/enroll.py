@@ -10,7 +10,7 @@ install_legacy_model_compat()
 import face_recognition
 from ultralytics import YOLO
 
-from database import init_db, add_student, add_embedding, get_setting
+from database import init_db, add_student_with_embeddings, get_setting
 
 YOLO_MODEL = "yolov8n-face.pt"
 CAMERA_ID = 0
@@ -271,20 +271,16 @@ def main():
     print("Saving student...")
 
     try:
-
-        student_id = add_student(student_code, name)
-
+        student_id = add_student_with_embeddings(
+            student_code,
+            name,
+            embeddings,
+        )
     except Exception as e:
-
         print()
-        print("ERROR: Could not create student.")
+        print("ERROR: Could not save student and face samples.")
         print(e)
-
         return
-
-    for embedding in embeddings:
-
-        add_embedding(student_id, embedding)
 
     print()
     print("Enrollment successful!")
