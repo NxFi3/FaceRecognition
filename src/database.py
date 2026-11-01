@@ -1448,7 +1448,8 @@ def sync_attendance_from_entry_events(start_date=None, end_date=None):
 
     conn = get_connection()
     try:
-        cursor = conn.execute(
+        changes_before = conn.total_changes
+        conn.execute(
             """
             WITH ranked_entries AS (
                 SELECT
@@ -1491,8 +1492,9 @@ def sync_attendance_from_entry_events(start_date=None, end_date=None):
             """,
             (start.isoformat(), end.isoformat()),
         )
+        inserted = conn.total_changes - changes_before
         conn.commit()
-        return max(0, int(cursor.rowcount))
+        return max(0, int(inserted))
     except BaseException:
         conn.rollback()
         raise
