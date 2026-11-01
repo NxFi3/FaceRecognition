@@ -1556,6 +1556,9 @@ class EnrollmentDialog(QDialog):
         root.addWidget(self.enrollment_camera_status)
 
         self.refresh_enrollment_cameras()
+        self.camera_combo.currentIndexChanged.connect(
+            self._on_enrollment_camera_changed
+        )
 
         if not show_student_fields:
             title = QLabel(
@@ -1640,7 +1643,25 @@ class EnrollmentDialog(QDialog):
             tr("Camera preview could not start: {0}").format(message)
         )
 
+    def _on_enrollment_camera_changed(self, _index):
+        if self._closing or self._capture_starting or self.preview_worker is None:
+            return
+        if not self.stop_preview():
+            self.enrollment_camera_status.setText(
+                tr("The camera is still shutting down. Wait a few seconds and try again.")
+            )
+            return
+        self.preview.clear()
+        QTimer.singleShot(0, self.start_preview)
+
     def refresh_enrollment_cameras(self):
+        preview_was_created = self.preview_worker is not None
+        if preview_was_created and not self.stop_preview():
+            self.enrollment_camera_status.setText(
+                tr("The camera is still shutting down. Wait a few seconds and try again.")
+            )
+            return
+
         selected_id = self.camera_combo.currentData() if self.camera_combo.count() else None
         cameras = _discover_cameras()
 
@@ -1672,9 +1693,16 @@ class EnrollmentDialog(QDialog):
             )
 
         self.camera_combo.blockSignals(False)
+        if preview_was_created and not self._closing and not self._capture_starting:
+            self.preview.clear()
+            QTimer.singleShot(0, self.start_preview)
 
     def start_capture(self):
         logger.info("ENROLLMENT_START_CLICKED camera_data=%r show_student_fields=%s", self.camera_combo.currentData(), self.show_student_fields)
+        if self._closing or self._capture_starting:
+            return
+        if self.worker is not None and self.worker.isRunning():
+            return
         if self.camera_combo.currentData() is None:
             QMessageBox.warning(
                 self,
@@ -1703,6 +1731,8 @@ class EnrollmentDialog(QDialog):
         # Block any queued initial-preview callback before stopping the preview
         # worker; otherwise it could reopen the camera after capture has begun.
         self._capture_starting = True
+        self.start_button.setEnabled(False)
+        self.refresh_camera_button.setEnabled(False)
         self.progress_label.setText(tr("Preparing the enrollment camera…"))
         if not self.stop_preview():
             self.progress_label.setText(
@@ -1711,7 +1741,6 @@ class EnrollmentDialog(QDialog):
             QTimer.singleShot(100, self._restart_preview_when_ready)
             return
 
-        self.start_button.setEnabled(False)
         self.progress_label.setText(
             tr("Camera started. Face the camera and move naturally.")
         )
@@ -1751,7 +1780,6 @@ class EnrollmentDialog(QDialog):
         )
 
     def capture_error(self, message):
-        self.start_button.setEnabled(True)
         self.progress_label.setText(tr("Enrollment failed: {0}").format(message))
         QMessageBox.critical(self, tr("Enrollment error"), message)
         # Wait until the capture thread has released the device before opening
@@ -1779,12 +1807,13 @@ class EnrollmentDialog(QDialog):
             )
             return
         self._capture_starting = False
+        self.start_button.setEnabled(True)
+        self.refresh_camera_button.setEnabled(True)
         self.start_preview()
 
     def capture_finished(self, embeddings):
         if embeddings is None:
             self.progress_label.setText(tr("Enrollment was cancelled or incomplete."))
-            self.start_button.setEnabled(True)
             QTimer.singleShot(0, self._restart_preview_when_ready)
             return
 
@@ -5860,9 +5889,8 @@ class MainWindow(QMainWindow):
                 tr("The camera worker is still stopping. Wait a few seconds and try again."),
             )
             return
-        dialog = EnrollmentDialog(show_student_fields=True, parent=self)
-
         try:
+            dialog = EnrollmentDialog(show_student_fields=True, parent=self)
             if dialog.exec() != QDialog.Accepted:
                 return
 
@@ -5997,13 +6025,12 @@ class MainWindow(QMainWindow):
                 tr("The camera worker is still stopping. Wait a few seconds and try again."),
             )
             return
-        dialog = EnrollmentDialog(
-            show_student_fields=False,
-            student_id=student_id,
-            parent=self,
-        )
-
         try:
+            dialog = EnrollmentDialog(
+                show_student_fields=False,
+                student_id=student_id,
+                parent=self,
+            )
             if dialog.exec() != QDialog.Accepted:
                 return
 

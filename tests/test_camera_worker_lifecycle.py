@@ -143,6 +143,28 @@ class CameraWorkerLifecycleTests(unittest.TestCase):
                 self.assertIn("if not self.stop_camera():", segment)
                 self.assertIn('tr("Camera is busy")', segment)
 
+    def test_enrollment_capture_cannot_be_started_twice_during_camera_handoff(self):
+        cls = class_node(self.app_tree, "EnrollmentDialog")
+        start = method_node(cls, "start_capture")
+        start_source = ast.get_source_segment(self.app_source, start)
+        self.assertIn("self._capture_starting", start_source)
+        self.assertIn("self.worker.isRunning()", start_source)
+        self.assertIn("self.start_button.setEnabled(False)", start_source)
+        restart = method_node(cls, "_restart_preview_when_ready")
+        restart_source = ast.get_source_segment(self.app_source, restart)
+        self.assertIn("self.start_button.setEnabled(True)", restart_source)
+        self.assertIn("self.refresh_camera_button.setEnabled(True)", restart_source)
+
+    def test_camera_selection_restarts_preview_and_dialog_setup_is_inside_cleanup_scope(self):
+        cls = class_node(self.app_tree, "EnrollmentDialog")
+        self.assertIsNotNone(method_node(cls, "_on_enrollment_camera_changed"))
+        self.assertIsNotNone(method_node(cls, "refresh_enrollment_cameras"))
+        main = class_node(self.app_tree, "MainWindow")
+        for method_name in ("add_student_dialog", "reenroll_selected_student"):
+            method = method_node(main, method_name)
+            source = ast.get_source_segment(self.app_source, method)
+            self.assertLess(source.index("try:"), source.index("dialog = EnrollmentDialog("))
+
     def test_automatic_camera_restart_is_bounded_and_uses_backoff(self):
         cls = class_node(self.app_tree, "MainWindow")
         method = method_node(cls, "_camera_worker_finished")

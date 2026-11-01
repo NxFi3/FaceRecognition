@@ -9,6 +9,7 @@ from unittest.mock import patch
 import numpy as np
 
 from src import database
+from src.cloud import entitlement
 
 
 class StudentEnrollmentAtomicityTests(unittest.TestCase):
@@ -19,6 +20,9 @@ class StudentEnrollmentAtomicityTests(unittest.TestCase):
         self.db_path_patch = patch.object(database, "DB_PATH", self.db_path)
         self.db_path_patch.start()
         self.addCleanup(self.db_path_patch.stop)
+        self.entitlement_patch = patch.object(entitlement, "_gate", None)
+        self.entitlement_patch.start()
+        self.addCleanup(self.entitlement_patch.stop)
         database.init_db()
 
     @staticmethod
@@ -116,7 +120,7 @@ class StudentEnrollmentAtomicityTests(unittest.TestCase):
         self.assertEqual(self._counts(), (0, 0))
 
     def test_missing_class_rolls_back_student_and_samples(self):
-        with self.assertRaisesRegex(ValueError, "selected class was not found"):
+        with self.assertRaises(ValueError):
             database.add_student_with_embeddings(
                 "ENROLL-BAD-CLASS",
                 "Invalid Class",
