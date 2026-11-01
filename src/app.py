@@ -83,6 +83,7 @@ try:
         get_daily_report_summary,
         get_recent_attendance,
         get_recent_events,
+        sync_attendance_from_entry_events,
         get_report_rows,
         get_school_weekdays,
         list_school_day_overrides,
@@ -130,6 +131,7 @@ except ModuleNotFoundError:
         get_daily_report_summary,
         get_recent_attendance,
         get_recent_events,
+        sync_attendance_from_entry_events,
         get_report_rows,
         get_school_weekdays,
         list_school_day_overrides,
@@ -5309,6 +5311,7 @@ class MainWindow(QMainWindow):
                 Qt.DirectConnection,
             )
             worker.attendance_added.connect(self.attendance_event)
+            worker.event_added.connect(self.movement_event)
             worker.status_changed.connect(
                 lambda message, s=slot: self.update_camera_status(
                     f"Camera {s}: {message}"
@@ -5471,14 +5474,31 @@ class MainWindow(QMainWindow):
         self.camera_status.setText(tr("Camera error: {0}").format(message))
 
     def attendance_event(self, event):
+        # This signal is emitted only when a new attendance row is inserted.
+        # Movement events are handled separately so exits and idempotent
+        # re-entries also refresh the dashboard.
+        self.camera_status.setText(
+            tr("Recorded: {0} • {1}").format(event.get('name') or event.get('student_code') or tr("Student"), event.get('time') or "")
+        )
+
+    def movement_event(self, event):
+        """Keep dashboard, attendance and report views in sync with movements."""
+        event_type = str((event or {}).get("event_type") or "")
+        if event_type not in {"PERSON_ENTERED", "PERSON_EXITED"}:
+            return
+
+        try:
+            # Repairs older/event-only rows without changing manual attendance.
+            sync_attendance_from_entry_events()
+        except Exception:
+            logger.exception("Failed to reconcile attendance after %s", event_type)
+
         self.refresh_dashboard()
         self.refresh_event_alert()
         if self.current_page == 4:
             self.refresh_attendance()
-
-        self.camera_status.setText(
-            tr("Recorded: {0} • {1}").format(event['name'], event['time'])
-        )
+        elif self.current_page == 5:
+            self.refresh_report()
 
     def _early_event_snapshot_path(self, event_id):
         return BASE_DIR / "data" / "early_exit_review" / f"event_{int(event_id)}.jpg"
@@ -5754,6 +5774,10 @@ class MainWindow(QMainWindow):
         self.refresh_report()
 
     def refresh_dashboard(self):
+        try:
+            sync_attendance_from_entry_events()
+        except Exception:
+            logger.exception("Failed to reconcile attendance before dashboard refresh")
         total, present, absent, late, excused = get_attendance_stats()
 
         self.total_students_label.setText(str(total))
@@ -6517,6 +6541,10 @@ class MainWindow(QMainWindow):
 
     def refresh_attendance(self):
         date = self.attendance_date.date().toString("yyyy-MM-dd")
+        try:
+            sync_attendance_from_entry_events(date, date)
+        except Exception:
+            logger.exception("Failed to reconcile attendance for %s", date)
         major_id = self.attendance_major_combo.currentData()
         class_id = self.attendance_class_combo.currentData()
 
@@ -6633,6 +6661,11 @@ class MainWindow(QMainWindow):
 
         class_id = self.report_class_combo.currentData()
         major_id = self.report_major_combo.currentData()
+
+        try:
+            sync_attendance_from_entry_events(start, end)
+        except Exception:
+            logger.exception("Failed to reconcile report attendance for %s..%s", start, end)
 
         rows = get_report_rows(
             start,
