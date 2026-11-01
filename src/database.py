@@ -1071,6 +1071,123 @@ def add_student(student_code, name, class_id=None):
         conn.close()
 
 
+
+def _prepare_face_embedding_blobs(embeddings):
+    """Validate a complete enrollment before opening a write transaction."""
+    if embeddings is None:
+        raise ValueError("At least one valid face sample is required.")
+
+    try:
+        samples = list(embeddings)
+    except TypeError as exc:
+        raise ValueError("Face samples must be an iterable of vectors.") from exc
+
+    if not samples:
+        raise ValueError("At least one valid face sample is required.")
+
+    blobs = []
+    expected_shape = None
+    for index, sample in enumerate(samples, start=1):
+        vector = np.asarray(sample, dtype=np.float32)
+        if vector.ndim != 1 or vector.size == 0:
+            raise ValueError(f"Face sample {index} is not a non-empty vector.")
+        if not np.isfinite(vector).all():
+            raise ValueError(f"Face sample {index} contains invalid numeric values.")
+        if expected_shape is None:
+            expected_shape = vector.shape
+        elif vector.shape != expected_shape:
+            raise ValueError("All face samples must have the same vector size.")
+        blobs.append(vector.tobytes())
+
+    return blobs
+
+
+def add_student_with_embeddings(student_code, name, embeddings, class_id=None):
+    """Create a student, optional class enrollment, and all face samples atomically."""
+    student_code = str(student_code or "").strip()
+    name = str(name or "").strip()
+    if not student_code:
+        raise ValueError("Student code is required.")
+    if not name:
+        raise ValueError("Student name is required.")
+    embedding_blobs = _prepare_face_embedding_blobs(embeddings)
+
+    try:
+        from .cloud.entitlement import enforce_student_capacity
+    except ImportError:
+        from cloud.entitlement import enforce_student_capacity
+
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        enforce_student_capacity(conn)
+        cursor = conn.execute(
+            "INSERT INTO students (student_code, name) VALUES (?, ?)",
+            (student_code, name),
+        )
+        student_id = cursor.lastrowid
+
+        if class_id is not None:
+            row = conn.execute(
+                "SELECT academic_year_id FROM school_classes WHERE id = ?",
+                (class_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(tr("The selected class was not found."))
+            conn.execute(
+                """
+                INSERT INTO student_enrollments
+                    (student_id, class_id, academic_year_id)
+                VALUES (?, ?, ?)
+                """,
+                (student_id, class_id, row[0]),
+            )
+
+        for blob in embedding_blobs:
+            conn.execute(
+                "INSERT INTO face_embeddings (student_id, embedding) VALUES (?, ?)",
+                (student_id, blob),
+            )
+
+        conn.commit()
+        return student_id
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def replace_student_embeddings(student_id, embeddings):
+    """Replace all face samples atomically, preserving the old set on failure."""
+    embedding_blobs = _prepare_face_embedding_blobs(embeddings)
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        exists = conn.execute(
+            "SELECT 1 FROM students WHERE id = ?",
+            (student_id,),
+        ).fetchone()
+        if exists is None:
+            raise ValueError("Student was not found.")
+
+        conn.execute(
+            "DELETE FROM face_embeddings WHERE student_id = ?",
+            (student_id,),
+        )
+        for blob in embedding_blobs:
+            conn.execute(
+                "INSERT INTO face_embeddings (student_id, embedding) VALUES (?, ?)",
+                (student_id, blob),
+            )
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def update_student(student_id, student_code, name, class_id=None):
     conn = get_connection()
     try:

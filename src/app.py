@@ -66,12 +66,11 @@ try:
     from database import (
         add_academic_year,
         add_class,
-        add_embedding,
         add_major,
         add_student,
+        add_student_with_embeddings,
         assign_student_class,
         delete_class,
-        delete_embeddings,
         delete_major,
         delete_student,
         find_class_by_name,
@@ -94,6 +93,7 @@ try:
         set_setting,
         get_student,
         get_student_class,
+        replace_student_embeddings,
         init_db,
         list_academic_years,
         list_classes,
@@ -113,12 +113,11 @@ except ModuleNotFoundError:
     from .database import (
         add_academic_year,
         add_class,
-        add_embedding,
         add_major,
         add_student,
+        add_student_with_embeddings,
         assign_student_class,
         delete_class,
-        delete_embeddings,
         delete_major,
         delete_student,
         find_class_by_name,
@@ -141,6 +140,7 @@ except ModuleNotFoundError:
         set_setting,
         get_student,
         get_student_class,
+        replace_student_embeddings,
         init_db,
         list_academic_years,
         list_classes,
@@ -5867,13 +5867,12 @@ class MainWindow(QMainWindow):
                 return
 
             try:
-                student_id = add_student(
+                student_id = add_student_with_embeddings(
                     dialog.code_edit.text().strip(),
                     dialog.name_edit.text().strip(),
+                    dialog.embeddings,
                     dialog.class_combo.currentData(),
                 )
-                for embedding in dialog.embeddings:
-                    add_embedding(student_id, embedding)
             except Exception as exc:
                 QMessageBox.critical(
                     self,
@@ -6008,9 +6007,15 @@ class MainWindow(QMainWindow):
             if dialog.exec() != QDialog.Accepted:
                 return
 
-            delete_embeddings(student_id)
-            for embedding in dialog.embeddings:
-                add_embedding(student_id, embedding)
+            try:
+                replace_student_embeddings(student_id, dialog.embeddings)
+            except Exception as exc:
+                QMessageBox.critical(
+                    self,
+                    tr("Enrollment error"),
+                    str(exc),
+                )
+                return
 
             QMessageBox.information(
                 self,
