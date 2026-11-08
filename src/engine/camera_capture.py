@@ -62,7 +62,7 @@ class LatestFrameCapture:
         cap = self._open_camera(self.camera_id, self.target_fps)
 
         try:
-            if self._raw_bayer:
+            if self._raw_bayer and not getattr(cap, "provides_bgr", False):
                 # The deployed ov534 cameras can expose native 8-bit GRBG Bayer.
                 # This cuts USB payload from 16 bits/pixel YUYV to 8 bits/pixel
                 # without changing spatial resolution. V4L2 defines GRBG as an
@@ -129,7 +129,7 @@ class LatestFrameCapture:
 
                 consecutive_failures = 0
 
-                if self._raw_bayer:
+                if self._raw_bayer and not getattr(cap, "provides_bgr", False):
                     # OpenCV/V4L2 may expose the packed Bayer frame as
                     # shape (1, width*height). Normalize that to 2-D before
                     # demosaicing. The output remains the BGR format expected

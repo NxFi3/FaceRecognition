@@ -7,8 +7,13 @@ except ImportError:
     from localization import text as tr
 import logging
 import sys
+import shutil
+import subprocess
+import tempfile
+import time
 from pathlib import Path
 import cv2
+import numpy as np
 
 logger = logging.getLogger(__name__)
 DEFAULT_CAMERA_TARGET_FPS = 60
@@ -23,9 +28,125 @@ def camera_backends():
         return [cv2.CAP_V4L2, cv2.CAP_ANY]
     return [cv2.CAP_ANY]
 
+def _surface_ipu3_camera_names():
+    """Return libcamera camera names for Intel IPU3 systems, if available."""
+    try:
+        node = Path("/sys/class/video4linux/video10/name")
+        if not node.is_file() or not node.read_text(encoding="utf-8").strip().startswith("ipu3-cio2"):
+            return None
+        if not shutil.which("gst-launch-1.0"):
+            return None
+        plugin = subprocess.run(
+            ["gst-inspect-1.0", "libcamerasrc"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=5,
+        )
+        if plugin.returncode != 0:
+            return None
+        return (r"\\_SB_.PCI0.LNK0", r"\\_SB_.PCI0.LNK1")
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+class _LibcameraCapture:
+    """OpenCV-compatible reader for IPU3 cameras through libcamera/GStreamer."""
+    provides_bgr = True
+
+    def __init__(self, camera_name, width, height, fps):
+        self.width = int(width)
+        self.height = int(height)
+        self.fps = int(fps)
+        self._frame_bytes = self.width * self.height * 3
+        pipeline = [
+            "gst-launch-1.0", "-q", "libcamerasrc", f"camera-name={camera_name}",
+            "!", f"video/x-raw,width={self.width},height={self.height},framerate={self.fps}/1",
+            "!", "videoconvert", "!", "video/x-raw,format=BGR",
+            "!", "fdsink", "fd=1", "sync=false",
+        ]
+        self._stderr = tempfile.TemporaryFile()
+        self._process = subprocess.Popen(
+            pipeline, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=self._stderr, bufsize=0,
+        )
+        time.sleep(0.4)
+        if self._process.poll() is not None:
+            self._stderr.seek(0)
+            detail = self._stderr.read().decode("utf-8", errors="replace").strip()
+            self._stderr.close()
+            message = "libcamera could not start the selected IPU3 camera"
+            if detail:
+                message += ": " + " | ".join(detail.splitlines()[-4:])
+            raise RuntimeError(message)
+
+    def isOpened(self):
+        return self._process.poll() is None
+
+    def get(self, prop):
+        if prop == cv2.CAP_PROP_FRAME_WIDTH:
+            return float(self.width)
+        if prop == cv2.CAP_PROP_FRAME_HEIGHT:
+            return float(self.height)
+        if prop == cv2.CAP_PROP_FPS:
+            return float(self.fps)
+        return 0.0
+
+    def set(self, prop, value):
+        # The libcamera pipeline is configured at process start; Bayer controls
+        # are intentionally ignored because this path delivers decoded BGR.
+        return True
+
+    def read(self):
+        if not self.isOpened() or self._process.stdout is None:
+            return False, None
+        data = bytearray(self._frame_bytes)
+        view = memoryview(data)
+        offset = 0
+        while offset < self._frame_bytes:
+            count = self._process.stdout.readinto(view[offset:])
+            if not count:
+                return False, None
+            offset += count
+        frame = np.frombuffer(data, dtype=np.uint8).reshape(
+            (self.height, self.width, 3)
+        ).copy()
+        return True, frame
+
+    def release(self):
+        if self._process.poll() is None:
+            self._process.terminate()
+            try:
+                self._process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+                self._process.wait(timeout=1)
+        if self._process.stdout is not None:
+            self._process.stdout.close()
+        if self._stderr is not None and not self._stderr.closed:
+            self._stderr.close()
+
+
 def open_camera(camera_id, target_fps=DEFAULT_CAMERA_TARGET_FPS, width=DEFAULT_CAMERA_WIDTH, height=DEFAULT_CAMERA_HEIGHT):
     """Open a camera consistently; callers must inspect actual driver settings."""
     camera_id, target_fps, width, height = int(camera_id), int(target_fps), int(width), int(height)
+    ipu3_cameras = _surface_ipu3_camera_names() if sys.platform.startswith("linux") else None
+    if ipu3_cameras:
+        if camera_id < 0 or camera_id >= len(ipu3_cameras):
+            raise RuntimeError(tr("Selected IPU3 camera index is unavailable."))
+        actual_fps = min(max(1, target_fps), 30)
+        camera_name = ipu3_cameras[camera_id]
+        logger.info(
+            "CAMERA_OPEN_LIBCAMERA id=%s name=%s requested=%sx%s fps=%s",
+            camera_id, camera_name, width, height, actual_fps,
+        )
+        cap = _LibcameraCapture(camera_name, width, height, actual_fps)
+        logger.info(
+            "CAMERA_OPEN_OK id=%s backend=libcamera actual=%sx%s fps=%s",
+            camera_id, width, height, actual_fps,
+        )
+        return cap
+
     backends = camera_backends()
     logger.info("CAMERA_OPEN_START id=%s target_fps=%s requested=%sx%s backends=%s", camera_id, target_fps, width, height, backends)
     for backend in backends:
@@ -50,6 +171,12 @@ def open_camera(camera_id, target_fps=DEFAULT_CAMERA_TARGET_FPS, width=DEFAULT_C
 def discover_cameras(target_fps=DEFAULT_CAMERA_TARGET_FPS, requested_width=DEFAULT_CAMERA_WIDTH, requested_height=DEFAULT_CAMERA_HEIGHT, scan_limit=8):
     """Enumerate camera devices and report their current capture capabilities."""
     if sys.platform.startswith("linux"):
+        ipu3_cameras = _surface_ipu3_camera_names()
+        if ipu3_cameras:
+            return [
+                {"id": index, "label": f"Internal camera {index + 1} — Surface Go 2 (libcamera/IPU3)"}
+                for index in range(len(ipu3_cameras))
+            ]
         cameras = []
 
         for path in sorted(
